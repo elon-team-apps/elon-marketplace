@@ -16,12 +16,9 @@ import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
 
-// ─── PocketFi direct initialization ──────────────────────────────────────────
-// Uses VITE_POCKETFI_PUBLIC_KEY (safe to ship in the browser bundle).
-// The secret key is only used server-side in the pocketfi-webhook Edge Function
-// for HMAC signature verification of incoming webhook payloads.
-
-const POCKETFI_INIT_URL = "https://api.pocketfi.ng/v1/transaction/initialize";
+// ─── Payment initialization via /api/pay (Vercel serverless) ─────────────────
+// The browser calls our own /api/pay endpoint which holds the secret key and
+// forwards the request to PocketFi server-to-server — no CORS issues.
 
 async function initializePocketFiPayment(params: {
   amount: number;
@@ -29,56 +26,39 @@ async function initializePocketFiPayment(params: {
   reference: string;
   callbackUrl: string;
 }): Promise<{ checkoutUrl: string } | { error: string }> {
-  const publicKey = import.meta.env.VITE_POCKETFI_PUBLIC_KEY as string | undefined;
-
-  if (!publicKey) {
-    return { error: "VITE_POCKETFI_PUBLIC_KEY is not set. Add it to your .env file and hosting environment variables." };
-  }
-
-  const payload = {
-    amount:       params.amount,        // Naira — PocketFi does not use kobo for init
-    email:        params.email,
-    reference:    params.reference,
-    callback_url: params.callbackUrl,
-  };
-
   let res: Response;
   try {
-    res = await fetch(POCKETFI_INIT_URL, {
+    res = await fetch("/api/pay", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${publicKey}`,
-      },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount:      params.amount,
+        email:       params.email,
+        reference:   params.reference,
+        callbackUrl: params.callbackUrl,
+      }),
     });
   } catch (networkErr) {
-    console.error("[PocketFi] Network error:", networkErr);
-    return { error: "Connection to PocketFi failed. Please check your internet or try again." };
+    console.error("[/api/pay] Network error:", networkErr);
+    return { error: "Could not reach the payment server. Please check your internet and try again." };
   }
 
   let json: Record<string, unknown>;
   try {
     json = await res.json();
   } catch {
-    return { error: `Connection to PocketFi failed. Please check your internet or try again.` };
+    return { error: `Payment server returned an unexpected response (HTTP ${res.status}).` };
   }
-
 
   if (!res.ok) {
-    const msg = (json?.message ?? json?.error ?? `HTTP ${res.status}`) as string;
-    return { error: `PocketFi error: ${msg}` };
+    const msg = (json?.error ?? `HTTP ${res.status}`) as string;
+    return { error: msg };
   }
 
-  // Try every known field name PocketFi might use for the checkout URL.
-  const data = json?.data as Record<string, unknown> | undefined;
-  const checkoutUrl =
-    (data?.authorization_url ?? data?.checkout_url ?? data?.payment_url ?? data?.url ??
-     json?.authorization_url ?? json?.checkout_url) as string | undefined;
-
+  const checkoutUrl = json?.checkoutUrl as string | undefined;
   if (!checkoutUrl) {
-    console.error("[PocketFi] No checkout URL in response:", json);
-    return { error: "PocketFi did not return a payment URL. Check the browser console for the raw response." };
+    console.error("[/api/pay] No checkoutUrl in response:", json);
+    return { error: "Payment server did not return a checkout URL." };
   }
 
   return { checkoutUrl };
@@ -195,10 +175,8 @@ export default function WalletPage() {
       return;
     }
 
-    // 3. Call the Edge Function to get the PocketFi checkout URL
+    // 3. Call /api/pay (Vercel serverless) — it forwards to PocketFi server-to-server
     const callbackUrl = `${window.location.origin}/dashboard/wallet?ref=${reference}`;
-    // window.location.origin resolves dynamically (e.g. https://elonmarketplace.com.ng)
-    // so this works on any domain without hardcoding.
     const result = await initializePocketFiPayment({
       amount:      naira,
       email:       currentUser.email ?? "",

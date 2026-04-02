@@ -310,27 +310,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Fetch live products from Supabase ─────────────────────────────────────
   useEffect(() => {
     if (!supabase) return;
+
+    const applyRows = (data: Record<string, unknown>[]) => {
+      setProducts(
+        data.map((row) => ({
+          id:          String(row.id ?? ""),
+          title:       String(row.title ?? ""),
+          category:    String(row.category ?? ""),
+          price:       Number(row.price ?? 0),
+          description: String(row.description ?? ""),
+          stock:       Number(row.stock ?? 0),
+          logs:        Array.isArray(row.logs) ? (row.logs as string[]) : [],
+          // created_at may be absent if the column was not yet added to the table —
+          // fall back to empty string so the app never crashes on a missing column.
+          createdAt:   String(row.created_at ?? ""),
+          image_url:   String(row.image_url ?? ""),
+          logo_url:    String(row.logo_url ?? ""),
+        }))
+      );
+    };
+
     supabase
       .from("products")
       .select("*")
       .order("created_at", { ascending: false })
       .then(({ data, error }) => {
-        if (error) { console.warn("[AppContext] Products fetch error:", error.message); return; }
-        if (!data || data.length === 0) return;
-        setProducts(
-          data.map((row) => ({
-            id:          row.id,
-            title:       row.title ?? "",
-            category:    row.category ?? "",
-            price:       row.price ?? 0,
-            description: row.description ?? "",
-            stock:       row.stock ?? 0,
-            logs:        row.logs ?? [],
-            createdAt:   row.created_at ?? "",
-            image_url:   row.image_url ?? "",
-            logo_url:    row.logo_url ?? "",
-          }))
-        );
+        if (!error && data && data.length > 0) { applyRows(data); return; }
+
+        if (error) {
+          console.warn("[AppContext] Products fetch (ordered) error:", error.message, "— retrying without order.");
+        }
+
+        // Retry without ordering — handles tables where created_at doesn't exist yet
+        supabase!
+          .from("products")
+          .select("*")
+          .then(({ data: d2, error: e2 }) => {
+            if (e2) { console.warn("[AppContext] Products fetch error:", e2.message); return; }
+            if (d2 && d2.length > 0) applyRows(d2);
+          });
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
