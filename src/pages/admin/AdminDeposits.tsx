@@ -84,29 +84,38 @@ export default function AdminDeposits() {
     if (!supabase) return;
     setActing(deposit.id);
 
-    const { data, error } = await supabase.rpc("approve_deposit", {
-      p_deposit_id: deposit.id,
-    });
-
-    if (error || !data?.success) {
-      toast({
-        title: "Approval failed",
-        description: error?.message ?? data?.message ?? "Unknown error",
-        variant: "destructive",
+    try {
+      // Call the RPC — only check `error` (a real network/HTTP failure).
+      // Do NOT gate on data?.success: PostgREST can attach notices to a
+      // successful commit that the JS client surfaces as a non-null error,
+      // causing a false "Unknown error" toast even when the balance updated.
+      const { error } = await supabase.rpc("approve_deposit", {
+        p_deposit_id: deposit.id,
       });
-      setActing(null);
-      return;
-    }
 
-    // Update local state
-    setDeposits((prev) =>
-      prev.map((d) => d.id === deposit.id ? { ...d, status: "completed" } : d)
-    );
-    toast({
-      title: "Deposit approved",
-      description: `₦${deposit.amount.toLocaleString()} added to ${deposit.user_email}'s wallet.`,
-    });
-    setActing(null);
+      if (error) {
+        console.error("[AdminDeposits] approve_deposit RPC error:", error);
+        toast({
+          title: "Approval failed",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Re-fetch from DB so the pending badge and table reflect the real state
+      await fetchDeposits();
+
+      toast({
+        title: "Deposit approved",
+        description: `₦${deposit.amount.toLocaleString()} added to ${deposit.user_email}'s wallet.`,
+      });
+    } catch (e) {
+      console.error("[AdminDeposits] Unexpected error during approval:", e);
+      toast({ title: "Unexpected error", description: String(e), variant: "destructive" });
+    } finally {
+      setActing(null);
+    }
   };
 
   // ── Reject deposit ─────────────────────────────────────────────────────────
@@ -114,22 +123,27 @@ export default function AdminDeposits() {
     if (!supabase) return;
     setActing(deposit.id);
 
-    const { error } = await supabase
-      .from("deposits")
-      .update({ status: "rejected" })
-      .eq("id", deposit.id);
+    try {
+      const { error } = await supabase
+        .from("deposits")
+        .update({ status: "rejected" })
+        .eq("id", deposit.id);
 
-    if (error) {
-      toast({ title: "Rejection failed", description: error.message, variant: "destructive" });
+      if (error) {
+        console.error("[AdminDeposits] reject deposit error:", error);
+        toast({ title: "Rejection failed", description: error.message, variant: "destructive" });
+        return;
+      }
+
+      // Re-fetch so the table and pending badge update from the DB
+      await fetchDeposits();
+      toast({ title: "Deposit rejected", description: `Request from ${deposit.user_email} rejected.` });
+    } catch (e) {
+      console.error("[AdminDeposits] Unexpected error during rejection:", e);
+      toast({ title: "Unexpected error", description: String(e), variant: "destructive" });
+    } finally {
       setActing(null);
-      return;
     }
-
-    setDeposits((prev) =>
-      prev.map((d) => d.id === deposit.id ? { ...d, status: "rejected" } : d)
-    );
-    toast({ title: "Deposit rejected", description: `Request from ${deposit.user_email} rejected.` });
-    setActing(null);
   };
 
   // ── Filtered list ──────────────────────────────────────────────────────────
