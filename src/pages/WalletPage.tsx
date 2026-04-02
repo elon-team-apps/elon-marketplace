@@ -67,26 +67,57 @@ export default function WalletPage() {
 
     setLoading(true);
 
-    // 1. Upload screenshot to Supabase Storage
-    const ext      = file.name.split(".").pop() ?? "jpg";
+    // 1. Upload screenshot to Supabase Storage ─────────────────────────────
+    const BUCKET   = "deposit-screenshots";
+    const ext      = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
     const filePath = `${currentUser.id}/${Date.now()}.${ext}`;
 
+    console.log("[WalletPage] Uploading screenshot →", BUCKET, filePath, "| size:", file.size, "| type:", file.type);
+
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("deposit-screenshots")
+      .from(BUCKET)
       .upload(filePath, file, { upsert: false, contentType: file.type });
 
+    let publicUrl: string | null = null;
+
     if (uploadError) {
-      console.error("[WalletPage] Screenshot upload failed:", uploadError.message);
-      toast({ title: "Upload failed", description: uploadError.message, variant: "destructive" });
+      // Log the full error object so we can see the exact Supabase error code
+      console.error("[WalletPage] Storage upload failed — full error:", uploadError);
+      console.error("[WalletPage] error.message:", uploadError.message);
+      console.error("[WalletPage] Bucket attempted:", BUCKET, "| Path:", filePath);
+
+      const isNotFound = uploadError.message?.toLowerCase().includes("not found") ||
+                         uploadError.message?.toLowerCase().includes("bucket");
+
+      if (isNotFound) {
+        // Bucket hasn't been created yet — give an actionable error
+        toast({
+          title: "Storage bucket missing",
+          description: `Create a public bucket named "${BUCKET}" in Supabase → Storage, then retry.`,
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      // For other storage errors, still block submission — admin needs the proof
+      toast({
+        title: "Upload failed",
+        description: `${uploadError.message} — check the browser console for details.`,
+        variant: "destructive",
+      });
       setLoading(false);
       return;
     }
 
-    const { data: { publicUrl } } = supabase.storage
-      .from("deposit-screenshots")
-      .getPublicUrl(uploadData.path);
+    // Get the public URL for the uploaded file
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(uploadData.path);
+    publicUrl = urlData.publicUrl;
+    console.log("[WalletPage] Upload success → public URL:", publicUrl);
 
-    // 2. Insert pending deposit record
+    // 2. Insert pending deposit record ──────────────────────────────────────
+    console.log("[WalletPage] Inserting deposit — user:", currentUser.id, "amount:", naira);
+
     const { error: insertError } = await supabase.from("deposits").insert({
       user_id:        currentUser.id,
       amount:         naira,
@@ -96,12 +127,19 @@ export default function WalletPage() {
     });
 
     if (insertError) {
-      console.error("[WalletPage] Deposit insert failed:", insertError.message);
-      toast({ title: "Submission failed", description: insertError.message, variant: "destructive" });
+      console.error("[WalletPage] Deposit insert failed — full error:", insertError);
+      console.error("[WalletPage] insert error.message:", insertError.message);
+      console.error("[WalletPage] insert error.code:", insertError.code);
+      toast({
+        title: "Submission failed",
+        description: `${insertError.message} (${insertError.code}) — check the browser console.`,
+        variant: "destructive",
+      });
       setLoading(false);
       return;
     }
 
+    console.log("[WalletPage] Deposit submitted successfully.");
     setLoading(false);
     setSubmitted(true);
     setAmount("");

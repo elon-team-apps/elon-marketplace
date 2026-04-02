@@ -216,8 +216,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const syncProfile = useCallback(async (authUser: { id: string; email?: string }) => {
     const fallbackName = authUser.email?.split("@")[0] ?? "User";
+    console.log("[AppContext] syncProfile start — uid:", authUser.id, "email:", authUser.email);
 
     if (!supabase) {
+      console.warn("[AppContext] Supabase not configured — running in offline mode.");
       setCurrentUser({ ...loadingUser, id: authUser.id, email: authUser.email ?? "", name: fallbackName });
       setProfileLoaded(true);
       return;
@@ -231,7 +233,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let lastError: { message: string; code: string } | null = null;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
-      if (attempt > 1) await new Promise<void>((r) => setTimeout(r, attempt * 500));
+      if (attempt > 1) await new Promise<void>((r) => setTimeout(r, attempt * 800));
 
       const { data, error } = await supabase
         .from("profiles")
@@ -239,8 +241,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .eq("id", authUser.id)
         .single();
 
-      if (data) { profile = data; break; }
+      if (data) {
+        profile = data;
+        console.log("[AppContext] Profile fetched on attempt", attempt, "→ role:", data.role, "balance:", data.wallet_balance);
+        break;
+      }
+
       lastError = error as typeof lastError;
+      console.warn(`[AppContext] Profile fetch attempt ${attempt} failed:`, error?.code, error?.message);
     }
 
     if (profile) {
@@ -261,35 +269,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     // ── All retries failed ─────────────────────────────────────────────────
+    console.error("[AppContext] All profile fetch retries failed. Last error:", lastError);
+
     // Never downgrade an already-loaded admin session (e.g. from a background re-sync).
     const existing = currentUserRef.current;
     if (existing.id === authUser.id && existing.role !== "") {
+      console.log("[AppContext] Keeping existing loaded profile to avoid downgrade.");
       setProfileLoaded(true);
       return;
     }
 
-    // Let the user into the dashboard with auth data only — do NOT attempt
-    // INSERT here; the SQL schema only grants SELECT+UPDATE to authenticated,
-    // INSERT is reserved for the handle_new_user DB trigger.
+    // Profile row missing (new user before trigger fires?) — put them in a
+    // recoverable state with their auth data. The ↻ button can retry.
     setCurrentUser({ ...loadingUser, id: authUser.id, email: authUser.email ?? "", name: fallbackName });
     setProfileLoaded(true);
     toast.error("Profile sync failed", {
-      description: `(${lastError?.code ?? "unknown"}) ${lastError?.message ?? ""}. Click ↻ to retry.`,
+      description: `(${lastError?.code ?? "unknown"}) ${lastError?.message ?? "No details"}. Click ↻ to retry.`,
       duration: 8000,
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auth subscription ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!supabase) { setProfileLoaded(true); return; }
+    if (!supabase) {
+      console.warn("[AppContext] Supabase not configured — skipping auth subscription.");
+      setProfileLoaded(true);
+      return;
+    }
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("[AppContext] onAuthStateChange:", event, "— uid:", session?.user?.id ?? "none");
+
       // TOKEN_REFRESHED doesn't change role/balance — skip to avoid wiping state.
       if (event === "TOKEN_REFRESHED") return;
 
       if (session?.user) {
         syncProfile(session.user);
       } else {
+        // No session = signed out or expired. Reset to loadingUser and mark loaded
+        // so DashboardLayout's auth guard can redirect to /auth immediately.
+        console.log("[AppContext] No session — clearing user state.");
         setCurrentUser(loadingUser);
         setIsAdminView(false);
         setProfileLoaded(true);
@@ -300,8 +319,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // is restored, delivering a null session. getSession() always reads the real
     // persisted session. Two concurrent calls are fine — both setCurrentUser with
     // the same data.
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.user) syncProfile(data.session.user);
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) console.error("[AppContext] getSession error:", error.message);
+      if (data.session?.user) {
+        syncProfile(data.session.user);
+      } else {
+        // Explicitly no session on mount — ensure profileLoaded so the guard fires
+        console.log("[AppContext] getSession: no active session on mount.");
+        setProfileLoaded(true);
+      }
     });
 
     return () => { listener.subscription.unsubscribe(); };

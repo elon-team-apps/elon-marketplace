@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { useState } from "react";
 import logo from "@/assets/logo-transparent.png";
 import {
@@ -94,7 +94,7 @@ const DashboardLayout = () => {
     setRefreshing(false);
   };
 
-  // Loading gate
+  // Loading gate — wait for Supabase auth to resolve
   if (!profileLoaded) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
@@ -102,6 +102,12 @@ const DashboardLayout = () => {
         <p className="text-sm text-muted-foreground font-medium">Loading your account…</p>
       </div>
     );
+  }
+
+  // Auth guard — if profile loaded but no user ID, session is gone → redirect to auth.
+  // This eliminates "ghost sessions" after clearing cookies or token expiry.
+  if (!currentUser.id) {
+    return <Navigate to="/auth" replace />;
   }
 
   return (
