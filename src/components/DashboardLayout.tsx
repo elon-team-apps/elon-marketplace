@@ -38,10 +38,11 @@ const userNav = [
 ];
 
 const adminNav = [
-  { label: "Analytics",          icon: BarChart3,     path: "/dashboard/admin",          exact: true  },
-  { label: "User Management",    icon: Users,         path: "/dashboard/admin/users",    exact: false },
-  { label: "Inventory / Upload", icon: Upload,        path: "/dashboard/admin/products", exact: false },
-  { label: "Order Audit",        icon: ClipboardList, path: "/dashboard/admin/orders",   exact: false },
+  { label: "Analytics",          icon: BarChart3,     path: "/dashboard/admin",            exact: true  },
+  { label: "User Management",    icon: Users,         path: "/dashboard/admin/users",      exact: false },
+  { label: "Deposit Requests",   icon: Wallet,        path: "/dashboard/admin/deposits",   exact: false },
+  { label: "Inventory / Upload", icon: Upload,        path: "/dashboard/admin/products",   exact: false },
+  { label: "Order Audit",        icon: ClipboardList, path: "/dashboard/admin/orders",     exact: false },
 ];
 
 // ── NavItem helper ─────────────────────────────────────────────────────────
