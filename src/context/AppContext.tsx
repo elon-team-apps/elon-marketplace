@@ -51,7 +51,7 @@ interface AppContextType {
   deleteProduct: (id: string) => void;
   purchaseProduct: (productId: string) => Promise<{ success: boolean; deliveredLog?: string; message: string }>;
   adjustWallet: (userId: string, amount: number, type: "add" | "deduct") => { success: boolean; message: string };
-  topUpWallet: (amount: number) => void;
+  topUpWallet: (amount: number) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -462,10 +462,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: true, message: `₦${amount.toLocaleString()} ${type === "add" ? "credited" : "debited"} successfully.` };
   };
 
-  const topUpWallet = (amount: number) => {
-    const updated = { ...currentUser, wallet_balance: (currentUser?.wallet_balance ?? 0) + amount };
-    setCurrentUser(updated);
-    setUsers((prev) => prev.map((u) => (u.id === currentUser?.id ? updated : u)));
+  // topUpWallet: called by WalletPage once the Supabase `transactions` row is
+  // confirmed as "completed". We re-fetch the profile from Supabase so the
+  // balance shown is the exact DB value — not a local estimate.
+  // The `amount` param is kept for the success toast shown in WalletPage.
+  const topUpWallet = async (_amount: number) => {
+    await refreshProfile();
   };
 
   return (

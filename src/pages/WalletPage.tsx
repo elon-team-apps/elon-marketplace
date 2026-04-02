@@ -124,7 +124,7 @@ export default function WalletPage() {
         .single();
 
       if (!error && data?.status === "completed") {
-        topUpWallet(data.amount);
+        await topUpWallet(data.amount); // re-fetches real balance from Supabase
         setReturnStatus("success");
         toast({
           title: "Wallet funded!",
