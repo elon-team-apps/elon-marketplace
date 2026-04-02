@@ -1,57 +1,73 @@
 /**
- * /api/pay  — Vercel Serverless Function (Node.js runtime)
+ * /api/pay  — Vercel Node.js Serverless Function
  *
- * Proxies PocketFi payment initialization server-to-server so the browser
- * never hits api.pocketfi.ng directly (which blocks cross-origin requests).
+ * Proxies PocketFi payment initialization server-to-server, bypassing
+ * the browser CORS restriction on api.pocketfi.ng.
  *
- * Required Vercel Environment Variable (NOT prefixed with VITE_):
- *   POCKETFI_SECRET_KEY   — your PocketFi secret key
+ * Required Vercel Environment Variable (server-side only, no VITE_ prefix):
+ *   POCKETFI_SECRET_KEY
  *
- * Request  (POST, JSON):  { amount, email, reference, callbackUrl }
- * Response (JSON):        { checkoutUrl } | { error }
+ * POST body (JSON):  { amount: number, email: string, reference: string, callbackUrl: string }
+ * Response (JSON):   { checkoutUrl: string } | { error: string }
  */
 
-const POCKETFI_INIT_URL = "https://api.pocketfi.ng/v1/transaction/initialize";
-
-export default async function handler(
-  req: { method: string; body: Record<string, unknown> },
-  res: {
-    status: (code: number) => {
-      json: (body: Record<string, unknown>) => void;
-    };
-  }
-) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default async function handler(req: any, res: any) {
+  // ── Method guard ────────────────────────────────────────────────────────────
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
+  // ── CORS headers (allow same-origin + elonmarketplace.com.ng) ───────────────
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
+  // ── Secret key ──────────────────────────────────────────────────────────────
   const secretKey = process.env.POCKETFI_SECRET_KEY;
   if (!secretKey) {
-    console.error("[/api/pay] POCKETFI_SECRET_KEY is not set in environment variables.");
-    return res.status(500).json({
-      error: "Payment service is not configured. Contact the site owner.",
-    });
+    console.error("[/api/pay] POCKETFI_SECRET_KEY is not set.");
+    res.status(500).json({ error: "Payment service is not configured." });
+    return;
   }
 
-  const { amount, email, reference, callbackUrl } = req.body ?? {};
+  // ── Parse body ──────────────────────────────────────────────────────────────
+  const body = req.body ?? {};
+  const { amount, email, reference, callbackUrl } = body;
 
   if (!amount || !email || !reference || !callbackUrl) {
-    return res.status(400).json({
+    res.status(400).json({
       error: "Missing required fields: amount, email, reference, callbackUrl.",
     });
+    return;
   }
 
-  // ── Call PocketFi server-to-server (no CORS restriction here) ──────────────
+  // amount must be a plain integer (Naira) — PocketFi rejects floats / strings
+  const amountInt = Math.floor(Number(amount));
+  if (!Number.isFinite(amountInt) || amountInt < 1) {
+    res.status(400).json({ error: "amount must be a positive integer (Naira)." });
+    return;
+  }
+
+  // ── Call PocketFi server-to-server ──────────────────────────────────────────
+  const POCKETFI_URL = "https://api.pocketfi.ng/v1/transaction/initialize";
+
   let pocketRes: Response;
   try {
-    pocketRes = await fetch(POCKETFI_INIT_URL, {
+    pocketRes = await fetch(POCKETFI_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${secretKey}`,
       },
       body: JSON.stringify({
-        amount:       Number(amount),
+        amount:       amountInt,
         email:        String(email),
         reference:    String(reference),
         callback_url: String(callbackUrl),
@@ -59,42 +75,51 @@ export default async function handler(
     });
   } catch (err) {
     console.error("[/api/pay] Network error reaching PocketFi:", err);
-    return res.status(502).json({ error: "Network error reaching PocketFi." });
+    res.status(502).json({ error: "Network error reaching PocketFi." });
+    return;
   }
 
-  let json: Record<string, unknown>;
+  // ── Parse PocketFi response ─────────────────────────────────────────────────
+  let pocketJson: Record<string, unknown>;
   try {
-    json = await pocketRes.json();
+    pocketJson = await pocketRes.json();
   } catch {
-    return res.status(502).json({
-      error: `PocketFi returned a non-JSON response (HTTP ${pocketRes.status}).`,
+    console.error("[/api/pay] PocketFi returned non-JSON, status:", pocketRes.status);
+    res.status(502).json({
+      error: `PocketFi returned an unexpected response (HTTP ${pocketRes.status}).`,
     });
+    return;
   }
 
-  console.log(`[/api/pay] PocketFi responded — status ${pocketRes.status}:`, json);
+  console.log("[/api/pay] PocketFi status:", pocketRes.status, "| body:", pocketJson);
 
   if (!pocketRes.ok) {
-    const msg = String(json?.message ?? json?.error ?? `HTTP ${pocketRes.status}`);
-    return res.status(502).json({ error: `PocketFi error: ${msg}` });
+    const msg = String(
+      pocketJson?.message ?? pocketJson?.error ?? `HTTP ${pocketRes.status}`
+    );
+    res.status(502).json({ error: `PocketFi error: ${msg}` });
+    return;
   }
 
-  // Try every known field name PocketFi might use for the checkout URL
-  const data = json?.data as Record<string, unknown> | undefined;
+  // ── Extract checkout URL ────────────────────────────────────────────────────
+  // PocketFi may nest it under .data or at the root — try all known field names
+  const data = pocketJson?.data as Record<string, unknown> | undefined;
   const checkoutUrl = (
     data?.authorization_url ??
     data?.checkout_url ??
     data?.payment_url ??
     data?.url ??
-    json?.authorization_url ??
-    json?.checkout_url
+    pocketJson?.authorization_url ??
+    pocketJson?.checkout_url
   ) as string | undefined;
 
   if (!checkoutUrl) {
-    console.error("[/api/pay] No checkout URL in PocketFi response:", json);
-    return res.status(502).json({
+    console.error("[/api/pay] No checkout URL in PocketFi response:", pocketJson);
+    res.status(502).json({
       error: "PocketFi did not return a checkout URL. Check Vercel function logs.",
     });
+    return;
   }
 
-  return res.status(200).json({ checkoutUrl });
+  res.status(200).json({ checkoutUrl });
 }
