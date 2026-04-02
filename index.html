@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Elon Marketplace — Buy Social Media Accounts Instantly</title>
+    <meta name="description" content="Elon Marketplace — Buy aged Facebook, Instagram, LinkedIn and more accounts instantly with NGN wallet funding." />
+    <meta name="author" content="Elon Marketplace" />
+
+    <meta property="og:title" content="Elon Marketplace" />
+    <meta property="og:description" content="Buy aged social media accounts instantly. Secure, fast, Nigerian Naira payments." />
+    <meta property="og:type" content="website" />
+
+    <!-- Anti-FOUC: apply saved theme before any paint -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('elon_theme') || 'dark';
+        var root = document.documentElement;
+        if (t === 'dark') {
+          root.classList.add('dark');
+          root.style.backgroundColor = '#05080a';
+        } else {
+          root.classList.remove('dark');
+          root.style.backgroundColor = '#f8fafc';
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root" style="min-height:100vh"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

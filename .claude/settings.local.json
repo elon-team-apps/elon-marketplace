@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(tsx?|json\\)$\")",
+      "Bash(grep -r \"admin\\\\|payment\\\\|stripe\\\\|paypal\\\\|database\" /c/Users/Admin/Downloads/elon-marketplace-hub-main/src --include=*.tsx --include=*.ts -l)",
+      "Bash(npm install:*)",
+      "Bash(find c:UsersAdminDownloadselon-marketplace-hub-main -type f -name *supabase* -o -name *env* -o -name *migration*)",
+      "Read(//c/Users/Admin/Downloads/**)",
+      "Bash(grep -r \"supabase\\\\|lulilogs\" /c/Users/Admin/Downloads/Primelog-main --include=*.ts --include=*.tsx --include=*.json --include=*.md)",
+      "Bash(grep -r \"supabase\\\\|lulilogs\" /c/Users/Admin/Downloads/elon-marketplace --include=*.ts --include=*.tsx --include=*.json --include=*.md)",
+      "Bash(npm run:*)",
+      "Bash(sed -n '55,90p' src/context/AppContext.tsx)",
+      "Bash(sed -n '185,215p' src/context/AppContext.tsx)",
+      "Bash(grep -rn \"growthprofesors\\\\|godwindavid\\\\|@gmail\\\\|hardcode\\\\|=== ''''admin''''\\\\|=== \"\"admin\"\"\\\\|role.*admin\\\\|admin.*role\" src/)",
+      "Bash(xargs grep:*)",
+      "Bash(find supabase:*)",
+      "Bash(npx vite:*)"
+    ]
+  }
+}

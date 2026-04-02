@@ -1,0 +1,246 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── Light mode (default) ─────────────────────────────────────────────────
+     Slate-50 canvas, white cards, slate-200 borders.                        */
+  :root {
+    /* Canvas */
+    --background: 210 40% 98%;       /* #f8fafc slate-50                   */
+    --foreground: 222 47% 11%;       /* slate-900 dark text                 */
+
+    /* Card / surfaces */
+    --card: 0 0% 100%;               /* white                               */
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Primary — navy blue (matches reference site) */
+    --primary: 226 72% 24%;          /* #112070 deep navy                   */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary — subtle lifted surface                                     */
+    --secondary: 210 40% 96%;        /* slate-100                           */
+    --secondary-foreground: 222 47% 11%;
+
+    /* Muted                                                                 */
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%; /* slate-500                           */
+
+    /* Accent — navy blue                                                    */
+    --accent: 226 72% 24%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive                                                           */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders / inputs                                                      */
+    --border: 214 32% 91%;           /* slate-200                           */
+    --input: 214 32% 91%;
+    --ring: 226 72% 24%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar                                                               */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 226 72% 24%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 226 72% 24%;
+
+    /* Semantic extras                                                       */
+    --navy: 226 72% 18%;
+    --navy-light: 226 55% 28%;
+    --success: 152 60% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --info: 210 100% 50%;
+
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ── Dark mode ────────────────────────────────────────────────────────────
+     Applied when <html class="dark"> is present.                            */
+  .dark {
+    --background: 216 33% 3%;        /* #05080a deep charcoal              */
+    --foreground: 0 0% 93%;
+
+    --card: 220 28% 8%;              /* #0e1420 glass card base            */
+    --card-foreground: 0 0% 93%;
+
+    --popover: 220 28% 9%;
+    --popover-foreground: 0 0% 93%;
+
+    --primary: 152 60% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 25% 13%;
+    --secondary-foreground: 0 0% 88%;
+
+    --muted: 220 22% 14%;
+    --muted-foreground: 220 12% 58%;
+
+    --accent: 152 60% 42%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 220 20% 16%;
+    --input: 220 20% 16%;
+    --ring: 152 60% 50%;
+
+    --sidebar-background: 220 30% 5%;
+    --sidebar-foreground: 220 14% 88%;
+    --sidebar-primary: 152 60% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 25% 12%;
+    --sidebar-accent-foreground: 220 14% 88%;
+    --sidebar-border: 220 20% 12%;
+    --sidebar-ring: 152 60% 50%;
+
+    --success: 152 60% 42%;
+    --warning: 38 92% 50%;
+    --info: 210 100% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body, #root {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    min-height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', 'Space Grotesk', system-ui, sans-serif;
+    color: hsl(var(--foreground));
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--info)));
+  }
+
+  /* ── Glassmorphism nav bar ── */
+  .glass-nav {
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgb(226, 232, 240); /* slate-200 */
+  }
+  .dark .glass-nav {
+    background: rgba(5, 8, 15, 0.80);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* ── Glassmorphism card surface ── */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgb(226, 232, 240); /* slate-200 */
+    border-radius: var(--radius);
+  }
+  .dark .glass-card {
+    background: rgba(14, 20, 36, 0.70);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  /* ── Sidebar glass surface ── */
+  .glass-sidebar {
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid rgb(226, 232, 240); /* slate-200 */
+  }
+  .dark .glass-sidebar {
+    background: rgba(8, 11, 20, 0.92);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* ── Card hover lift ── */
+  .card-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* ── Landing sections ── */
+  .section-dark {
+    background: #080c14;
+  }
+  .section-dark-2 {
+    background: #0c1120;
+  }
+
+  .bg-navy {
+    background-color: hsl(var(--navy));
+  }
+  .bg-navy-light {
+    background-color: hsl(var(--navy-light));
+  }
+  .text-navy {
+    color: hsl(var(--navy));
+  }
+  .bg-success {
+    background-color: hsl(var(--success));
+  }
+  .text-success {
+    color: hsl(var(--success));
+  }
+}
+
+/* Keyframe animations */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.6s ease both;
+}
+.animate-fade-up-1 { animation-delay: 0.1s; }
+.animate-fade-up-2 { animation-delay: 0.2s; }
+.animate-fade-up-3 { animation-delay: 0.3s; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.5s ease both;
+}
+
+/* Floating icon animation for landing page hero */
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33%       { transform: translateY(-10px) rotate(1deg); }
+  66%       { transform: translateY(-5px) rotate(-1deg); }
+}
+.animate-float   { animation: float 5s ease-in-out infinite; }
+.float-delay-1   { animation-delay: 0.6s; }
+.float-delay-2   { animation-delay: 1.2s; }
+.float-delay-3   { animation-delay: 1.8s; }
+.float-delay-4   { animation-delay: 2.4s; }
+.float-delay-5   { animation-delay: 3.0s; }
+.float-delay-6   { animation-delay: 3.6s; }
