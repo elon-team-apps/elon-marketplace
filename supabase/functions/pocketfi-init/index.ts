@@ -23,6 +23,31 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** Extra URL shapes when POCKETFI_INIT_URL is close but not exact (common 404 fixes). */
+function expandPocketFiUrlVariants(url: string): string[] {
+  const u = url.trim();
+  const out = new Set<string>();
+  if (!u) return [];
+  out.add(u);
+  if (!u.endsWith("/")) out.add(u + "/");
+  else out.add(u.replace(/\/+$/, ""));
+
+  const addSwaps = (s: string) => {
+    const pairs: [string, string][] = [
+      ["/transaction/", "/transactions/"],
+      ["/transactions/", "/transaction/"],
+      ["/payment/", "/payments/"],
+      ["/payments/", "/payment/"],
+    ];
+    for (const [a, b] of pairs) {
+      if (s.includes(a)) out.add(s.split(a).join(b));
+    }
+  };
+
+  for (const x of [...out]) addSwaps(x);
+  return [...out];
+}
+
 function extractCheckoutUrl(j: Record<string, unknown>): string | undefined {
   const data = (j?.data ?? {}) as Record<string, unknown>;
   return (
@@ -111,7 +136,6 @@ Deno.serve(async (req: Request) => {
 
     const initUrlOverride = Deno.env.get("POCKETFI_INIT_URL")?.trim();
 
-    // When merchant sets POCKETFI_INIT_URL, ONLY hit that URL (no long fallback list).
     const defaultEndpoints = [
       "https://api.pocketfi.ng/v1/transaction/initialize",
       "https://api.pocketfi.ng/v1/transactions/initialize",
@@ -126,12 +150,17 @@ Deno.serve(async (req: Request) => {
       "https://pocketfi.ng/api/v1/transactions/initialize",
     ];
 
-    const candidateEndpoints = initUrlOverride
-      ? [initUrlOverride]
-      : [...new Set(defaultEndpoints)];
+    // Try expanded POCKETFI_INIT_URL first (slash + transaction/transactions variants), then fallbacks.
+    const fromSecret = initUrlOverride ? expandPocketFiUrlVariants(initUrlOverride) : [];
+    const candidateEndpoints = [...new Set([...fromSecret, ...defaultEndpoints])];
 
     if (initUrlOverride) {
-      console.log("[pocketfi-init] Using only POCKETFI_INIT_URL:", initUrlOverride);
+      console.log(
+        "[pocketfi-init] POCKETFI_INIT_URL expanded to",
+        fromSecret.length,
+        "variants; total endpoints to try:",
+        candidateEndpoints.length,
+      );
     }
 
     const candidatePayloads = [
@@ -174,7 +203,6 @@ Deno.serve(async (req: Request) => {
     let lastNetworkError = "";
     let lastNon404Error = "";
     let saw404Only = true;
-    let saw404OnOverride = false;
 
     for (const endpoint of candidateEndpoints) {
       for (const bodyCandidate of candidatePayloads) {
@@ -189,7 +217,6 @@ Deno.serve(async (req: Request) => {
             console.log(`[pocketfi-init] ${endpoint} [${name}] -> ${res.status}:`, txt.slice(0, 800));
 
             if (res.status === 404) {
-              if (initUrlOverride && endpoint === initUrlOverride) saw404OnOverride = true;
               continue;
             }
             saw404Only = false;
@@ -239,21 +266,15 @@ Deno.serve(async (req: Request) => {
       return json({ error: `Network error reaching PocketFi: ${lastNetworkError}` }, 502);
     }
 
-    if (initUrlOverride && saw404OnOverride && saw404Only) {
-      return json({
-        error:
-          "POCKETFI_INIT_URL returned 404 (not found). In Supabase → Edge Functions → Secrets, " +
-            "paste the exact initialize POST URL from PocketFi (copy from their email or dashboard). " +
-            "Redeploy after changing secrets: npx supabase functions deploy pocketfi-init",
-        hint: `Configured host/path: ${initUrlOverride.replace(/\/[^/]*$/, "/…")}`,
-      }, 502);
-    }
-
     if (saw404Only) {
       return json({
         error:
-          "PocketFi returned 404 for every guessed route. Set secret POCKETFI_INIT_URL to the full POST URL " +
-          "from PocketFi, then redeploy this function.",
+          "PocketFi returned 404 for every endpoint we tried (including path variants of POCKETFI_INIT_URL and built-in fallbacks). " +
+            "Confirm the live POST URL with PocketFi support (support@pocketfi.ng) — the path may differ from examples. " +
+            "Update POCKETFI_INIT_URL, then: npx supabase functions deploy pocketfi-init",
+        hint: initUrlOverride
+          ? `Your secret starts with: ${initUrlOverride.slice(0, 48)}…`
+          : undefined,
       }, 502);
     }
 

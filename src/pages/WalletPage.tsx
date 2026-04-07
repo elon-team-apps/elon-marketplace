@@ -285,7 +285,8 @@ export default function WalletPage() {
       }
       localStorage.setItem(PENDING_REF_KEY, reference);
 
-      // Payment handover: same-tab redirect without adding wallet to history stack.
+      // Handover: `replace` navigates to checkout without pushing a history entry, so Back
+      // from PocketFi returns to the page the user was on before Wallet (not a broken wallet step).
       const handoverUrl = checkoutUrl.trim();
       window.location.replace(handoverUrl);
     } catch (err) {

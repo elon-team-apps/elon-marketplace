@@ -12,12 +12,15 @@ const BTN_NAVY = "#0f172a";
 /** Official Facebook blue (SimpleIcons) — FB Dating + Facebook */
 const FB_LOGO_SIMPLE = "https://cdn.simpleicons.org/facebook/1877f2";
 
+/** FB Dating / compact spellings — logo must be SimpleIcons Facebook blue */
+const FB_DATING_TITLE_RE = /\bfb[\s._-]*dating\b|fbdating/i;
+
 const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
   { test: /netflix/i, url: "https://cdn.simpleicons.org/netflix/e50914" },
   { test: /\b(hma|hidemyass)\b/i, url: "https://cdn.simpleicons.org/hidemyass/ffcc00" },
   { test: /nord|nordvpn/i, url: "https://cdn.simpleicons.org/nordvpn/0055ff" },
   { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
-  { test: /\bfb[\s._-]*dating\b/i, url: FB_LOGO_SIMPLE },
+  { test: FB_DATING_TITLE_RE, url: FB_LOGO_SIMPLE },
   { test: /facebook/i, url: FB_LOGO_SIMPLE },
   { test: /\big\b|\binstagram\b/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
   { test: /talkatone/i, url: "https://cdn.simpleicons.org/viber/7360f2" },
@@ -33,7 +36,7 @@ function getMappedLogoFromTitle(title: string) {
 
 function resolveProductCardLogo(product: Product): string | null {
   const t = (product.title || "").trim();
-  if (/\bfb[\s._-]*dating\b/i.test(t)) return FB_LOGO_SIMPLE;
+  if (FB_DATING_TITLE_RE.test(t)) return FB_LOGO_SIMPLE;
   const mapped = getMappedLogoFromTitle(product.title);
   if (mapped) return mapped;
   if (product.logo_url) return product.logo_url;
@@ -51,6 +54,7 @@ function normalizeCategory(raw: string, title: string) {
 
 function inferPlatformKey(title: string) {
   const lower = title.toLowerCase();
+  if (FB_DATING_TITLE_RE.test(title)) return "FB";
   if (lower.includes("facebook")) return "FB";
   if (lower.includes("instagram")) return "IG";
   if (lower.includes("linkedin")) return "LI";
@@ -211,7 +215,7 @@ function PlatformLogo({
         />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
-          <Package className="h-5 w-5 text-slate-700" />
+          <Package className="h-5 w-5 shrink-0" style={{ color: "#000000" }} aria-hidden />
         </div>
       )}
     </div>
@@ -307,7 +311,9 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 <PlatformLogo product={product} platform={platform} size={35} />
                 <div>
                   <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1" style={{ color: "#000000" }}>{product.title}</h3>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40 mt-0.5">{product.stock} available · {platform?.label ?? product.category}</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: "#000000" }}>
+                    {product.stock} available · {platform?.label ?? product.category}
+                  </p>
                 </div>
               </div>
               <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 dark:text-white/35 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/8 transition-colors shrink-0">
@@ -316,12 +322,13 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
             </div>
             <div className="p-5 space-y-5">
               <div>
-                <p className="text-xs font-semibold text-slate-500 dark:text-white/50 uppercase tracking-widest mb-3">Select Quantity</p>
+                <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#000000" }}>Select Quantity</p>
                 <div className="flex items-center gap-4">
                   <button
                     onClick={() => setQty((q) => Math.max(1, q - 1))}
                     disabled={qty <= 1}
-                    className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/12 flex items-center justify-center text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/8 transition-colors disabled:opacity-30"
+                    className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/12 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-white/8 transition-colors disabled:opacity-30"
+                    style={{ color: "#000000" }}
                   >
                     <Minus className="h-4 w-4" />
                   </button>
@@ -332,7 +339,8 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                   <button
                     onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
                     disabled={qty >= maxQty}
-                    className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/12 flex items-center justify-center text-slate-500 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/8 transition-colors disabled:opacity-30"
+                    className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/12 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-white/8 transition-colors disabled:opacity-30"
+                    style={{ color: "#000000" }}
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -346,8 +354,9 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                         className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-all duration-150 ${
                           qty === n
                             ? "bg-primary/10 border-primary/40 text-primary"
-                            : "bg-slate-50 dark:bg-white/4 border-slate-200 dark:border-white/8 text-slate-500 dark:text-white/40"
+                            : "bg-slate-50 dark:bg-white/4 border-slate-200 dark:border-white/8"
                         }`}
+                        style={qty === n ? undefined : { color: "#000000" }}
                       >
                         ×{n}
                       </button>
@@ -376,8 +385,8 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               </div>
 
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400 dark:text-white/35 flex items-center gap-1.5">
-                  <Wallet className="h-3 w-3" /> Your balance
+                <span className="flex items-center gap-1.5" style={{ color: "#000000" }}>
+                  <Wallet className="h-3 w-3 shrink-0" style={{ color: "#000000" }} /> Your balance
                 </span>
                 <span className={`font-bold ${canAfford ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
                   ₦{balance.toLocaleString()}
@@ -392,9 +401,9 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               )}
 
               {!canAfford && product.stock > 0 && (
-                <p className="text-xs text-slate-400 dark:text-white/35 text-center">
+                <p className="text-xs text-center" style={{ color: "#000000" }}>
                   Need ₦{(total - balance).toLocaleString()} more.{" "}
-                  <Link to={`/dashboard/wallet?amount=${Math.max(100, total - balance)}`} onClick={onClose} className="text-primary dark:text-emerald-400 underline underline-offset-2">
+                  <Link to={`/dashboard/wallet?amount=${Math.max(100, total - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: "#000000" }}>
                     Fund with PocketFi →
                   </Link>
                 </p>
@@ -412,7 +421,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 {purchasing ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Processing{qty > 1 ? ` ${qty} accounts` : ""}…</>
                 ) : (
-                  <><Eye className="h-4 w-4" /> Buy {qty} Account{qty > 1 ? "s" : ""} · ₦{total.toLocaleString()}</>
+                  <><Eye className="h-4 w-4" /> Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{total.toLocaleString()}</>
                 )}
               </button>
             </div>
@@ -688,9 +697,10 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         <button
           onClick={() => onBuy(p)}
           disabled={p.stock === 0}
-          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:cursor-not-allowed"
           style={{
-            background: p.stock === 0 ? "#94a3b8" : BTN_NAVY,
+            background: BTN_NAVY,
+            opacity: p.stock === 0 ? 0.45 : 1,
           }}
         >
           <ShoppingCart className="h-3 w-3 shrink-0" />
