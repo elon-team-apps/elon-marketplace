@@ -236,6 +236,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Guard against auth race conditions: ignore stale sync requests if the
+    // currently active Supabase session is missing or belongs to another user.
+    const { data: currentSessionData } = await supabase.auth.getSession();
+    const activeUser = currentSessionData.session?.user;
+    if (!activeUser || activeUser.id !== authUser.id) {
+      console.warn("[AppContext] syncProfile skipped: stale auth user or signed out.", {
+        expected: authUser.id,
+        active: activeUser?.id ?? "none",
+      });
+      setProfileLoaded(true);
+      return;
+    }
+
     // ── Fetch with retry ───────────────────────────────────────────────────
     // Attempt 1 fires immediately. If it fails (common on cold page load because
     // the Supabase JWT hasn't been written to the client's session store yet),
@@ -263,6 +276,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     if (profile) {
+      const { data: latestSessionData } = await supabase.auth.getSession();
+      const latestUser = latestSessionData.session?.user;
+      if (!latestUser || latestUser.id !== authUser.id) {
+        console.warn("[AppContext] Profile fetched but session changed; ignoring stale profile update.", {
+          expected: authUser.id,
+          active: latestUser?.id ?? "none",
+        });
+        setProfileLoaded(true);
+        return;
+      }
+
       const resolvedRole  = ((profile.role as string) ?? "user").toLowerCase() as "admin" | "user";
       const resolvedAdmin = resolvedRole === "admin";
       setCurrentUser({

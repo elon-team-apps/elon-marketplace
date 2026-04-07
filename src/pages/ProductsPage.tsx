@@ -639,7 +639,7 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         {/* Branded logo + title */}
         <div className="flex items-center gap-2.5">
           <PlatformLogo product={p} platform={platform} size={30} />
-          <h3 className="font-extrabold text-black text-[12px] leading-tight flex-1 min-w-0 line-clamp-2">
+          <h3 className="font-extrabold text-[12px] leading-tight flex-1 min-w-0 line-clamp-2" style={{ color: "#000000" }}>
             {p.title}
           </h3>
         </div>
@@ -656,9 +656,9 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         </p>
 
         {/* Price */}
-        <p className="text-[11px] text-black leading-tight">
+        <p className="text-[11px] leading-tight" style={{ color: "#000000" }}>
           Per Quantity:{" "}
-          <span className="font-bold text-black">
+          <span className="font-bold" style={{ color: "#000000" }}>
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
@@ -672,7 +672,7 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
           disabled={p.stock === 0}
           className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
-            background: p.stock === 0 ? "#94a3b8" : "#112070",
+            background: p.stock === 0 ? "#94a3b8" : "#0f172a",
           }}
         >
           <ShoppingCart className="h-3 w-3 shrink-0" />

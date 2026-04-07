@@ -117,6 +117,11 @@ export default function WalletPage() {
 
     setCheckoutLoading(true);
     try {
+      const { data: activeUserData } = await supabase.auth.getUser();
+      if (!activeUserData.user) {
+        throw new Error("No active login session. Please sign in again and retry.");
+      }
+
       let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       let accessToken = sessionData.session?.access_token;
       if (!accessToken && !sessionError) {
