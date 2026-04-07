@@ -644,6 +644,16 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
           </h3>
         </div>
 
+        <p className="text-xs font-semibold text-[#111111]">
+          {p.category}
+        </p>
+
+        {p.description ? (
+          <p className="text-xs text-[#111111] line-clamp-2">
+            {p.description}
+          </p>
+        ) : null}
+
         {/* Stock line */}
         <p className="text-xs text-gray-950">
           {p.stock === 0 ? (

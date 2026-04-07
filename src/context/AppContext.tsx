@@ -356,7 +356,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           category:    String(row.category ?? ""),
           price:       Number(row.price ?? 0),
           description: String(row.description ?? ""),
-          stock:       Number(row.stock ?? 0),
+          stock:       Number(row.stock_count ?? row.stock ?? 0),
           logs:        Array.isArray(row.logs) ? (row.logs as string[]) : [],
           // created_at may be absent if the column was not yet added to the table —
           // fall back to empty string so the app never crashes on a missing column.
