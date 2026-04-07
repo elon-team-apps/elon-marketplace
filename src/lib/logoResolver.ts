@@ -20,7 +20,11 @@ const SMART_LOGOS: Array<{ test: RegExp; logoUrl: string }> = [
     logoUrl: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png",
   },
   {
-    test: /\bfb\s*dating\b|\bfacebook\b|\bfb\b|\bdating\b/i,
+    test: /\bfb\s*dating\b/i,
+    logoUrl: "https://cdn.simpleicons.org/facebook/1877f2",
+  },
+  {
+    test: /facebook/i,
     logoUrl: "https://cdn.simpleicons.org/facebook/1877f2",
   },
   {

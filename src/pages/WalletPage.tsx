@@ -18,6 +18,31 @@ const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "pocketfi_pending_reference";
 
 /** Project ref embedded in Supabase user JWT `iss` — must match VITE_SUPABASE_URL */
+/** Accept checkout URL from Edge Function or nested Paystack-style `data` objects */
+function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
+  const pick = (v: unknown): string | undefined => {
+    if (typeof v !== "string") return undefined;
+    const s = v.trim();
+    return /^https?:\/\//i.test(s) ? s : undefined;
+  };
+
+  const direct = pick(payload.checkout_url) ?? pick(payload.checkoutUrl);
+  if (direct) return direct;
+
+  const data = payload.data;
+  if (data && typeof data === "object") {
+    const d = data as Record<string, unknown>;
+    return (
+      pick(d.checkout_url) ??
+      pick(d.checkoutUrl) ??
+      pick(d.authorization_url) ??
+      pick(d.payment_url) ??
+      pick(d.url)
+    );
+  }
+  return undefined;
+}
+
 function supabaseProjectRefFromJwt(accessToken: string): string | null {
   try {
     const parts = accessToken.split(".");
@@ -214,9 +239,7 @@ export default function WalletPage() {
 
       console.log("PocketFi Response:", { status: resp.status, ok: resp.ok, payload });
 
-      const checkoutUrl =
-        (typeof payload.checkout_url === "string" ? payload.checkout_url : undefined) ??
-        (typeof payload.checkoutUrl === "string" ? payload.checkoutUrl : undefined);
+      const checkoutUrl = extractPocketFiCheckoutUrl(payload);
 
       if (!resp.ok || !checkoutUrl) {
         const fromBody =
@@ -258,7 +281,7 @@ export default function WalletPage() {
       }
       localStorage.setItem(PENDING_REF_KEY, reference);
 
-      window.location.href = checkoutUrl;
+      window.location.replace(checkoutUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
       const friendly = /load failed|failed to fetch|networkerror/i.test(msg)
@@ -274,7 +297,7 @@ export default function WalletPage() {
     <div className="space-y-6 max-w-2xl">
       {/* Page header */}
       <div>
-        <h1 className="font-heading text-2xl font-bold">Wallet</h1>
+          <h1 className="font-heading text-2xl font-bold" style={{ color: "#000000" }}>Wallet</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Fund your wallet securely with PocketFi.
         </p>
@@ -312,9 +335,14 @@ export default function WalletPage() {
                 onClick={() => setAmount(preset.toString())}
                 className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150 ${
                   amount === preset.toString()
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-transparent text-muted-foreground border-border hover:border-accent/50 hover:text-foreground"
+                    ? "text-white border-transparent"
+                    : "bg-transparent text-muted-foreground border-border hover:border-[#0f172a]/40 hover:text-foreground"
                 }`}
+                style={
+                  amount === preset.toString()
+                    ? { background: "#0f172a" }
+                    : undefined
+                }
               >
                 ₦{preset.toLocaleString()}
               </button>
@@ -332,7 +360,7 @@ export default function WalletPage() {
         </div>
         {methods.pocketfi_enabled ? (
           <Button
-            className="w-full gap-2 text-white"
+            className="w-full gap-2 text-white hover:opacity-95 border-0"
             style={{ background: "#0f172a" }}
             onClick={startPocketFiCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}

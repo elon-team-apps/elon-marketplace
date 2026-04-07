@@ -8,7 +8,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  *   https://mofhewplrepcitbwbexh.supabase.co/functions/v1/pocketfi-init
  *
  * Required Supabase Secret (Dashboard → Edge Functions → Secrets):
- *   POCKETFI_SECRET_KEY  — your PocketFi secret key
+ *   POCKETFI_SECRET_KEY  — your PocketFi secret / API key
+ *
+ * Optional (set if built-in URLs return 404 — get exact URL from PocketFi support/docs):
+ *   POCKETFI_INIT_URL      — full POST URL for payment initialization, e.g.
+ *                            https://api.pocketfi.ng/v1/.../initialize
  *
  * Why a server-side function?
  *   - The browser cannot call api.pocketfi.ng directly (CORS policy).
@@ -111,14 +115,44 @@ Deno.serve(async (req: Request) => {
 
   console.log("[pocketfi-init] Sending to PocketFi →", { ...payload, secretKey: "[REDACTED]" });
 
-  const candidateEndpoints = [
+  const initUrlOverride = Deno.env.get("POCKETFI_INIT_URL")?.trim();
+  if (initUrlOverride) {
+    console.log("[pocketfi-init] Using POCKETFI_INIT_URL override");
+  }
+
+  // PocketFi does not publish a public OpenAPI URL; paths vary by integration version.
+  // POCKETFI_INIT_URL (secret) should be set from the merchant dashboard / support if 404 persists.
+  const defaultEndpoints = [
     "https://api.pocketfi.ng/v1/transaction/initialize",
+    "https://api.pocketfi.ng/v1/transactions/initialize",
+    "https://api.pocketfi.ng/v1/payment/initialize",
+    "https://api.pocketfi.ng/v1/payments/initialize",
+    "https://api.pocketfi.ng/v1/pay/initialize",
     "https://api.pocketfi.ng/transaction/initialize",
+    "https://api.pocketfi.ng/transactions/initialize",
     "https://api.pocketfi.ng/api/v1/transaction/initialize",
+    "https://api.pocketfi.ng/api/v1/transactions/initialize",
+    "https://pocketfi.ng/api/v1/transaction/initialize",
+    "https://pocketfi.ng/api/v1/transactions/initialize",
+  ];
+  const candidateEndpoints = [
+    ...new Set([...(initUrlOverride ? [initUrlOverride] : []), ...defaultEndpoints]),
   ];
   const candidatePayloads = [
     payload,
     { ...payload, callbackUrl: payload.callback_url },
+    {
+      amount: payload.amount,
+      email: payload.email,
+      reference: payload.reference,
+      redirect_url: payload.callback_url,
+    },
+    {
+      amount: payload.amount,
+      email: payload.email,
+      reference: payload.reference,
+      callbackUrl: payload.callback_url,
+    },
   ];
 
   // PocketFi may reject `Bearer <secret>` with "Invalid JWT" if the key is not a JWT.
@@ -221,7 +255,12 @@ Deno.serve(async (req: Request) => {
     return json({ error: `Network error reaching PocketFi: ${lastNetworkError}` }, 502);
   }
   if (saw404Only) {
-    return json({ error: "PocketFi endpoint not found (404) on all known initialize routes." }, 502);
+    return json({
+      error:
+        "PocketFi returned 404 for every tried initialize URL. Ask PocketFi for the exact POST endpoint, " +
+        "then add Edge Function secret POCKETFI_INIT_URL with that full URL (and redeploy), " +
+        "or confirm your account uses api.pocketfi.ng vs a different base URL.",
+    }, 502);
   }
   return json({
     error:

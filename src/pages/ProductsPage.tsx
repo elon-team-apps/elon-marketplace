@@ -7,12 +7,18 @@ import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
+/** Client: all Purchase / primary actions */
+const BTN_NAVY = "#0f172a";
+/** Official Facebook blue (SimpleIcons) — FB Dating + Facebook */
+const FB_LOGO_SIMPLE = "https://cdn.simpleicons.org/facebook/1877f2";
+
 const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
   { test: /netflix/i, url: "https://cdn.simpleicons.org/netflix/e50914" },
   { test: /\b(hma|hidemyass)\b/i, url: "https://cdn.simpleicons.org/hidemyass/ffcc00" },
   { test: /nord|nordvpn/i, url: "https://cdn.simpleicons.org/nordvpn/0055ff" },
   { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
-  { test: /\bfb\s*dating\b|\bfacebook\b|\bfb\b|\bdating\b/i, url: "https://cdn.simpleicons.org/facebook/1877f2" },
+  { test: /\bfb\s*dating\b/i, url: FB_LOGO_SIMPLE },
+  { test: /facebook/i, url: FB_LOGO_SIMPLE },
   { test: /\big\b|\binstagram\b/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
   { test: /talkatone/i, url: "https://cdn.simpleicons.org/viber/7360f2" },
   { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
@@ -23,6 +29,15 @@ const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
 function getMappedLogoFromTitle(title: string) {
   const normalized = (title || "").trim();
   return BRAND_LOGOS.find((entry) => entry.test.test(normalized))?.url ?? null;
+}
+
+function resolveProductCardLogo(product: Product): string | null {
+  const t = (product.title || "").trim();
+  if (/\bfb\s*dating\b/i.test(t)) return FB_LOGO_SIMPLE;
+  const mapped = getMappedLogoFromTitle(product.title);
+  if (mapped) return mapped;
+  if (product.logo_url) return product.logo_url;
+  return null;
 }
 
 function normalizeCategory(raw: string, title: string) {
@@ -174,8 +189,7 @@ function PlatformLogo({
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const dim = `${size}px`;
-  const mappedSrc = getMappedLogoFromTitle(product.title);
-  const src = mappedSrc || null;
+  const src = resolveProductCardLogo(product);
 
   return (
     <div
@@ -312,8 +326,8 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                     <Minus className="h-4 w-4" />
                   </button>
                   <div className="flex-1 text-center">
-                    <span className="font-bold text-3xl text-slate-900 dark:text-white">{qty}</span>
-                    <span className="text-sm text-slate-400 dark:text-white/35 ml-2">account{qty > 1 ? "s" : ""}</span>
+                    <span className="font-bold text-3xl" style={{ color: "#000000" }}>{qty}</span>
+                    <span className="text-sm ml-2" style={{ color: "#000000" }}>account{qty > 1 ? "s" : ""}</span>
                   </div>
                   <button
                     onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
@@ -344,12 +358,12 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
 
               <div className="rounded-xl p-4 space-y-2.5 bg-slate-50 dark:bg-white/3 border border-slate-200 dark:border-white/7">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">Unit price</span>
+                  <span style={{ color: "#000000" }}>Unit price</span>
                   <span className="font-semibold" style={{ color: "#000000" }}>₦{product.price.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">Quantity</span>
-                  <span className="font-semibold text-slate-900 dark:text-white/80">× {qty}</span>
+                  <span style={{ color: "#000000" }}>Quantity</span>
+                  <span className="font-semibold" style={{ color: "#000000" }}>× {qty}</span>
                 </div>
                 <div className="border-t border-slate-200 dark:border-white/10 pt-2.5">
                   <div className="flex justify-between items-baseline">
@@ -391,7 +405,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 disabled={product.stock === 0 || purchasing || !canAfford || purchaseState.phase === "error" && purchaseState.message.toLowerCase().includes("out of stock")}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
-                  background: "#0f172a",
+                  background: BTN_NAVY,
                   boxShadow: (!purchasing && canAfford) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
                 }}
               >
@@ -441,8 +455,8 @@ function CategoryDropdown({
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm text-white transition-all duration-150 active:scale-95"
         style={{
-          background: "hsl(var(--primary))",
-          boxShadow: "0 2px 8px rgba(17,32,112,0.25)",
+          background: BTN_NAVY,
+          boxShadow: "0 2px 8px rgba(15,23,42,0.35)",
         }}
       >
         <LayoutGrid className="h-4 w-4 shrink-0" />
@@ -463,9 +477,10 @@ function CategoryDropdown({
             onClick={() => { onChange(null); setOpen(false); }}
             className={`w-full text-left px-4 py-2.5 text-sm font-semibold transition-colors ${
               !active
-                ? "bg-primary text-white"
+                ? "text-white"
                 : "text-slate-700 hover:bg-slate-50"
             }`}
+            style={!active ? { background: BTN_NAVY } : undefined}
           >
             ALL PRODUCTS
           </button>
@@ -482,7 +497,7 @@ function CategoryDropdown({
                     ? "bg-primary/8 font-semibold"
                     : "text-slate-700 hover:bg-slate-50"
                 }`}
-                style={{ color: isActive ? "hsl(var(--primary))" : undefined }}
+                style={{ color: isActive ? BTN_NAVY : undefined }}
               >
                 <span className="font-medium">{cat.toUpperCase()}</span>
                 <span className="text-[11px] text-slate-400 font-normal">{count}</span>
@@ -526,14 +541,14 @@ export default function ProductsPage() {
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-bold text-2xl text-foreground">Products</h1>
+          <h1 className="font-bold text-2xl" style={{ color: "#000000" }}>Products</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Browse and purchase social media accounts</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Balance */}
-          <div className="rounded-xl px-4 py-2.5 text-right bg-primary/8 border border-primary/15">
-            <p className="text-[10px] text-primary/70 leading-none mb-1 uppercase tracking-widest font-semibold">Balance</p>
-            <p className="font-bold text-base leading-none text-primary">
+          <div className="rounded-xl px-4 py-2.5 text-right border border-slate-200 bg-white">
+            <p className="text-[10px] leading-none mb-1 uppercase tracking-widest font-semibold" style={{ color: "#000000" }}>Balance</p>
+            <p className="font-bold text-base leading-none" style={{ color: "#000000" }}>
               ₦{(currentUser?.wallet_balance ?? 0).toLocaleString()}
             </p>
           </div>
@@ -565,7 +580,7 @@ export default function ProductsPage() {
           {/* Section banner */}
           <div
             className="rounded-xl px-5 py-3.5 mb-4 flex items-center gap-3"
-            style={{ background: "hsl(var(--primary))" }}
+            style={{ background: BTN_NAVY }}
           >
             <span className="font-bold text-white text-base tracking-wide uppercase">
               {activePlatform?.label ?? activeCategory}
@@ -594,7 +609,7 @@ export default function ProductsPage() {
                 {/* Section banner */}
                 <div
                   className="rounded-xl px-5 py-3.5 mb-3 flex items-center gap-3"
-                  style={{ background: "hsl(var(--primary))" }}
+                  style={{ background: BTN_NAVY }}
                 >
                   <span className="font-bold text-white text-sm tracking-wide uppercase">
                     {platform?.label ?? key}
@@ -675,7 +690,7 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
           disabled={p.stock === 0}
           className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
-            background: p.stock === 0 ? "#94a3b8" : "#0f172a",
+            background: p.stock === 0 ? "#94a3b8" : BTN_NAVY,
           }}
         >
           <ShoppingCart className="h-3 w-3 shrink-0" />
