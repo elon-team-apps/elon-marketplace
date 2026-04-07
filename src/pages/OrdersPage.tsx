@@ -22,7 +22,6 @@ const CATEGORY_STYLE: Record<string, string> = {
   "Social Media": "bg-blue-500/10 text-blue-400",
   Streaming: "bg-pink-500/10 text-pink-400",
   VPN: "bg-indigo-500/10 text-indigo-400",
-  Other: "bg-slate-500/10 text-slate-300",
 };
 
 function categoryStyle(cat: string) {

@@ -6,7 +6,7 @@ import {
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
 
-const CATEGORIES = ["Social Media", "Streaming", "VPN", "Other"] as const;
+const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
 
 function normalizeCategory(raw: string, title: string) {
   const category = (raw || "").toLowerCase();
@@ -14,7 +14,21 @@ function normalizeCategory(raw: string, title: string) {
   if (category.includes("social") || ["fb", "ig", "li", "tw", "tk", "yt", "telegram"].includes(category)) return "Social Media";
   if (category.includes("stream") || lowerTitle.includes("netflix")) return "Streaming";
   if (category.includes("vpn") || lowerTitle.includes("hma") || lowerTitle.includes("hidemyass")) return "VPN";
-  return "Other";
+  return "Social Media";
+}
+
+function inferPlatformKey(title: string) {
+  const lower = title.toLowerCase();
+  if (lower.includes("facebook")) return "FB";
+  if (lower.includes("instagram")) return "IG";
+  if (lower.includes("linkedin")) return "LI";
+  if (lower.includes("twitter") || lower.includes("x ")) return "TW";
+  if (lower.includes("tiktok")) return "TK";
+  if (lower.includes("youtube")) return "YT";
+  if (lower.includes("telegram")) return "TW";
+  if (lower.includes("netflix")) return "YT";
+  if (lower.includes("hma") || lower.includes("vpn")) return "LI";
+  return "";
 }
 
 // ─── Platform registry ────────────────────────────────────────────────────────
@@ -211,7 +225,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
   const total = qty * product.price;
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= total;
-  const platform = PLATFORM_MAP[product.category];
+  const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
 
   const handlePurchase = async () => {
     setPurchasing(true);
@@ -614,7 +628,7 @@ function ProductGrid({
 }
 
 function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Product) => void }) {
-  const platform = PLATFORM_MAP[p.category];
+  const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = p.stock > 0 && p.stock <= 5;
   // Use darkColor override when in dark mode (prevents dark-on-dark invisible text)
   const isDark = document.documentElement.classList.contains("dark");

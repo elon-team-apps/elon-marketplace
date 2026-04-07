@@ -154,14 +154,14 @@ const DashboardLayout = () => {
             <NavItem key={item.path} {...item} onClick={close} />
           ))}
 
-          {/* ── Admin Center — only visible when role === "admin" ─────── */}
+          {/* ── Admin Panel — only visible when role === "admin" ─────── */}
           {isAdmin && (
             <div className="pt-4 mt-2 border-t border-slate-200 dark:border-white/5">
               {/* Section header */}
               <div className="flex items-center gap-2 px-3 mb-2">
                 <ShieldCheck className="h-3 w-3 text-amber-500 dark:text-amber-400 shrink-0" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">
-                  Admin Center
+                  Admin Panel
                 </span>
               </div>
 

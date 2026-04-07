@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
-const CATEGORIES = ["Social Media", "Streaming", "VPN", "Other"];
+const CATEGORIES = ["Social Media", "Streaming", "VPN"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
