@@ -117,9 +117,22 @@ export default function WalletPage() {
 
     setCheckoutLoading(true);
     try {
+      let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      let accessToken = sessionData.session?.access_token;
+      if (!accessToken && !sessionError) {
+        const refreshed = await supabase.auth.refreshSession();
+        sessionData = refreshed.data;
+        sessionError = refreshed.error;
+        accessToken = sessionData.session?.access_token;
+      }
+      if (sessionError || !accessToken) {
+        throw new Error("Your session expired. Please sign out and sign in again, then retry.");
+      }
+
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
 
+      // Edge Functions with JWT verification require the user's access token (anon key alone → 401).
       const { data, error } = await supabase.functions.invoke("pocketfi-init", {
         body: {
           amount: naira,
@@ -127,10 +140,29 @@ export default function WalletPage() {
           reference,
           callbackUrl,
         },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       });
       const checkoutUrl = data?.checkoutUrl as string | undefined;
       if (error || !checkoutUrl) {
-        const message = error?.message || "Could not initialize PocketFi checkout.";
+        let message = error?.message || "Could not initialize PocketFi checkout.";
+        const ctx = error && typeof error === "object" && "context" in error
+          ? (error as { context?: Response }).context
+          : undefined;
+        const http401 = ctx && typeof ctx.status === "number" && ctx.status === 401;
+        if (ctx && typeof ctx.json === "function" && !http401) {
+          try {
+            const body = await ctx.json() as { error?: string; message?: string };
+            if (body?.error) message = body.error;
+            else if (body?.message) message = body.message;
+          } catch {
+            /* keep message */
+          }
+        }
+        if (http401 || /401|unauthorized/i.test(message)) {
+          message = "Session not accepted by server. Sign out, sign in again, then retry.";
+        }
         if (/failed to send a request|fetch|load failed/i.test(message)) {
           throw new Error("PocketFi initialization failed. Confirm `pocketfi-init` is deployed and reachable in Supabase Functions.");
         }

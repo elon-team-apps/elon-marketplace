@@ -17,7 +17,8 @@
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // Allow requests from any origin (Vercel, localhost, etc.).
-// The anon-key Authorization header already limits who can invoke this function.
+// Supabase still enforces JWT verification at the gateway: the browser must send
+// apikey (anon) plus Authorization: Bearer <user access_token> from functions.invoke.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -78,24 +79,56 @@ Deno.serve(async (req: Request) => {
 
   console.log("[pocketfi-init] Sending to PocketFi →", { ...payload, secretKey: "[REDACTED]" });
 
-  let pocketFiRes: Response;
-  try {
-    pocketFiRes = await fetch("https://api.pocketfi.ng/v1/transaction/initialize", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${secretKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[pocketfi-init] Network error calling PocketFi:", msg);
-    return json({ error: `Network error reaching PocketFi: ${msg}` }, 502);
+  const candidateEndpoints = [
+    "https://api.pocketfi.ng/v1/transaction/initialize",
+    "https://api.pocketfi.ng/transaction/initialize",
+    "https://api.pocketfi.ng/api/v1/transaction/initialize",
+  ];
+  const candidatePayloads = [
+    payload,
+    { ...payload, callbackUrl: payload.callback_url },
+  ];
+
+  let pocketFiRes: Response | null = null;
+  let rawText = "";
+  let lastNetworkError = "";
+
+  for (const endpoint of candidateEndpoints) {
+    for (const bodyCandidate of candidatePayloads) {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${secretKey}`,
+            "x-api-key": secretKey,
+          },
+          body: JSON.stringify(bodyCandidate),
+        });
+
+        const txt = await res.text();
+        console.log(`[pocketfi-init] ${endpoint} -> ${res.status}:`, txt);
+
+        // 404 means wrong route/signature; try the next endpoint variant.
+        if (res.status === 404) continue;
+
+        pocketFiRes = res;
+        rawText = txt;
+        break;
+      } catch (err) {
+        lastNetworkError = err instanceof Error ? err.message : String(err);
+        console.error(`[pocketfi-init] Network error calling ${endpoint}:`, lastNetworkError);
+      }
+    }
+    if (pocketFiRes) break;
   }
 
-  const rawText = await pocketFiRes.text();
-  console.log(`[pocketfi-init] PocketFi responded — status ${pocketFiRes.status}:`, rawText);
+  if (!pocketFiRes) {
+    if (lastNetworkError) {
+      return json({ error: `Network error reaching PocketFi: ${lastNetworkError}` }, 502);
+    }
+    return json({ error: "PocketFi endpoint not found (404) on all known initialize routes." }, 502);
+  }
 
   // Parse PocketFi response
   let pocketFiJson: Record<string, unknown>;
@@ -112,14 +145,14 @@ Deno.serve(async (req: Request) => {
   }
 
   // Extract checkout URL — try all known PocketFi field names
-  const data = pocketFiJson?.data as Record<string, unknown> | undefined;
+  const data = (pocketFiJson?.data ?? {}) as Record<string, unknown>;
   const checkoutUrl =
-    data?.authorization_url as string |
-    data?.checkout_url      as string |
-    data?.payment_url       as string |
-    data?.url               as string |
-    pocketFiJson?.authorization_url as string |
-    pocketFiJson?.checkout_url      as string;
+    (data.authorization_url as string | undefined) ??
+    (data.checkout_url as string | undefined) ??
+    (data.payment_url as string | undefined) ??
+    (data.url as string | undefined) ??
+    (pocketFiJson.authorization_url as string | undefined) ??
+    (pocketFiJson.checkout_url as string | undefined);
 
   if (!checkoutUrl) {
     console.error("[pocketfi-init] No checkout URL in PocketFi response:", pocketFiJson);
