@@ -117,17 +117,9 @@ export default function WalletPage() {
 
     setCheckoutLoading(true);
     try {
-      const supabaseUrlRaw = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-      const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-      if (!supabaseUrlRaw || !supabaseAnon) {
-        throw new Error("Supabase env is missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
-      }
-      const supabaseUrl = supabaseUrlRaw.replace(/\/+$/, "");
-
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
 
-      let checkoutUrl: string | undefined;
       const { data, error } = await supabase.functions.invoke("pocketfi-init", {
         body: {
           amount: naira,
@@ -136,35 +128,13 @@ export default function WalletPage() {
           callbackUrl,
         },
       });
-
-      if (!error && data?.checkoutUrl) {
-        checkoutUrl = data.checkoutUrl as string;
-      }
-
-      // Fallback probe for clearer diagnostics when invoke fails.
-      if (!checkoutUrl) {
-        const probe = await fetch(`${supabaseUrl}/functions/v1/pocketfi-init`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: supabaseAnon,
-            Authorization: `Bearer ${supabaseAnon}`,
-          },
-          body: JSON.stringify({
-            amount: naira,
-            email: currentUser.email,
-            reference,
-            callbackUrl,
-          }),
-        });
-        const probeData = await probe.json().catch(() => ({} as { message?: string; error?: string; code?: string; checkoutUrl?: string }));
-        if (probe.ok && probeData?.checkoutUrl) {
-          checkoutUrl = probeData.checkoutUrl;
-        } else if (probe.status === 404 || probeData?.code === "NOT_FOUND") {
-          throw new Error("PocketFi Edge Function is not deployed. Deploy `pocketfi-init` in Supabase Functions.");
-        } else {
-          throw new Error(probeData?.error || probeData?.message || error?.message || "Could not initialize PocketFi checkout.");
+      const checkoutUrl = data?.checkoutUrl as string | undefined;
+      if (error || !checkoutUrl) {
+        const message = error?.message || "Could not initialize PocketFi checkout.";
+        if (/failed to send a request|fetch|load failed/i.test(message)) {
+          throw new Error("PocketFi initialization failed. Confirm `pocketfi-init` is deployed and reachable in Supabase Functions.");
         }
+        throw new Error(message);
       }
 
       // Persist pending deposit transaction before redirect so webhook can reconcile.

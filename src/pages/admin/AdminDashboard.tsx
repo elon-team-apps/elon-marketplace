@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   TrendingUp, Users, Package, ShoppingCart, ArrowUpRight,
   Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet,
