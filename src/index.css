@@ -72,17 +72,17 @@
   /* ── Dark mode ────────────────────────────────────────────────────────────
      Applied when <html class="dark"> is present.                            */
   .dark {
-    --background: 216 33% 3%;        /* #05080a deep charcoal              */
+    --background: 0 0% 0%;           /* #000000 deep black                 */
     --foreground: 0 0% 93%;
 
-    --card: 220 28% 8%;              /* #0e1420 glass card base            */
+    --card: 222 47% 11%;             /* slate-900                          */
     --card-foreground: 0 0% 93%;
 
     --popover: 220 28% 9%;
     --popover-foreground: 0 0% 93%;
 
-    --primary: 152 60% 50%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 45 93% 47%;           /* #EAB308 gold                       */
+    --primary-foreground: 0 0% 0%;
 
     --secondary: 220 25% 13%;
     --secondary-foreground: 0 0% 88%;
@@ -90,20 +90,20 @@
     --muted: 220 22% 14%;
     --muted-foreground: 220 12% 58%;
 
-    --accent: 152 60% 42%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 45 93% 47%;
+    --accent-foreground: 0 0% 0%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 220 20% 16%;
     --input: 220 20% 16%;
-    --ring: 152 60% 50%;
+    --ring: 45 93% 47%;
 
-    --sidebar-background: 220 30% 5%;
+    --sidebar-background: 0 0% 0%;
     --sidebar-foreground: 220 14% 88%;
-    --sidebar-primary: 152 60% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-primary: 45 93% 47%;
+    --sidebar-primary-foreground: 0 0% 0%;
     --sidebar-accent: 220 25% 12%;
     --sidebar-accent-foreground: 220 14% 88%;
     --sidebar-border: 220 20% 12%;

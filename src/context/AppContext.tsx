@@ -378,6 +378,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Live wallet/role sync for navbar and dashboard stats.
+  useEffect(() => {
+    if (!supabase || !currentUser?.id) return;
+    const channel = supabase
+      .channel(`profile:${currentUser.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${currentUser.id}` },
+        (payload) => {
+          const next = payload.new as { wallet_balance?: number; role?: string; email?: string };
+          setCurrentUser((prev) => ({
+            ...prev,
+            wallet_balance: typeof next.wallet_balance === "number" ? next.wallet_balance : prev.wallet_balance,
+            role: (next.role as "admin" | "user" | undefined) ?? prev.role,
+            is_admin: (next.role ?? prev.role) === "admin",
+            email: next.email ?? prev.email,
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id]);
+
   // currentUser intentionally excluded — wallet_balance and role are owned
   // by Supabase. Persisting them to localStorage would create a stale cache
   // that shows wrong values on the next load before the DB responds.
