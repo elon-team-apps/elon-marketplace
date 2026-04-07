@@ -17,7 +17,7 @@ const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
   { test: /\b(hma|hidemyass)\b/i, url: "https://cdn.simpleicons.org/hidemyass/ffcc00" },
   { test: /nord|nordvpn/i, url: "https://cdn.simpleicons.org/nordvpn/0055ff" },
   { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
-  { test: /\bfb\s*dating\b/i, url: FB_LOGO_SIMPLE },
+  { test: /\bfb[\s._-]*dating\b/i, url: FB_LOGO_SIMPLE },
   { test: /facebook/i, url: FB_LOGO_SIMPLE },
   { test: /\big\b|\binstagram\b/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
   { test: /talkatone/i, url: "https://cdn.simpleicons.org/viber/7360f2" },
@@ -33,7 +33,7 @@ function getMappedLogoFromTitle(title: string) {
 
 function resolveProductCardLogo(product: Product): string | null {
   const t = (product.title || "").trim();
-  if (/\bfb\s*dating\b/i.test(t)) return FB_LOGO_SIMPLE;
+  if (/\bfb[\s._-]*dating\b/i.test(t)) return FB_LOGO_SIMPLE;
   const mapped = getMappedLogoFromTitle(product.title);
   if (mapped) return mapped;
   if (product.logo_url) return product.logo_url;
@@ -662,14 +662,14 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
           </h3>
         </div>
 
-        {/* Stock line */}
-        <p className="text-[11px] text-black leading-tight">
+        {/* Stock line — body black; only “Out of Stock” stays red */}
+        <p className="text-[11px] leading-tight" style={{ color: "#000000" }}>
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
-            <>In Stock: <span className="font-semibold">{p.stock} qty.</span> — low!</>
+            <>In Stock: <span className="font-semibold" style={{ color: "#000000" }}>{p.stock} qty.</span> — low!</>
           ) : (
-            <>In Stock: <span className="font-semibold">{p.stock} qty.</span></>
+            <>In Stock: <span className="font-semibold" style={{ color: "#000000" }}>{p.stock} qty.</span></>
           )}
         </p>
 

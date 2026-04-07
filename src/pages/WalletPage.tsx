@@ -16,9 +16,10 @@ import { useSearchParams } from "react-router-dom";
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "pocketfi_pending_reference";
+/** Client-approved primary actions (Purchase / Continue) */
+const BTN_NAVY = "#0f172a";
 
-/** Project ref embedded in Supabase user JWT `iss` — must match VITE_SUPABASE_URL */
-/** Accept checkout URL from Edge Function or nested Paystack-style `data` objects */
+/** Accept checkout_url from Edge Function or nested gateway payloads */
 function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
   const pick = (v: unknown): string | undefined => {
     if (typeof v !== "string") return undefined;
@@ -37,6 +38,7 @@ function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | 
       pick(d.checkoutUrl) ??
       pick(d.authorization_url) ??
       pick(d.payment_url) ??
+      pick(d.link) ??
       pick(d.url)
     );
   }
@@ -283,7 +285,9 @@ export default function WalletPage() {
       }
       localStorage.setItem(PENDING_REF_KEY, reference);
 
-      window.location.replace(checkoutUrl);
+      // Payment handover: same-tab redirect without adding wallet to history stack.
+      const handoverUrl = checkoutUrl.trim();
+      window.location.replace(handoverUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
       const friendly = /load failed|failed to fetch|networkerror/i.test(msg)
@@ -342,7 +346,7 @@ export default function WalletPage() {
                 }`}
                 style={
                   amount === preset.toString()
-                    ? { background: "#0f172a" }
+                    ? { background: BTN_NAVY }
                     : undefined
                 }
               >
@@ -363,7 +367,7 @@ export default function WalletPage() {
         {methods.pocketfi_enabled ? (
           <Button
             className="w-full gap-2 text-white hover:opacity-95 border-0"
-            style={{ background: "#0f172a" }}
+            style={{ background: BTN_NAVY }}
             onClick={startPocketFiCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}
           >
