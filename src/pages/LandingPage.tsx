@@ -531,7 +531,7 @@ const LandingPage = () => {
             <div>
               <h4 className="font-semibold text-white/80 text-xs mb-4 uppercase tracking-wider">Products</h4>
               <ul className="space-y-2.5">
-                {["Facebook Accounts", "Instagram Accounts", "LinkedIn Accounts", "Twitter / X Accounts", "TextPlus Numbers", "iCloud Accounts"].map((item) => (
+                {["Facebook Accounts", "Instagram Accounts", "LinkedIn Accounts", "Netflix Accounts", "Telegram Accounts", "HMA VPN Accounts"].map((item) => (
                   <li key={item}>
                     <Link to="/auth?tab=signup" className="text-sm text-white/35 hover:text-white transition-colors duration-150">
                       {item}

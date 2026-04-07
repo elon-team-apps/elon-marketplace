@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
-const CATEGORIES = ["FB", "IG", "LI", "TW", "TK", "YT", "TextPlus", "iCloud", "Other"];
+const CATEGORIES = ["Social Media", "Streaming", "VPN", "Other"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,14 +30,22 @@ type FormState = {
   price: string;
   description: string;
   logsText: string;
+  platform: string;
+  login: string;
+  password: string;
+  recoveryInfo: string;
 };
 
 const emptyForm: FormState = {
   title: "",
-  category: "FB",
+  category: "Social Media",
   price: "",
   description: "",
   logsText: "",
+  platform: "",
+  login: "",
+  password: "",
+  recoveryInfo: "",
 };
 
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
@@ -303,6 +311,10 @@ export default function AdminProducts() {
       price: product.price.toString(),
       description: product.description,
       logsText: product.logs.join("\n"),
+      platform: "",
+      login: "",
+      password: "",
+      recoveryInfo: "",
     });
     setEditingId(product.id);
     setShowForm(true);
@@ -350,6 +362,26 @@ export default function AdminProducts() {
     }
 
     handleCancel();
+  };
+
+  const addAccountLine = () => {
+    if (!form.platform.trim() || !form.login.trim() || !form.password.trim()) {
+      toast({ title: "Platform, login, and password are required.", variant: "destructive" });
+      return;
+    }
+    const entry = [
+      `Platform=${form.platform.trim()}`,
+      `Login=${form.login.trim()}`,
+      `Password=${form.password.trim()}`,
+      `Recovery=${form.recoveryInfo.trim() || "N/A"}`,
+    ].join(" | ");
+    setForm((f) => ({
+      ...f,
+      logsText: f.logsText ? `${f.logsText}\n${entry}` : entry,
+      login: "",
+      password: "",
+      recoveryInfo: "",
+    }));
   };
 
   const handleDelete = (id: string) => {
@@ -479,7 +511,7 @@ export default function AdminProducts() {
                 <Label htmlFor="prod-logs">
                   <span className="flex items-center gap-2">
                     <Upload className="h-3.5 w-3.5" />
-                    Initial Log Upload (User:Pass:Cookie)
+                    Initial Account Upload
                   </span>
                 </Label>
                 <span
@@ -494,13 +526,34 @@ export default function AdminProducts() {
                 id="prod-logs"
                 rows={8}
                 className="w-full rounded-md border border-input bg-white/3 px-3 py-2.5 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={"Paste logs here, one per line:\nuser@email.com:Password123:CookieTokenABC...\nuser2@email.com:Password456:CookieTokenXYZ..."}
+                placeholder={"Paste account logs here, one per line:\nPlatform=Instagram | Login=user@email.com | Password=Secret123 | Recovery=backup@mail.com"}
                 value={form.logsText}
                 onChange={(e) => setForm((f) => ({ ...f, logsText: e.target.value }))}
               />
               <p className="text-xs text-muted-foreground mt-1.5">
-                Stock is automatically calculated from the number of lines. Use "Bulk Upload" on an existing product to add more logs later.
+                Inventory is automatically calculated from the number of lines. Use "Bulk Upload" on an existing product to add more logs later.
               </p>
+            </div>
+            <div className="md:col-span-2 grid md:grid-cols-2 gap-3 rounded-lg border border-input p-3">
+              <div>
+                <Label htmlFor="acc-platform">Platform</Label>
+                <Input id="acc-platform" className="mt-1.5" value={form.platform} onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))} placeholder="e.g. Facebook" />
+              </div>
+              <div>
+                <Label htmlFor="acc-login">Login (Email/Username)</Label>
+                <Input id="acc-login" className="mt-1.5" value={form.login} onChange={(e) => setForm((f) => ({ ...f, login: e.target.value }))} placeholder="e.g. user@example.com" />
+              </div>
+              <div>
+                <Label htmlFor="acc-password">Password</Label>
+                <Input id="acc-password" className="mt-1.5" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder="e.g. StrongPass123!" />
+              </div>
+              <div>
+                <Label htmlFor="acc-recovery">Recovery Info</Label>
+                <Input id="acc-recovery" className="mt-1.5" value={form.recoveryInfo} onChange={(e) => setForm((f) => ({ ...f, recoveryInfo: e.target.value }))} placeholder="backup email / recovery note" />
+              </div>
+              <div className="md:col-span-2">
+                <Button type="button" variant="outline" className="mt-1.5" onClick={addAccountLine}>Add Account Log Line</Button>
+              </div>
             </div>
           </div>
 

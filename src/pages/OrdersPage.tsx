@@ -19,14 +19,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 // ─── Category colour map (matches ProductsPage) ───────────────────────────────
 const CATEGORY_STYLE: Record<string, string> = {
-  FB:       "bg-blue-500/10 text-blue-400",
-  IG:       "bg-pink-500/10 text-pink-400",
-  TW:       "bg-sky-500/10 text-sky-400",
-  LI:       "bg-indigo-500/10 text-indigo-400",
-  TK:       "bg-red-500/10 text-red-400",
-  YT:       "bg-red-600/10 text-red-400",
-  TextPlus: "bg-emerald-500/10 text-emerald-400",
-  iCloud:   "bg-cyan-500/10 text-cyan-400",
+  "Social Media": "bg-blue-500/10 text-blue-400",
+  Streaming: "bg-pink-500/10 text-pink-400",
+  VPN: "bg-indigo-500/10 text-indigo-400",
+  Other: "bg-slate-500/10 text-slate-300",
 };
 
 function categoryStyle(cat: string) {

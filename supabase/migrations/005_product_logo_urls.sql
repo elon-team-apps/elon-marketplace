@@ -32,6 +32,4 @@ UPDATE public.products
 SET logo_url = 'https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg?v=2'
 WHERE title ILIKE '%hma%' OR title ILIKE '%hidemyass%' OR title ILIKE '%vpn%';
 
-UPDATE public.products
-SET logo_url = 'https://upload.wikimedia.org/wikipedia/commons/c/c5/Text%2B_Logo.png?v=2'
-WHERE title ILIKE '%textplus%' OR title ILIKE '%text+%';
+-- Legacy non-marketplace products intentionally excluded.

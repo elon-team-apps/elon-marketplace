@@ -1,14 +1,23 @@
 import { useState, useRef, useEffect } from "react";
 import {
   X, Eye, ShoppingCart, CheckCircle, AlertCircle, Loader2,
-  Minus, Plus, Wallet, ChevronDown, ChevronUp, LayoutGrid,
-  User,
+  Minus, Plus, Wallet, ChevronDown, ChevronUp, LayoutGrid, Shield,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
 
+const CATEGORIES = ["Social Media", "Streaming", "VPN", "Other"] as const;
+
+function normalizeCategory(raw: string, title: string) {
+  const category = (raw || "").toLowerCase();
+  const lowerTitle = (title || "").toLowerCase();
+  if (category.includes("social") || ["fb", "ig", "li", "tw", "tk", "yt", "telegram"].includes(category)) return "Social Media";
+  if (category.includes("stream") || lowerTitle.includes("netflix")) return "Streaming";
+  if (category.includes("vpn") || lowerTitle.includes("hma") || lowerTitle.includes("hidemyass")) return "VPN";
+  return "Other";
+}
+
 // ─── Platform registry ────────────────────────────────────────────────────────
-// logoUrl = CDN image; svgFallback = rendered if image fails to load
 
 const PLATFORMS: {
   key: string;
@@ -106,16 +115,6 @@ const PLATFORMS: {
     ),
   },
   {
-    key: "TextPlus",
-    label: "TextPlus",
-    color: "#10b981",
-    glow: "rgba(16,185,129,0.3)",
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/c/c5/Text%2B_Logo.png?v=2",
-    svgFallback: (
-      <span className="font-black text-lg leading-none" style={{ color: "#10b981", letterSpacing: "-0.05em" }}>T+</span>
-    ),
-  },
-  {
     key: "iCloud",
     label: "iCloud",
     color: "#3b82f6",
@@ -138,7 +137,6 @@ const OFFICIAL_LOGO_BY_NAME: Record<string, string> = {
   telegram: "https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg?v=2",
   talkatone: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png?v=2",
   "hma vpn": "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg?v=2",
-  textplus: "https://upload.wikimedia.org/wikipedia/commons/c/c5/Text%2B_Logo.png?v=2",
 };
 
 function getOfficialLogoFromTitle(title: string) {
@@ -149,7 +147,6 @@ function getOfficialLogoFromTitle(title: string) {
   if (lower.includes("netflix")) return OFFICIAL_LOGO_BY_NAME.netflix;
   if (lower.includes("instagram")) return OFFICIAL_LOGO_BY_NAME.instagram;
   if (lower.includes("facebook")) return OFFICIAL_LOGO_BY_NAME.facebook;
-  if (lower.includes("textplus") || lower.includes("text+")) return OFFICIAL_LOGO_BY_NAME.textplus;
   return null;
 }
 
@@ -189,7 +186,7 @@ function PlatformLogo({
       ) : (
         <div className="w-full h-full flex items-center justify-center">
           {platform?.svgFallback ?? (
-            <User className="h-4 w-4 text-slate-500" />
+            <Shield className="h-4 w-4 text-slate-500" />
           )}
         </div>
       )}
@@ -404,7 +401,7 @@ function CategoryDropdown({
   productCount,
   onChange,
 }: {
-  categories: typeof PLATFORMS;
+  categories: readonly string[];
   active: string | null;
   productCount: (key: string) => number;
   onChange: (key: string | null) => void;
@@ -420,7 +417,7 @@ function CategoryDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const activePlatform = active ? PLATFORM_MAP[active] : null;
+  const activePlatform = active ? { label: active } : null;
 
   return (
     <div className="relative" ref={ref}>
@@ -458,12 +455,12 @@ function CategoryDropdown({
           </button>
 
           {categories.map((cat) => {
-            const count = productCount(cat.key);
-            const isActive = active === cat.key;
+            const count = productCount(cat);
+            const isActive = active === cat;
             return (
               <button
-                key={cat.key}
-                onClick={() => { onChange(isActive ? null : cat.key); setOpen(false); }}
+                key={cat}
+                onClick={() => { onChange(isActive ? null : cat); setOpen(false); }}
                 className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors border-t border-slate-100 ${
                   isActive
                     ? "bg-primary/8 font-semibold"
@@ -471,7 +468,7 @@ function CategoryDropdown({
                 }`}
                 style={{ color: isActive ? "hsl(var(--primary))" : undefined }}
               >
-                <span className="font-medium">{cat.label.toUpperCase()}</span>
+                <span className="font-medium">{cat.toUpperCase()}</span>
                 <span className="text-[11px] text-slate-400 font-normal">{count}</span>
               </button>
             );
@@ -489,21 +486,22 @@ export default function ProductsPage() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [buyProduct, setBuyProduct] = useState<Product | null>(null);
 
-  const presentKeys = Array.from(new Set(products.map((p) => p.category)));
-  const displayCategories = PLATFORMS.filter((p) => presentKeys.includes(p.key));
+  const productsWithCategory = products.map((p) => ({ ...p, category: normalizeCategory(p.category, p.title) }));
+  const presentKeys = Array.from(new Set(productsWithCategory.map((p) => p.category)));
+  const displayCategories = CATEGORIES.filter((c) => presentKeys.includes(c));
 
   const filteredProducts = activeCategory
-    ? products.filter((p) => p.category === activeCategory)
-    : products;
+    ? productsWithCategory.filter((p) => p.category === activeCategory)
+    : productsWithCategory;
 
-  const activePlatform = activeCategory ? PLATFORM_MAP[activeCategory] : null;
+  const activePlatform = activeCategory ? { label: activeCategory } : null;
 
   // Group products by category for "All" view
-  const grouped: { platform: typeof PLATFORMS[number] | undefined; key: string; items: Product[] }[] = [];
+  const grouped: { platform: { label: string } | undefined; key: string; items: Product[] }[] = [];
   if (!activeCategory) {
     presentKeys.forEach((key) => {
-      const items = products.filter((p) => p.category === key);
-      if (items.length > 0) grouped.push({ key, platform: PLATFORM_MAP[key], items });
+      const items = productsWithCategory.filter((p) => p.category === key);
+      if (items.length > 0) grouped.push({ key, platform: { label: key }, items });
     });
   }
 
@@ -529,9 +527,9 @@ export default function ProductsPage() {
       {/* ── Category dropdown button ─────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
         <CategoryDropdown
-          categories={displayCategories.length > 0 ? displayCategories : PLATFORMS}
+          categories={displayCategories.length > 0 ? displayCategories : CATEGORIES}
           active={activeCategory}
-          productCount={(key) => products.filter((p) => p.category === key).length}
+          productCount={(key) => productsWithCategory.filter((p) => p.category === key).length}
           onChange={setActiveCategory}
         />
         {activeCategory && (

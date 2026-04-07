@@ -75,7 +75,7 @@ const seedProducts: Product[] = [
   {
     id: "65ce3aaa-ab6f-4e6d-ab43-50625dab2646",
     title: "PURE Random Country FACEBOOK | 2007–2024",
-    category: "FB",
+    category: "Social Media",
     price: 1500,
     description: "Aged Facebook account with full profile, friends list, and genuine activity history. Verified email attached.",
     stock: 5,
@@ -92,7 +92,7 @@ const seedProducts: Product[] = [
   {
     id: "prod-2",
     title: "Aged INSTAGRAM Accounts | 2010–2023",
-    category: "IG",
+    category: "Social Media",
     price: 2000,
     description: "Established Instagram account with organic followers and post history. High trust score.",
     stock: 3,
@@ -106,14 +106,14 @@ const seedProducts: Product[] = [
   },
   {
     id: "prod-3",
-    title: "Professional LINKEDIN Accounts | 2012–2022",
-    category: "LI",
+    title: "Premium NETFLIX Accounts | Ready to Stream",
+    category: "Streaming",
     price: 5000,
-    description: "Professional LinkedIn profile with 500+ connections, endorsements, and work history.",
+    description: "Streaming-ready Netflix account logs for immediate access.",
     stock: 2,
     logs: [
-      "li.pro1@gmail.com:LIPass123!:AQP1RTYU...",
-      "li.pro2@yahoo.com:LIPass456#:BRP2UIOP...",
+      "netflix.user1@gmail.com:NFPass123!:RecoveryMail1",
+      "netflix.user2@yahoo.com:NFPass456#:RecoveryMail2",
     ],
     createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
     logo_url: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg?v=2",

@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import LandingPage from "./app/page";
 import AuthPage from "./pages/AuthPage";
 import DashboardLayout from "./components/DashboardLayout";
-import DashboardHome from "./app/dashboard/page";
+import DashboardHome from "./pages/DashboardHome";
 import ProductsPage from "./pages/ProductsPage";
 import OrdersPage from "./pages/OrdersPage";
 import PaymentsPage from "./pages/PaymentsPage";
