@@ -89,79 +89,112 @@ Deno.serve(async (req: Request) => {
     { ...payload, callbackUrl: payload.callback_url },
   ];
 
-  let pocketFiRes: Response | null = null;
-  let rawText = "";
+  // PocketFi may reject `Bearer <secret>` with "Invalid JWT" if the key is not a JWT.
+  // Try several header combinations (dashboard keys differ: API key vs secret vs token).
+  const authStrategies: { name: string; headers: Record<string, string> }[] = [
+    { name: "x-api-key only", headers: { "Content-Type": "application/json", "x-api-key": secretKey } },
+    {
+      name: "Bearer + x-api-key",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${secretKey}`,
+        "x-api-key": secretKey,
+      },
+    },
+    {
+      name: "Bearer only",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secretKey}` },
+    },
+    {
+      name: "Authorization raw (no Bearer)",
+      headers: { "Content-Type": "application/json", "Authorization": secretKey },
+    },
+  ];
+
+  const extractCheckoutUrl = (j: Record<string, unknown>): string | undefined => {
+    const data = (j?.data ?? {}) as Record<string, unknown>;
+    return (
+      (data.authorization_url as string | undefined) ??
+      (data.checkout_url as string | undefined) ??
+      (data.payment_url as string | undefined) ??
+      (data.url as string | undefined) ??
+      (j.authorization_url as string | undefined) ??
+      (j.checkout_url as string | undefined)
+    );
+  };
+
   let lastNetworkError = "";
+  let lastNon404Error = "";
+  let saw404Only = true;
 
   for (const endpoint of candidateEndpoints) {
     for (const bodyCandidate of candidatePayloads) {
-      try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${secretKey}`,
-            "x-api-key": secretKey,
-          },
-          body: JSON.stringify(bodyCandidate),
-        });
+      for (const { name, headers } of authStrategies) {
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(bodyCandidate),
+          });
+          const txt = await res.text();
+          console.log(`[pocketfi-init] ${endpoint} [${name}] -> ${res.status}:`, txt);
 
-        const txt = await res.text();
-        console.log(`[pocketfi-init] ${endpoint} -> ${res.status}:`, txt);
+          if (res.status === 404) {
+            continue;
+          }
+          saw404Only = false;
 
-        // 404 means wrong route/signature; try the next endpoint variant.
-        if (res.status === 404) continue;
+          let pocketFiJson: Record<string, unknown> = {};
+          try {
+            pocketFiJson = txt ? (JSON.parse(txt) as Record<string, unknown>) : {};
+          } catch {
+            if (res.ok) {
+              return json({ error: "PocketFi returned non-JSON success body." }, 502);
+            }
+            lastNon404Error = txt.slice(0, 500);
+            continue;
+          }
 
-        pocketFiRes = res;
-        rawText = txt;
-        break;
-      } catch (err) {
-        lastNetworkError = err instanceof Error ? err.message : String(err);
-        console.error(`[pocketfi-init] Network error calling ${endpoint}:`, lastNetworkError);
+          if (res.ok) {
+            const checkoutUrl = extractCheckoutUrl(pocketFiJson);
+            if (checkoutUrl) {
+              console.log("[pocketfi-init] ✓ Checkout URL obtained via", name, checkoutUrl);
+              return json({ checkoutUrl, checkout_url: checkoutUrl });
+            }
+            console.error("[pocketfi-init] OK but no checkout URL:", pocketFiJson);
+            return json({
+              error: "PocketFi did not return a checkout URL. Check Edge Function logs.",
+              raw: pocketFiJson,
+            }, 502);
+          }
+
+          if (res.status === 401 || res.status === 403) {
+            const errMsg = (pocketFiJson?.message ?? pocketFiJson?.error ?? txt) as string;
+            console.warn(`[pocketfi-init] Auth rejected [${name}]:`, errMsg);
+            lastNon404Error = errMsg || txt;
+            continue;
+          }
+
+          const errMsg = (pocketFiJson?.message ?? pocketFiJson?.error ?? txt) as string;
+          return json({ error: `PocketFi error (${res.status}): ${errMsg}` }, 502);
+        } catch (err) {
+          lastNetworkError = err instanceof Error ? err.message : String(err);
+          console.error(`[pocketfi-init] Network error calling ${endpoint}:`, lastNetworkError);
+        }
       }
     }
-    if (pocketFiRes) break;
   }
 
-  if (!pocketFiRes) {
-    if (lastNetworkError) {
-      return json({ error: `Network error reaching PocketFi: ${lastNetworkError}` }, 502);
-    }
+  if (lastNetworkError) {
+    return json({ error: `Network error reaching PocketFi: ${lastNetworkError}` }, 502);
+  }
+  if (saw404Only) {
     return json({ error: "PocketFi endpoint not found (404) on all known initialize routes." }, 502);
   }
-
-  // Parse PocketFi response
-  let pocketFiJson: Record<string, unknown>;
-  try {
-    pocketFiJson = JSON.parse(rawText);
-  } catch {
-    console.error("[pocketfi-init] PocketFi returned non-JSON:", rawText);
-    return json({ error: `PocketFi returned unexpected response (status ${pocketFiRes.status}).` }, 502);
-  }
-
-  if (!pocketFiRes.ok) {
-    const errMsg = (pocketFiJson?.message ?? pocketFiJson?.error ?? rawText) as string;
-    return json({ error: `PocketFi error (${pocketFiRes.status}): ${errMsg}` }, 502);
-  }
-
-  // Extract checkout URL — try all known PocketFi field names
-  const data = (pocketFiJson?.data ?? {}) as Record<string, unknown>;
-  const checkoutUrl =
-    (data.authorization_url as string | undefined) ??
-    (data.checkout_url as string | undefined) ??
-    (data.payment_url as string | undefined) ??
-    (data.url as string | undefined) ??
-    (pocketFiJson.authorization_url as string | undefined) ??
-    (pocketFiJson.checkout_url as string | undefined);
-
-  if (!checkoutUrl) {
-    console.error("[pocketfi-init] No checkout URL in PocketFi response:", pocketFiJson);
-    return json({
-      error: "PocketFi did not return a checkout URL. Check Edge Function logs for the raw response.",
-      raw: pocketFiJson,
-    }, 502);
-  }
-
-  console.log("[pocketfi-init] ✓ Checkout URL obtained:", checkoutUrl);
-  return json({ checkoutUrl });
+  return json({
+    error:
+      "PocketFi rejected the configured secret (often shows as Invalid JWT). " +
+      "In Supabase → Edge Functions → Secrets, set POCKETFI_SECRET_KEY to the exact Secret/API key from the PocketFi dashboard (not the public key). " +
+      `Last message: ${lastNon404Error || "unknown"}`,
+  }, 502);
 });

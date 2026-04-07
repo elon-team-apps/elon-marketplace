@@ -187,6 +187,10 @@ export default function WalletPage() {
           message =
             "Network error calling PocketFi. Confirm `pocketfi-init` is deployed and CORS allows this origin.";
         }
+        if (/invalid jwt/i.test(message) && /pocketfi/i.test(message)) {
+          message =
+            "PocketFi rejected the server secret (often shown as Invalid JWT). Ask admin to set POCKETFI_SECRET_KEY in Supabase Edge Function secrets to the exact key from the PocketFi dashboard.";
+        }
         throw new Error(message);
       }
 
