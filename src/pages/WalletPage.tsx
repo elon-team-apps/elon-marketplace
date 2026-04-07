@@ -137,40 +137,55 @@ export default function WalletPage() {
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
 
-      // Edge Functions with JWT verification require the user's access token (anon key alone → 401).
-      const { data, error } = await supabase.functions.invoke("pocketfi-init", {
-        body: {
+      // Call Edge Function via fetch with BOTH apikey + user JWT. Passing only
+      // Authorization to `functions.invoke` can drop the anon apikey header and
+      // yield 401 + null data at the gateway.
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+      if (!baseUrl || !anonKey) {
+        throw new Error("App configuration error: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.");
+      }
+      const fnUrl = `${baseUrl.replace(/\/$/, "")}/functions/v1/pocketfi-init`;
+      const resp = await fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
           amount: naira,
           email: currentUser.email,
           reference,
           callbackUrl,
-        },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        }),
       });
-      console.log("PocketFi Response:", data);
-      const checkoutUrl = (data?.checkout_url ?? data?.checkoutUrl) as string | undefined;
-      if (error || !checkoutUrl) {
-        let message = error?.message || "Could not initialize PocketFi checkout.";
-        const ctx = error && typeof error === "object" && "context" in error
-          ? (error as { context?: Response }).context
-          : undefined;
-        const http401 = ctx && typeof ctx.status === "number" && ctx.status === 401;
-        if (ctx && typeof ctx.json === "function" && !http401) {
-          try {
-            const body = await ctx.json() as { error?: string; message?: string };
-            if (body?.error) message = body.error;
-            else if (body?.message) message = body.message;
-          } catch {
-            /* keep message */
-          }
-        }
-        if (http401 || /401|unauthorized/i.test(message)) {
-          message = "Session not accepted by server. Sign out, sign in again, then retry.";
-        }
+
+      const rawText = await resp.text();
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+      } catch {
+        payload = { _parseError: rawText };
+      }
+      console.log("PocketFi Response:", { status: resp.status, ok: resp.ok, payload });
+
+      const checkoutUrl =
+        (typeof payload.checkout_url === "string" ? payload.checkout_url : undefined) ??
+        (typeof payload.checkoutUrl === "string" ? payload.checkoutUrl : undefined);
+
+      if (!resp.ok || !checkoutUrl) {
+        const fromBody =
+          (typeof payload.error === "string" && payload.error) ||
+          (typeof payload.message === "string" && payload.message);
+        let message =
+          fromBody ||
+          (resp.status === 401
+            ? "Session not accepted by server. Sign out, sign in again, then retry."
+            : `Could not initialize PocketFi checkout (${resp.status}).`);
         if (/failed to send a request|fetch|load failed/i.test(message)) {
-          throw new Error("PocketFi initialization failed. Confirm `pocketfi-init` is deployed and reachable in Supabase Functions.");
+          message =
+            "Network error calling PocketFi. Confirm `pocketfi-init` is deployed and CORS allows this origin.";
         }
         throw new Error(message);
       }
