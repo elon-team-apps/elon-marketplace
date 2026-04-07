@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Wallet, Loader2, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
@@ -18,6 +17,8 @@ const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
+/** Product / wallet titles & monetary amounts */
+const TEXT_BLACK = "#000000";
 
 /** Accept checkout_url from Edge Function or nested gateway payloads */
 function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
@@ -285,10 +286,11 @@ export default function WalletPage() {
       }
       localStorage.setItem(PENDING_REF_KEY, reference);
 
-      // Handover: `replace` navigates to checkout without pushing a history entry, so Back
-      // from PocketFi returns to the page the user was on before Wallet (not a broken wallet step).
+      // Immediate handover: only `replace` (never assign/href/router) so checkout opens in-tab
+      // without a wallet history entry — Back from PocketFi skips the broken intermediate step.
       const handoverUrl = checkoutUrl.trim();
       window.location.replace(handoverUrl);
+      return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
       const friendly = /load failed|failed to fetch|networkerror/i.test(msg)
@@ -304,7 +306,7 @@ export default function WalletPage() {
     <div className="space-y-6 max-w-2xl">
       {/* Page header */}
       <div>
-          <h1 className="font-heading text-2xl font-bold" style={{ color: "#000000" }}>Wallet</h1>
+          <h1 className="font-heading text-2xl font-bold" style={{ color: TEXT_BLACK }}>Wallet</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Fund your wallet securely with PocketFi.
         </p>
@@ -317,8 +319,8 @@ export default function WalletPage() {
             <Wallet className="h-5 w-5 text-accent" />
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Available Balance</p>
-            <p className="font-heading text-3xl font-bold">
+            <p className="text-sm font-medium" style={{ color: TEXT_BLACK }}>Available Balance</p>
+            <p className="font-heading text-3xl font-bold" style={{ color: TEXT_BLACK }}>
               ₦{(currentUser?.wallet_balance ?? 0).toLocaleString()}
             </p>
           </div>
@@ -332,23 +334,24 @@ export default function WalletPage() {
       )}
 
       <div className="glass-card p-6 space-y-5">
-        <h2 className="font-heading font-semibold text-lg">Fund Wallet with PocketFi</h2>
+        <h2 className="font-heading font-semibold text-lg" style={{ color: TEXT_BLACK }}>Fund Wallet with PocketFi</h2>
         <div>
-          <Label className="mb-2 block">Amount</Label>
+          <Label className="mb-2 block font-medium" style={{ color: TEXT_BLACK }}>Amount</Label>
           <div className="flex flex-wrap gap-2 mb-3">
             {QUICK_AMOUNTS.map((preset) => (
               <button
                 key={preset}
+                type="button"
                 onClick={() => setAmount(preset.toString())}
                 className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150 ${
                   amount === preset.toString()
                     ? "text-white border-transparent"
-                    : "bg-transparent text-muted-foreground border-border hover:border-[#0f172a]/40 hover:text-foreground"
+                    : "bg-transparent border-border hover:border-[#0f172a]/40"
                 }`}
                 style={
                   amount === preset.toString()
                     ? { background: BTN_NAVY }
-                    : undefined
+                    : { color: TEXT_BLACK }
                 }
               >
                 ₦{preset.toLocaleString()}
@@ -363,11 +366,12 @@ export default function WalletPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground mt-1.5">Minimum funding amount: ₦100</p>
+          <p className="text-xs mt-1.5" style={{ color: TEXT_BLACK }}>Minimum funding amount: ₦100</p>
         </div>
         {methods.pocketfi_enabled ? (
-          <Button
-            className="w-full gap-2 text-white hover:opacity-95 border-0"
+          <button
+            type="button"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
             style={{ background: BTN_NAVY }}
             onClick={startPocketFiCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}
@@ -383,7 +387,7 @@ export default function WalletPage() {
                 Continue to PocketFi
               </>
             )}
-          </Button>
+          </button>
         ) : (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             PocketFi is currently disabled by admin.

@@ -5,7 +5,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * Supabase Edge Function (Deno runtime)
  *
  * Secrets (Dashboard → Edge Functions → Secrets):
- *   POCKETFI_SECRET_KEY   — required. Secret / API key from PocketFi.
+ *   POCKETFI_SECRET_KEY   — required. Secret key from PocketFi settings.
+ *   POCKETFI_API_KEY      — optional. If your dashboard shows a separate "API Key" (e.g. id|token),
+ *                           set it here; we try API+secret header combinations.
  *   POCKETFI_INIT_URL     — strongly recommended: exact POST URL PocketFi gave you
  *                           (full https://...). If unset, we guess common paths (often 404).
  */
@@ -62,6 +64,45 @@ function extractCheckoutUrl(j: Record<string, unknown>): string | undefined {
   );
 }
 
+/** Parse JSON even when the gateway wraps it (BOM, whitespace, HTML around JSON). */
+function tryParseLenientJson(txt: string): Record<string, unknown> | null {
+  const trimmed = txt.replace(/^\uFEFF/, "").trim();
+  try {
+    return trimmed ? (JSON.parse(trimmed) as Record<string, unknown>) : {};
+  } catch {
+    /* fall through */
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\\)]+/gi;
+
+/** When PocketFi returns 200 with HTML or plain text, pull the first plausible payment URL. */
+function extractCheckoutUrlFromRawBody(txt: string): string | undefined {
+  const candidates = txt.match(URL_IN_TEXT_RE) ?? [];
+  const score = (u: string) => {
+    const lower = u.toLowerCase();
+    let s = 0;
+    if (/pocketfi|paystack|flutterwave|monnify|checkout|authorize|payment|gateway|transaction/i.test(lower)) s += 5;
+    if (/\.(html?|php)(\?|$)/i.test(lower)) s += 2;
+    if (/^https:\/\//i.test(u)) s += 1;
+    return s;
+  };
+  const cleaned = candidates.map((u) => u.replace(/[,;.]+$/g, ""));
+  cleaned.sort((a, b) => score(b) - score(a));
+  const best = cleaned.find((u) => /^https?:\/\//i.test(u));
+  return best;
+}
+
 Deno.serve(async (req: Request) => {
   try {
     if (req.method === "OPTIONS") {
@@ -100,6 +141,8 @@ Deno.serve(async (req: Request) => {
       console.error("[pocketfi-init] POCKETFI_SECRET_KEY not set.");
       return json({ error: "Payment gateway not configured. Contact support." }, 500);
     }
+
+    const apiKey = Deno.env.get("POCKETFI_API_KEY")?.trim();
 
     let body: { amount: unknown; email: unknown; reference: unknown; callbackUrl: unknown };
     try {
@@ -180,25 +223,38 @@ Deno.serve(async (req: Request) => {
       },
     ];
 
-    const authStrategies: { name: string; headers: Record<string, string> }[] = [
-      { name: "x-api-key only", headers: { "Content-Type": "application/json", "x-api-key": secretKey } },
-      {
-        name: "Bearer + x-api-key",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${secretKey}`,
-          "x-api-key": secretKey,
+    const baseHeaders = { "Content-Type": "application/json" };
+    const authStrategies: { name: string; headers: Record<string, string> }[] = [];
+
+    if (apiKey) {
+      authStrategies.push(
+        {
+          name: "Bearer API key + x-secret-key",
+          headers: { ...baseHeaders, Authorization: `Bearer ${apiKey}`, "x-secret-key": secretKey },
         },
-      },
+        {
+          name: "Bearer secret + x-api-key (dashboard id|token)",
+          headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
+        },
+        {
+          name: "x-api-key (API) + Authorization Bearer (secret)",
+          headers: { ...baseHeaders, "x-api-key": apiKey, Authorization: `Bearer ${secretKey}` },
+        },
+      );
+    }
+
+    authStrategies.push(
+      { name: "x-api-key only (secret)", headers: { ...baseHeaders, "x-api-key": secretKey } },
       {
-        name: "Bearer only",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secretKey}` },
+        name: "Bearer + x-api-key (same secret)",
+        headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": secretKey },
       },
+      { name: "Bearer only (secret)", headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` } },
       {
         name: "Authorization raw (no Bearer)",
-        headers: { "Content-Type": "application/json", "Authorization": secretKey },
+        headers: { ...baseHeaders, Authorization: secretKey },
       },
-    ];
+    );
 
     let lastNetworkError = "";
     let lastNon404Error = "";
@@ -221,19 +277,31 @@ Deno.serve(async (req: Request) => {
             }
             saw404Only = false;
 
-            let pocketFiJson: Record<string, unknown> = {};
-            try {
-              pocketFiJson = txt ? (JSON.parse(txt) as Record<string, unknown>) : {};
-            } catch {
+            const pocketFiJson = txt ? tryParseLenientJson(txt) : {};
+
+            if (!pocketFiJson) {
               if (res.ok) {
-                return json({ error: "PocketFi returned non-JSON success body." }, 502);
+                const fromRaw = extractCheckoutUrlFromRawBody(txt);
+                if (fromRaw) {
+                  console.log("[pocketfi-init] ✓ checkout URL from non-JSON body via", name);
+                  return json({ checkoutUrl: fromRaw, checkout_url: fromRaw });
+                }
+                console.error("[pocketfi-init] OK but body not JSON and no URL found; sample:", txt.slice(0, 400));
+                return json({
+                  error:
+                    "PocketFi returned a non-JSON success response without a recognizable payment URL. " +
+                      "Confirm POCKETFI_INIT_URL matches their docs and set POCKETFI_API_KEY if the dashboard lists a separate API key.",
+                }, 502);
               }
               lastNon404Error = txt.slice(0, 500);
               continue;
             }
 
             if (res.ok) {
-              const checkoutUrl = extractCheckoutUrl(pocketFiJson);
+              let checkoutUrl = extractCheckoutUrl(pocketFiJson);
+              if (!checkoutUrl && txt) {
+                checkoutUrl = extractCheckoutUrlFromRawBody(txt);
+              }
               if (checkoutUrl) {
                 console.log("[pocketfi-init] ✓ checkout URL via", name);
                 return json({ checkoutUrl, checkout_url: checkoutUrl });
