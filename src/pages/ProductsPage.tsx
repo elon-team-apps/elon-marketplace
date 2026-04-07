@@ -289,7 +289,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
           <div>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-white/7">
               <div className="flex items-center gap-3">
-                <PlatformLogo product={product} platform={platform} size={40} />
+                <PlatformLogo product={product} platform={platform} size={35} />
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-tight pr-2 line-clamp-1">{product.title}</h3>
                   <p className="text-[11px] text-slate-500 dark:text-white/40 mt-0.5">{product.stock} available · {platform?.label ?? product.category}</p>
