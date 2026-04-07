@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import logo from "@/assets/logo-transparent.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,6 @@ import { ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 const AuthPage = () => {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<"signin" | "signup">(
     searchParams.get("tab") === "signup" ? "signup" : "signin"
@@ -38,7 +37,16 @@ const AuthPage = () => {
     setLoading(false);
 
     if (error) {
-      setMessage({ text: error.message, ok: false });
+      const raw = error.message || "";
+      const normalized = raw.toLowerCase();
+      if (normalized.includes("email not confirmed")) {
+        setMessage({
+          text: "Your email is not confirmed yet. Please check your inbox (and spam folder), verify your account, then sign in.",
+          ok: false,
+        });
+      } else {
+        setMessage({ text: raw, ok: false });
+      }
       return;
     }
 
@@ -64,7 +72,10 @@ const AuthPage = () => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name: name.trim() || email.split("@")[0] } },
+      options: {
+        data: { name: name.trim() || email.split("@")[0] },
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      },
     });
 
     if (error) {
@@ -73,18 +84,15 @@ const AuthPage = () => {
       return;
     }
 
+    setLoading(false);
+    setMessage({
+      text: "Check your email to verify your account before logging in.",
+      ok: true,
+    });
+    setTab("signin");
+    setPassword("");
     if (data.session) {
-      // Email confirmation is disabled — session is live immediately.
-      // onAuthStateChange in AppContext fires SIGNED_IN and calls syncProfile.
-      // Give it a moment to run before redirecting so the profile is ready.
-      await new Promise((r) => setTimeout(r, 800));
-      setLoading(false);
-      navigate("/dashboard");
-    } else {
-      setLoading(false);
-      setMessage({ text: "Account created! Please check your email to confirm, then sign in.", ok: true });
-      setTab("signin");
-      setPassword("");
+      await supabase.auth.signOut();
     }
   };
 
