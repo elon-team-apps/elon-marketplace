@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Wallet,
   ArrowDownLeft,
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
+import { useSearchParams } from "react-router-dom";
 
 // ─── Bank details ─────────────────────────────────────────────────────────────
 const BANK = {
@@ -29,6 +30,7 @@ const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
+  const [searchParams] = useSearchParams();
   const { currentUser } = useApp();
   const { toast } = useToast();
 
@@ -36,8 +38,16 @@ export default function WalletPage() {
   const [note, setNote]               = useState("");
   const [file, setFile]               = useState<File | null>(null);
   const [loading, setLoading]         = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [submitted, setSubmitted]     = useState(false);
   const [submittedAmount, setSubmittedAmount] = useState(0); // captured for WhatsApp link
+
+  useEffect(() => {
+    const qAmount = searchParams.get("amount");
+    if (qAmount && /^\d+$/.test(qAmount)) {
+      setAmount(qAmount);
+    }
+  }, [searchParams]);
 
   // ── Copy account number to clipboard ────────────────────────────────────────
   const copyAccount = () => {
@@ -147,6 +157,59 @@ export default function WalletPage() {
     setAmount("");
     setNote("");
     setFile(null);
+  };
+
+  // ── Start PocketFi checkout ────────────────────────────────────────────────
+  const startPocketFiCheckout = async () => {
+    const naira = parseInt(amount, 10);
+    if (isNaN(naira) || naira < 100) {
+      toast({ title: "Minimum funding amount is ₦100", variant: "destructive" });
+      return;
+    }
+    if (!currentUser?.email) {
+      toast({ title: "Email not ready. Please refresh and try again.", variant: "destructive" });
+      return;
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    if (!supabaseUrl || !supabaseAnon) {
+      toast({ title: "Payment config missing", description: "Supabase env values are missing.", variant: "destructive" });
+      return;
+    }
+
+    setCheckoutLoading(true);
+    try {
+      const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const callbackUrl = `${window.location.origin}/dashboard/wallet`;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/pocketfi-init`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: supabaseAnon,
+          Authorization: `Bearer ${supabaseAnon}`,
+        },
+        body: JSON.stringify({
+          amount: naira,
+          email: currentUser.email,
+          reference,
+          callbackUrl,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({} as { error?: string; checkoutUrl?: string }));
+      if (!res.ok || !data?.checkoutUrl) {
+        throw new Error(data?.error || "Could not initialize PocketFi checkout.");
+      }
+
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
+      toast({ title: "Checkout failed", description: msg, variant: "destructive" });
+    } finally {
+      setCheckoutLoading(false);
+    }
   };
 
   return (
@@ -360,6 +423,25 @@ export default function WalletPage() {
 
           <Button
             className="w-full gap-2 bg-accent text-accent-foreground hover:bg-accent/90"
+            onClick={startPocketFiCheckout}
+            disabled={checkoutLoading || !amount || parseInt(amount) < 100}
+          >
+            {checkoutLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Redirecting to PocketFi…
+              </>
+            ) : (
+              <>
+                <Wallet className="h-4 w-4" />
+                Pay with PocketFi
+              </>
+            )}
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full gap-2"
             onClick={handleSubmit}
             disabled={loading || !amount || parseInt(amount) < 100 || !file}
           >

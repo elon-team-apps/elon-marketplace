@@ -217,6 +217,9 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
       const result = await purchaseProduct(product.id);
       if (!result.success) {
         setPurchaseState({ phase: "error", message: result.message });
+        if (result.message.toLowerCase().includes("out of stock")) {
+          setQty(1);
+        }
         setPurchasing(false);
         return;
       }
@@ -362,15 +365,15 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               {!canAfford && product.stock > 0 && (
                 <p className="text-xs text-slate-400 dark:text-white/35 text-center">
                   Need ₦{(total - balance).toLocaleString()} more.{" "}
-                  <Link to="/dashboard/wallet" onClick={onClose} className="text-primary dark:text-emerald-400 underline underline-offset-2">
-                    Top up wallet →
+                  <Link to={`/dashboard/wallet?amount=${Math.max(100, total - balance)}`} onClick={onClose} className="text-primary dark:text-emerald-400 underline underline-offset-2">
+                    Fund with PocketFi →
                   </Link>
                 </p>
               )}
 
               <button
                 onClick={handlePurchase}
-                disabled={product.stock === 0 || purchasing || !canAfford}
+                disabled={product.stock === 0 || purchasing || !canAfford || purchaseState.phase === "error" && purchaseState.message.toLowerCase().includes("out of stock")}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed bg-primary hover:bg-primary/90"
                 style={{ boxShadow: (!purchasing && canAfford) ? "0 4px 14px rgba(17,32,112,0.3)" : "none" }}
               >
