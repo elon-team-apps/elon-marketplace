@@ -90,12 +90,19 @@ const AuthPage = () => {
       return;
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password.trim();
+    if (!normalizedEmail.includes("@")) {
+      setMessage({ text: "Please enter a valid email address.", ok: false });
+      return;
+    }
+
     setLoading(true);
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
-        data: { name: name.trim() || email.split("@")[0] },
+        data: { name: name.trim() || normalizedEmail.split("@")[0] },
         emailRedirectTo: `${window.location.origin}/dashboard`,
       },
     });
@@ -106,16 +113,30 @@ const AuthPage = () => {
       return;
     }
 
+    // If email confirmation is disabled in Supabase, session is available immediately.
+    if (data.session) {
+      setLoading(false);
+      navigate("/dashboard");
+      return;
+    }
+
+    // Fallback: try immediate sign-in so UX stays smooth even if signUp does not return session.
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: normalizedPassword,
+    });
     setLoading(false);
+    if (!signInError) {
+      navigate("/dashboard");
+      return;
+    }
+
     setMessage({
-      text: "Check your email to verify your account before logging in.",
+      text: "Account created, but automatic login failed. Please sign in now.",
       ok: true,
     });
     setTab("signin");
     setPassword("");
-    if (data.session) {
-      await supabase.auth.signOut();
-    }
   };
 
   return (
