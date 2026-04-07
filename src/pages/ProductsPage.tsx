@@ -5,9 +5,21 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
-import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
+const LOGO_MAP: Record<string, string> = {
+  HMA: "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg",
+  NORD: "https://upload.wikimedia.org/wikipedia/commons/f/f9/NordVPN_Logo.png",
+  EXPRESS: "https://upload.wikimedia.org/wikipedia/commons/7/7a/ExpressVPN_logo.png",
+  NETFLIX: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Netflix-new-icon.png",
+  TALKATONE: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png",
+};
+
+function getMappedLogoFromTitle(title: string) {
+  const upper = (title || "").toUpperCase();
+  const key = Object.keys(LOGO_MAP).find((k) => upper.includes(k));
+  return key ? LOGO_MAP[key] : null;
+}
 
 function normalizeCategory(raw: string, title: string) {
   const category = (raw || "").toLowerCase();
@@ -158,15 +170,16 @@ function PlatformLogo({
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const dim = `${size}px`;
-  // Prefer DB image_url / logo_url, then title-mapped official URL, then category default.
-  const src = product.logo_url || product.image_url || resolveLogoUrlFromTitle(product.title) || platform?.logoUrl || null;
+  const mappedSrc = getMappedLogoFromTitle(product.title);
+  const src = mappedSrc || null;
 
   return (
     <div
-      className="rounded-lg overflow-hidden flex items-center justify-center shrink-0 bg-white"
+      className="rounded-lg overflow-hidden flex items-center justify-center shrink-0"
       style={{
         width: dim,
         height: dim,
+        background: "#f8f9fa",
         border: `1.5px solid ${platform?.color ?? "#ccc"}30`,
         padding: 2,
       }}
@@ -180,9 +193,7 @@ function PlatformLogo({
         />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
-          {platform?.svgFallback ?? (
-            <Shield className="h-4 w-4 text-slate-500" />
-          )}
+          <Shield className="h-4 w-4 text-slate-500" />
         </div>
       )}
     </div>
