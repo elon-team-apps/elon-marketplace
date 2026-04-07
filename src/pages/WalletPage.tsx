@@ -99,7 +99,9 @@ export default function WalletPage() {
 
   // ── Start PocketFi checkout ────────────────────────────────────────────────
   const startPocketFiCheckout = async () => {
-    const naira = parseInt(amount, 10);
+    if (checkoutLoading) return;
+    const numeric = Number(amount);
+    const naira = Math.trunc(numeric);
     if (isNaN(naira) || naira < 100) {
       toast({ title: "Minimum funding amount is ₦100", variant: "destructive" });
       return;
@@ -115,11 +117,12 @@ export default function WalletPage() {
 
     setCheckoutLoading(true);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+      const supabaseUrlRaw = import.meta.env.VITE_SUPABASE_URL as string | undefined;
       const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-      if (!supabaseUrl || !supabaseAnon) {
+      if (!supabaseUrlRaw || !supabaseAnon) {
         throw new Error("Supabase env is missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
       }
+      const supabaseUrl = supabaseUrlRaw.replace(/\/+$/, "");
 
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
@@ -181,7 +184,10 @@ export default function WalletPage() {
       window.location.href = checkoutUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
-      toast({ title: "Checkout failed", description: msg, variant: "destructive" });
+      const friendly = /load failed|failed to fetch|networkerror/i.test(msg)
+        ? "Network request failed while contacting PocketFi. Please check your internet and ensure `pocketfi-init` is deployed."
+        : msg;
+      toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {
       setCheckoutLoading(false);
     }

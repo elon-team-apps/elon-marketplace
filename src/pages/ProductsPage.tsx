@@ -631,31 +631,21 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
   const stockLow = p.stock > 0 && p.stock <= 5;
 
   return (
-    <div className="product-card-force-black flex flex-col rounded-xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+    <div className="flex flex-col rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
       {/* Thin brand accent bar at top */}
-      <div className="h-[3px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
+      <div className="h-[2px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
 
-      <div className="flex flex-col flex-1 p-4 gap-2">
+      <div className="flex flex-col flex-1 p-3.5 gap-1.5">
         {/* Branded logo + title */}
-        <div className="flex items-center gap-2">
-          <PlatformLogo product={p} platform={platform} size={35} />
-          <h3 className="font-extrabold text-black text-sm leading-snug flex-1 min-w-0">
+        <div className="flex items-center gap-2.5">
+          <PlatformLogo product={p} platform={platform} size={30} />
+          <h3 className="font-extrabold text-black text-[12px] leading-tight flex-1 min-w-0 line-clamp-2">
             {p.title}
           </h3>
         </div>
 
-        <p className="text-xs font-semibold text-[#111111]">
-          {p.category}
-        </p>
-
-        {p.description ? (
-          <p className="text-xs text-[#111111] line-clamp-2">
-            {p.description}
-          </p>
-        ) : null}
-
         {/* Stock line */}
-        <p className="text-xs text-gray-950">
+        <p className="text-[11px] text-black leading-tight">
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
@@ -666,9 +656,9 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         </p>
 
         {/* Price */}
-        <p className="text-xs text-gray-950">
+        <p className="text-[11px] text-black leading-tight">
           Per Quantity:{" "}
-          <span className="font-bold text-gray-950">
+          <span className="font-bold text-black">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
@@ -680,10 +670,12 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         <button
           onClick={() => onBuy(p)}
           disabled={p.stock === 0}
-          className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-sm font-bold text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed bg-green-600 hover:bg-green-700"
-          style={p.stock === 0 ? { background: "#94a3b8" } : undefined}
+          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: p.stock === 0 ? "#94a3b8" : "#112070",
+          }}
         >
-          <ShoppingCart className="h-3.5 w-3.5 shrink-0" />
+          <ShoppingCart className="h-3 w-3 shrink-0" />
           {p.stock === 0 ? "Sold Out" : "Purchase"}
         </button>
       </div>
