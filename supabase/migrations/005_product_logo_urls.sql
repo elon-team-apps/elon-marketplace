@@ -29,7 +29,15 @@ SET logo_url = 'https://static.wikia.nocookie.net/logopedia/images/4/40/Talkaton
 WHERE title ILIKE '%talkatone%';
 
 UPDATE public.products
-SET logo_url = 'https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg?v=2'
-WHERE title ILIKE '%hma%' OR title ILIKE '%hidemyass%' OR title ILIKE '%vpn%';
+SET logo_url = 'https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg'
+WHERE title ILIKE '%hma%' OR title ILIKE '%hidemyass%';
+
+UPDATE public.products
+SET logo_url = 'https://upload.wikimedia.org/wikipedia/commons/f/f9/NordVPN_Logo.png'
+WHERE title ILIKE '%nord%';
+
+UPDATE public.products
+SET logo_url = 'https://upload.wikimedia.org/wikipedia/commons/7/7a/ExpressVPN_logo.png'
+WHERE title ILIKE '%express%';
 
 -- Legacy non-marketplace products intentionally excluded.

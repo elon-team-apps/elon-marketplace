@@ -204,7 +204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Single source of truth for admin status — derived from currentUser.role.
   // Components should use this instead of checking is_admin or role directly.
-  const isAdmin = currentUser.role === "admin";
+  const isAdmin = currentUser.is_admin === true && currentUser.role === "admin";
   const [products, setProducts] = useState<Product[]>(stored?.products ?? seedProducts);
   const [users, setUsers] = useState<User[]>(stored?.users ?? seedUsers);
   const [orders, setOrders] = useState<Order[]>(stored?.orders ?? seedOrders);

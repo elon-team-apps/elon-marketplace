@@ -28,7 +28,7 @@ function inferPlatformKey(title: string) {
   if (lower.includes("youtube")) return "YT";
   if (lower.includes("telegram")) return "TW";
   if (lower.includes("netflix")) return "YT";
-  if (lower.includes("hma") || lower.includes("vpn")) return "LI";
+  if (lower.includes("hma") || lower.includes("nord") || lower.includes("express") || lower.includes("vpn")) return "";
   return "";
 }
 

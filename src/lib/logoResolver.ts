@@ -1,27 +1,31 @@
 const SMART_LOGOS: Array<{ test: RegExp; logoUrl: string }> = [
   {
     test: /netflix/i,
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/512px-Netflix_2015_logo.svg.png?v=3",
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/512px-Netflix_2015_logo.svg.png",
   },
   {
     test: /\b(hma|hidemyass)\b/i,
-    logoUrl: "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.png?v=3",
+    logoUrl: "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg",
   },
   {
     test: /nord|nordvpn/i,
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/NordVPN_Logo.svg/512px-NordVPN_Logo.svg.png?v=3",
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/f/f9/NordVPN_Logo.png",
+  },
+  {
+    test: /express|expressvpn/i,
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/7/7a/ExpressVPN_logo.png",
   },
   {
     test: /talkatone/i,
-    logoUrl: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png?v=3",
+    logoUrl: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png",
   },
   {
     test: /facebook/i,
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/2021_Facebook_icon.svg/512px-2021_Facebook_icon.svg.png?v=3",
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/2021_Facebook_icon.svg/512px-2021_Facebook_icon.svg.png",
   },
   {
     test: /instagram/i,
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Instagram_logo_2016.svg/512px-Instagram_logo_2016.svg.png?v=3",
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Instagram_logo_2016.svg/512px-Instagram_logo_2016.svg.png",
   },
 ];
 
