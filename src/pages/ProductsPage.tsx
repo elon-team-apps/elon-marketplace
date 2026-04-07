@@ -14,10 +14,9 @@ const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
   { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
   { test: /facebook/i, url: "https://cdn.simpleicons.org/facebook/1877f2" },
   { test: /instagram/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
-  { test: /snapchat/i, url: "https://cdn.simpleicons.org/snapchat/fffc00" },
+  { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
   { test: /tiktok/i, url: "https://cdn.simpleicons.org/tiktok/000000" },
   { test: /twitter|\bx\b/i, url: "https://cdn.simpleicons.org/x/000000" },
-  { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
 ];
 
 function getMappedLogoFromTitle(title: string) {
@@ -166,7 +165,7 @@ const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.key, p]));
 function PlatformLogo({
   product,
   platform,
-  size = 40,
+  size = 35,
 }: {
   product: Product;
   platform: (typeof PLATFORMS)[number] | undefined;
@@ -185,7 +184,7 @@ function PlatformLogo({
         height: dim,
         background: "#f8f9fa",
         border: `1.5px solid ${platform?.color ?? "#ccc"}30`,
-        padding: 2,
+        padding: 3,
       }}
     >
       {src && !imgFailed ? (
@@ -629,9 +628,6 @@ function ProductGrid({
 function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Product) => void }) {
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = p.stock > 0 && p.stock <= 5;
-  // Use darkColor override when in dark mode (prevents dark-on-dark invisible text)
-  const isDark = document.documentElement.classList.contains("dark");
-  const priceColor = (isDark && platform?.darkColor) ? platform.darkColor : (platform?.color ?? "hsl(var(--primary))");
 
   return (
     <div className="flex flex-col rounded-xl overflow-hidden bg-white dark:bg-white/3 border border-slate-200 dark:border-white/8 shadow-sm hover:shadow-md transition-shadow duration-200">
@@ -639,16 +635,16 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
       <div className="h-[3px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
 
       <div className="flex flex-col flex-1 p-4 gap-2">
-        {/* Small logo (24px) + bold title — compact & clean */}
+        {/* Branded logo + title */}
         <div className="flex items-center gap-2">
-          <PlatformLogo product={p} platform={platform} size={32} />
-          <h3 className="font-bold text-black dark:text-black text-sm leading-snug flex-1 min-w-0">
+          <PlatformLogo product={p} platform={platform} size={35} />
+          <h3 className="font-bold text-[#000000] text-sm leading-snug flex-1 min-w-0">
             {p.title}
           </h3>
         </div>
 
         {/* Stock line */}
-        <p className="text-xs text-black dark:text-black">
+        <p className="text-xs text-[#1a1a1a]">
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
@@ -659,9 +655,9 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         </p>
 
         {/* Price */}
-        <p className="text-xs text-black dark:text-black">
+        <p className="text-xs text-[#1a1a1a]">
           Per Quantity:{" "}
-          <span className="font-bold text-black dark:text-black">
+          <span className="font-bold text-[#000000]">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
@@ -673,12 +669,8 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         <button
           onClick={() => onBuy(p)}
           disabled={p.stock === 0}
-          className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-sm font-bold text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            background: p.stock === 0
-              ? "#94a3b8"
-              : (isDark ? "#047857" : "#334155"),
-          }}
+          className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-sm font-bold text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed bg-green-600 hover:bg-green-700"
+          style={p.stock === 0 ? { background: "#94a3b8" } : undefined}
         >
           <ShoppingCart className="h-3.5 w-3.5 shrink-0" />
           {p.stock === 0 ? "Sold Out" : "Purchase"}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   TrendingUp, Users, Package, ShoppingCart, ArrowUpRight,
-  Crown, Loader2, RefreshCw, Plus, Minus, Search,
+  Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -17,6 +17,11 @@ type Profile = {
   wallet_balance: number;
   role: string;
   created_at: string;
+};
+
+type PaymentMethodSettings = {
+  pocketfi_enabled: boolean;
+  manual_enabled: boolean;
 };
 
 // ── UsersTable ─────────────────────────────────────────────────────────────
@@ -288,6 +293,12 @@ function UsersTable() {
 
 export default function AdminDashboard() {
   const { products, users, orders } = useApp();
+  const { toast } = useToast();
+  const [pmSettings, setPmSettings] = useState<PaymentMethodSettings>({
+    pocketfi_enabled: true,
+    manual_enabled: false,
+  });
+  const [pmLoading, setPmLoading] = useState(false);
 
   const totalRevenue = orders.reduce((sum, o) => sum + o.amount, 0);
   const totalLogsSold = orders.length;
@@ -329,6 +340,37 @@ export default function AdminDashboard() {
     },
   ];
 
+  const fetchPaymentSettings = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("payment_method_settings")
+      .select("pocketfi_enabled, manual_enabled")
+      .eq("id", 1)
+      .maybeSingle();
+    if (!error && data) setPmSettings(data as PaymentMethodSettings);
+  }, []);
+
+  useEffect(() => {
+    fetchPaymentSettings();
+  }, [fetchPaymentSettings]);
+
+  const togglePaymentMethod = async (field: "pocketfi_enabled" | "manual_enabled") => {
+    if (!supabase) return;
+    setPmLoading(true);
+    const next = { ...pmSettings, [field]: !pmSettings[field] };
+    const { error } = await supabase
+      .from("payment_method_settings")
+      .update(next)
+      .eq("id", 1);
+    if (error) {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+      setPmLoading(false);
+      return;
+    }
+    setPmSettings(next);
+    setPmLoading(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -352,6 +394,35 @@ export default function AdminDashboard() {
             <p className="text-xs text-muted-foreground/60 mt-1">{s.change}</p>
           </div>
         ))}
+      </div>
+
+      <div className="glass-card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-accent" />
+          <h2 className="font-heading font-semibold text-sm text-foreground">Payment Methods</h2>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <button
+            onClick={() => togglePaymentMethod("pocketfi_enabled")}
+            disabled={pmLoading}
+            className={`rounded-lg border px-4 py-3 text-left transition ${
+              pmSettings.pocketfi_enabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
+            }`}
+          >
+            <p className="text-sm font-semibold">PocketFi</p>
+            <p className="text-xs mt-1">{pmSettings.pocketfi_enabled ? "Enabled" : "Disabled"}</p>
+          </button>
+          <button
+            onClick={() => togglePaymentMethod("manual_enabled")}
+            disabled={pmLoading}
+            className={`rounded-lg border px-4 py-3 text-left transition ${
+              pmSettings.manual_enabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
+            }`}
+          >
+            <p className="text-sm font-semibold">Manual Transfer</p>
+            <p className="text-xs mt-1">{pmSettings.manual_enabled ? "Enabled" : "Disabled"}</p>
+          </button>
+        </div>
       </div>
 
       {/* ── Live Users Table ─────────────────────────────────────────────── */}
