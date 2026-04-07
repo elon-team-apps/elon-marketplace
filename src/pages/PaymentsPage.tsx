@@ -5,6 +5,8 @@ import { useApp } from "@/context/AppContext";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type Deposit = {
   id: string;
   amount: number;
@@ -25,7 +27,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!supabase || !currentUser?.id) return;
+    if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
     setLoading(true);
     supabase
       .from("transactions")

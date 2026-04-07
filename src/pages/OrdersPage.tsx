@@ -15,6 +15,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ─── Category colour map (matches ProductsPage) ───────────────────────────────
 const CATEGORY_STYLE: Record<string, string> = {
   FB:       "bg-blue-500/10 text-blue-400",
@@ -50,7 +52,7 @@ function CredentialModal({
   useEffect(() => {
     if (credentials || !supabase) return;
     const logId = (order as { log_id?: string }).log_id;
-    if (!logId) return;
+    if (!logId || !UUID_REGEX.test(logId)) return;
 
     setFetching(true);
     supabase
@@ -266,7 +268,7 @@ export default function OrdersPage() {
 
   // When Supabase is available, fetch from log_items (buyer_id) joined with products
   useEffect(() => {
-    if (!supabase || !currentUser?.id) return;
+    if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
     setLoadingDb(true);
     supabase
       .from("log_items")

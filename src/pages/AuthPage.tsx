@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import logo from "@/assets/logo-transparent.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 const AuthPage = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"signin" | "signup">(
     searchParams.get("tab") === "signup" ? "signup" : "signin"
   );
@@ -32,8 +33,22 @@ const AuthPage = () => {
       return;
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password.trim();
+    if (!normalizedEmail.includes("@")) {
+      setMessage({ text: "Please enter a valid email address.", ok: false });
+      return;
+    }
+    if (!normalizedPassword) {
+      setMessage({ text: "Password is required.", ok: false });
+      return;
+    }
+
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: normalizedPassword,
+    });
     setLoading(false);
 
     if (error) {
@@ -44,6 +59,13 @@ const AuthPage = () => {
           text: "Your email is not confirmed yet. Please check your inbox (and spam folder), verify your account, then sign in.",
           ok: false,
         });
+      } else if (normalized.includes("invalid login credentials")) {
+        setMessage({
+          text: "Invalid email or password for this project. If you copied a new Supabase URL/key, your account may exist in a different project.",
+          ok: false,
+        });
+      } else if (normalized.includes("invalid email")) {
+        setMessage({ text: "The email format is invalid.", ok: false });
       } else {
         setMessage({ text: raw, ok: false });
       }

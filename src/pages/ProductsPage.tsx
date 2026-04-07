@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   X, Eye, ShoppingCart, CheckCircle, AlertCircle, Loader2,
   Minus, Plus, Wallet, ChevronDown, ChevronUp, LayoutGrid,
+  User,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
@@ -23,7 +24,7 @@ const PLATFORMS: {
     label: "Facebook",
     color: "#1877F2",
     glow: "rgba(24,119,242,0.3)",
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg",
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg?v=2",
     svgFallback: (
       <svg viewBox="0 0 24 24" fill="#1877F2" className="w-full h-full">
         <path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.514c-1.491 0-1.956.93-1.956 1.886v2.267h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/>
@@ -35,7 +36,7 @@ const PLATFORMS: {
     label: "Instagram",
     color: "#E1306C",
     glow: "rgba(225,48,108,0.3)",
-    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg",
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg?v=2",
     svgFallback: (
       <svg viewBox="0 0 24 24" className="w-full h-full">
         <defs>
@@ -109,7 +110,7 @@ const PLATFORMS: {
     label: "TextPlus",
     color: "#10b981",
     glow: "rgba(16,185,129,0.3)",
-    logoUrl: null,
+    logoUrl: "https://upload.wikimedia.org/wikipedia/commons/c/c5/Text%2B_Logo.png?v=2",
     svgFallback: (
       <span className="font-black text-lg leading-none" style={{ color: "#10b981", letterSpacing: "-0.05em" }}>T+</span>
     ),
@@ -130,6 +131,28 @@ const PLATFORMS: {
 
 const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.key, p]));
 
+const OFFICIAL_LOGO_BY_NAME: Record<string, string> = {
+  netflix: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg?v=2",
+  instagram: "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg?v=2",
+  facebook: "https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg?v=2",
+  telegram: "https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg?v=2",
+  talkatone: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png?v=2",
+  "hma vpn": "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg?v=2",
+  textplus: "https://upload.wikimedia.org/wikipedia/commons/c/c5/Text%2B_Logo.png?v=2",
+};
+
+function getOfficialLogoFromTitle(title: string) {
+  const lower = title.toLowerCase();
+  if (lower.includes("hma") || lower.includes("hidemyass") || lower.includes("vpn")) return OFFICIAL_LOGO_BY_NAME["hma vpn"];
+  if (lower.includes("talkatone")) return OFFICIAL_LOGO_BY_NAME.talkatone;
+  if (lower.includes("telegram")) return OFFICIAL_LOGO_BY_NAME.telegram;
+  if (lower.includes("netflix")) return OFFICIAL_LOGO_BY_NAME.netflix;
+  if (lower.includes("instagram")) return OFFICIAL_LOGO_BY_NAME.instagram;
+  if (lower.includes("facebook")) return OFFICIAL_LOGO_BY_NAME.facebook;
+  if (lower.includes("textplus") || lower.includes("text+")) return OFFICIAL_LOGO_BY_NAME.textplus;
+  return null;
+}
+
 // ─── Platform logo component ──────────────────────────────────────────────────
 
 function PlatformLogo({
@@ -143,8 +166,8 @@ function PlatformLogo({
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const dim = `${size}px`;
-  // Prefer DB image_url / logo_url, then CDN logoUrl
-  const src = product.logo_url || product.image_url || platform?.logoUrl || null;
+  // Prefer DB image_url / logo_url, then title-mapped official URL, then category default.
+  const src = product.logo_url || product.image_url || getOfficialLogoFromTitle(product.title) || platform?.logoUrl || null;
 
   return (
     <div
@@ -166,7 +189,7 @@ function PlatformLogo({
       ) : (
         <div className="w-full h-full flex items-center justify-center">
           {platform?.svgFallback ?? (
-            <span className="text-xs font-bold text-slate-600">{product.category.slice(0, 2)}</span>
+            <User className="h-4 w-4 text-slate-500" />
           )}
         </div>
       )}

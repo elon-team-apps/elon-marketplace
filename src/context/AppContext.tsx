@@ -56,6 +56,7 @@ interface AppContextType {
 }
 
 const STORAGE_KEY = "elon_marketplace_v2";
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Neutral placeholder shown while the Supabase profile fetch is in-flight.
 // is_admin is always false here — it is ONLY set to true after syncProfile()
@@ -86,6 +87,7 @@ const seedProducts: Product[] = [
       "charlie.davis@outlook.com:Pass345^:EUF2QWER...",
     ],
     createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
+    logo_url: "https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg?v=2",
   },
   {
     id: "prod-2",
@@ -100,6 +102,7 @@ const seedProducts: Product[] = [
       "ig.user3@hotmail.com:IGPass789$:CSY9ASDF...",
     ],
     createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+    logo_url: "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg?v=2",
   },
   {
     id: "prod-3",
@@ -113,6 +116,7 @@ const seedProducts: Product[] = [
       "li.pro2@yahoo.com:LIPass456#:BRP2UIOP...",
     ],
     createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+    logo_url: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg?v=2",
   },
 ];
 
@@ -215,6 +219,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   const syncProfile = useCallback(async (authUser: { id: string; email?: string }) => {
+    if (!authUser?.id || !UUID_REGEX.test(authUser.id)) {
+      console.warn("[AppContext] syncProfile skipped: invalid auth user id.", authUser?.id);
+      setProfileLoaded(true);
+      return;
+    }
+
     const fallbackName = authUser.email?.split("@")[0] ?? "User";
     console.log("[AppContext] syncProfile start — uid:", authUser.id, "email:", authUser.email);
 
@@ -443,9 +453,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const purchaseProduct = async (productId: string): Promise<{ success: boolean; deliveredLog?: string; message: string }> => {
     // ── Supabase path: atomic purchase via SECURITY DEFINER function ──────────
     if (supabase && currentUser?.id) {
+      if (!UUID_REGEX.test(currentUser.id)) {
+        return { success: false, message: "Your session is still loading. Please wait a moment and try again." };
+      }
       // Guard: reject non-UUID product IDs immediately with a clear message
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(productId)) {
+      if (!UUID_REGEX.test(productId)) {
         console.error("[DEBUG] Invalid product ID — not a UUID:", productId, "| Clearing stale cache.");
         // Wipe cached products so the correct DB rows load on next render
         localStorage.removeItem("elon_marketplace_v2");
