@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Pencil, Trash2, X, Save, ChevronDown, Upload, PackagePlus, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
+import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -338,6 +339,7 @@ export default function AdminProducts() {
       return;
     }
     const logs = parseLines(form.logsText);
+    const autoLogoUrl = resolveLogoUrlFromTitle(form.title.trim());
 
     if (isEditing) {
       updateProduct(editingId, {
@@ -347,6 +349,7 @@ export default function AdminProducts() {
         description: form.description.trim(),
         logs,
         stock: logs.length,
+        logo_url: autoLogoUrl,
       });
       toast({ title: "Product updated", description: `${logs.length} logs in inventory.` });
     } else {
@@ -357,6 +360,7 @@ export default function AdminProducts() {
         description: form.description.trim(),
         logs,
         stock: logs.length,
+        logo_url: autoLogoUrl,
       });
       toast({ title: "Product added", description: `${logs.length} logs uploaded to inventory.` });
     }

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
+import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
 
@@ -144,26 +145,6 @@ const PLATFORMS: {
 
 const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.key, p]));
 
-const OFFICIAL_LOGO_BY_NAME: Record<string, string> = {
-  netflix: "https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg?v=2",
-  instagram: "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg?v=2",
-  facebook: "https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg?v=2",
-  telegram: "https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg?v=2",
-  talkatone: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png?v=2",
-  "hma vpn": "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg?v=2",
-};
-
-function getOfficialLogoFromTitle(title: string) {
-  const lower = title.toLowerCase();
-  if (lower.includes("hma") || lower.includes("hidemyass") || lower.includes("vpn")) return OFFICIAL_LOGO_BY_NAME["hma vpn"];
-  if (lower.includes("talkatone")) return OFFICIAL_LOGO_BY_NAME.talkatone;
-  if (lower.includes("telegram")) return OFFICIAL_LOGO_BY_NAME.telegram;
-  if (lower.includes("netflix")) return OFFICIAL_LOGO_BY_NAME.netflix;
-  if (lower.includes("instagram")) return OFFICIAL_LOGO_BY_NAME.instagram;
-  if (lower.includes("facebook")) return OFFICIAL_LOGO_BY_NAME.facebook;
-  return null;
-}
-
 // ─── Platform logo component ──────────────────────────────────────────────────
 
 function PlatformLogo({
@@ -178,7 +159,7 @@ function PlatformLogo({
   const [imgFailed, setImgFailed] = useState(false);
   const dim = `${size}px`;
   // Prefer DB image_url / logo_url, then title-mapped official URL, then category default.
-  const src = product.logo_url || product.image_url || getOfficialLogoFromTitle(product.title) || platform?.logoUrl || null;
+  const src = product.logo_url || product.image_url || resolveLogoUrlFromTitle(product.title) || platform?.logoUrl || null;
 
   return (
     <div

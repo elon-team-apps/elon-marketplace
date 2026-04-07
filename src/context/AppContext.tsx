@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
 import { toast } from "sonner";
 
 export interface Product {
@@ -436,6 +437,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addProduct = (product: Omit<Product, "id" | "createdAt">) => {
     const newProd: Product = {
       ...product,
+      logo_url: product.logo_url || resolveLogoUrlFromTitle(product.title),
       id: `prod-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
