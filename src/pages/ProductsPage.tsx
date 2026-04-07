@@ -184,7 +184,7 @@ function PlatformLogo({
         width: dim,
         height: dim,
         background: "#f8f9fa",
-        border: `1.5px solid ${platform?.color ?? "#ccc"}30`,
+        border: `1px solid ${platform?.color ?? "#ccc"}30`,
         padding: 3,
       }}
     >
@@ -620,7 +620,7 @@ function ProductGrid({
   onBuy: (p: Product) => void;
 }) {
   return (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
       {products.map((p) => <ProductCard key={p.id} product={p} onBuy={onBuy} />)}
     </div>
   );
@@ -670,7 +670,7 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         <button
           onClick={() => onBuy(p)}
           disabled={p.stock === 0}
-          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-colors duration-150 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
             background: p.stock === 0 ? "#94a3b8" : "#112070",
           }}
