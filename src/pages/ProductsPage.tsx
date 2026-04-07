@@ -1,24 +1,28 @@
 import { useState, useRef, useEffect } from "react";
 import {
   X, Eye, ShoppingCart, CheckCircle, AlertCircle, Loader2,
-  Minus, Plus, Wallet, ChevronDown, ChevronUp, LayoutGrid, Shield,
+  Minus, Plus, Wallet, ChevronDown, ChevronUp, LayoutGrid, Shield, Package,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
-const LOGO_MAP: Record<string, string> = {
-  HMA: "https://www.hidemyass.com/en-us/index/assets/img/hma-logo-color.svg",
-  NORD: "https://upload.wikimedia.org/wikipedia/commons/f/f9/NordVPN_Logo.png",
-  EXPRESS: "https://upload.wikimedia.org/wikipedia/commons/7/7a/ExpressVPN_logo.png",
-  NETFLIX: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Netflix-new-icon.png",
-  TALKATONE: "https://static.wikia.nocookie.net/logopedia/images/4/40/Talkatone_2017.png",
-};
+const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
+  { test: /netflix/i, url: "https://cdn.simpleicons.org/netflix/e50914" },
+  { test: /\b(hma|hidemyass)\b/i, url: "https://cdn.simpleicons.org/hidemyass/ffcc00" },
+  { test: /nord|nordvpn/i, url: "https://cdn.simpleicons.org/nordvpn/0055ff" },
+  { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
+  { test: /facebook/i, url: "https://cdn.simpleicons.org/facebook/1877f2" },
+  { test: /instagram/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
+  { test: /snapchat/i, url: "https://cdn.simpleicons.org/snapchat/fffc00" },
+  { test: /tiktok/i, url: "https://cdn.simpleicons.org/tiktok/000000" },
+  { test: /twitter|\bx\b/i, url: "https://cdn.simpleicons.org/x/000000" },
+  { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
+];
 
 function getMappedLogoFromTitle(title: string) {
-  const upper = (title || "").toUpperCase();
-  const key = Object.keys(LOGO_MAP).find((k) => upper.includes(k));
-  return key ? LOGO_MAP[key] : null;
+  const normalized = (title || "").trim();
+  return BRAND_LOGOS.find((entry) => entry.test.test(normalized))?.url ?? null;
 }
 
 function normalizeCategory(raw: string, title: string) {
@@ -193,7 +197,7 @@ function PlatformLogo({
         />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
-          <Shield className="h-4 w-4 text-slate-500" />
+          <Package className="h-5 w-5 text-slate-700" />
         </div>
       )}
     </div>
@@ -637,14 +641,14 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
       <div className="flex flex-col flex-1 p-4 gap-2">
         {/* Small logo (24px) + bold title — compact & clean */}
         <div className="flex items-center gap-2">
-          <PlatformLogo product={p} platform={platform} size={24} />
-          <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-snug flex-1 min-w-0">
+          <PlatformLogo product={p} platform={platform} size={32} />
+          <h3 className="font-bold text-black dark:text-black text-sm leading-snug flex-1 min-w-0">
             {p.title}
           </h3>
         </div>
 
         {/* Stock line */}
-        <p className="text-xs text-slate-900 dark:text-slate-300">
+        <p className="text-xs text-black dark:text-black">
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
@@ -655,9 +659,9 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         </p>
 
         {/* Price */}
-        <p className="text-xs text-slate-900 dark:text-slate-300">
+        <p className="text-xs text-black dark:text-black">
           Per Quantity:{" "}
-          <span className="font-bold text-slate-900 dark:text-white">
+          <span className="font-bold text-black dark:text-black">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
