@@ -244,3 +244,9 @@
 .float-delay-4   { animation-delay: 2.4s; }
 .float-delay-5   { animation-delay: 3.0s; }
 .float-delay-6   { animation-delay: 3.6s; }
+
+/* Hard override requested: force product card text to pure black */
+.product-card-force-black,
+.product-card-force-black * {
+  color: #000000 !important;
+}

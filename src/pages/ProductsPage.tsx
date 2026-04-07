@@ -12,7 +12,7 @@ const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
   { test: /\b(hma|hidemyass)\b/i, url: "https://cdn.simpleicons.org/hidemyass/ffcc00" },
   { test: /nord|nordvpn/i, url: "https://cdn.simpleicons.org/nordvpn/0055ff" },
   { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
-  { test: /\bfb\s*dating\b|\bfacebook\b|\bfb\b/i, url: "https://cdn.simpleicons.org/facebook/1877f2" },
+  { test: /\bfb\s*dating\b|\bfacebook\b|\bfb\b|\bdating\b/i, url: "https://cdn.simpleicons.org/facebook/1877f2" },
   { test: /\big\b|\binstagram\b/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
   { test: /talkatone/i, url: "https://cdn.simpleicons.org/viber/7360f2" },
   { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
@@ -631,7 +631,7 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
   const stockLow = p.stock > 0 && p.stock <= 5;
 
   return (
-    <div className="flex flex-col rounded-xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+    <div className="product-card-force-black flex flex-col rounded-xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
       {/* Thin brand accent bar at top */}
       <div className="h-[3px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
 
