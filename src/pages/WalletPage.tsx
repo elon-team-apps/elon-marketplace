@@ -17,8 +17,6 @@ const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
-/** Product / wallet titles & monetary amounts */
-const TEXT_BLACK = "#000000";
 
 /** Accept checkout_url from Edge Function or nested gateway payloads */
 function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
@@ -306,8 +304,8 @@ export default function WalletPage() {
     <div className="space-y-6 max-w-2xl">
       {/* Page header */}
       <div>
-          <h1 className="font-heading text-2xl font-bold" style={{ color: TEXT_BLACK }}>Wallet</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="font-heading text-2xl font-bold text-black dark:text-white">Wallet</h1>
+        <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
           Fund your wallet securely with PocketFi.
         </p>
       </div>
@@ -319,8 +317,8 @@ export default function WalletPage() {
             <Wallet className="h-5 w-5 text-accent" />
           </div>
           <div>
-            <p className="text-sm font-medium" style={{ color: TEXT_BLACK }}>Available Balance</p>
-            <p className="font-heading text-3xl font-bold" style={{ color: TEXT_BLACK }}>
+            <p className="text-sm font-medium text-black dark:text-white">Available Balance</p>
+            <p className="font-heading text-3xl font-bold text-black dark:text-white">
               ₦{(currentUser?.wallet_balance ?? 0).toLocaleString()}
             </p>
           </div>
@@ -328,15 +326,17 @@ export default function WalletPage() {
       </div>
 
       {pendingRef && pendingStatus !== "completed" && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100 dark:border-amber-500/35">
           Payment pending verification... we are waiting for PocketFi webhook confirmation.
         </div>
       )}
 
       <div className="glass-card p-6 space-y-5">
-        <h2 className="font-heading font-semibold text-lg" style={{ color: TEXT_BLACK }}>Fund Wallet with PocketFi</h2>
+        <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
+          Fund Wallet with PocketFi
+        </h2>
         <div>
-          <Label className="mb-2 block font-medium" style={{ color: TEXT_BLACK }}>Amount</Label>
+          <Label className="mb-2 block font-medium text-black dark:text-white">Amount</Label>
           <div className="flex flex-wrap gap-2 mb-3">
             {QUICK_AMOUNTS.map((preset) => (
               <button
@@ -345,14 +345,10 @@ export default function WalletPage() {
                 onClick={() => setAmount(preset.toString())}
                 className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150 ${
                   amount === preset.toString()
-                    ? "text-white border-transparent"
-                    : "bg-transparent border-border hover:border-[#0f172a]/40"
+                    ? "border-transparent text-white"
+                    : "bg-transparent text-black dark:text-white border-slate-300 dark:border-gray-700 hover:border-[#0f172a]/60 dark:hover:border-slate-500"
                 }`}
-                style={
-                  amount === preset.toString()
-                    ? { background: BTN_NAVY }
-                    : { color: TEXT_BLACK }
-                }
+                style={amount === preset.toString() ? { background: BTN_NAVY } : undefined}
               >
                 ₦{preset.toLocaleString()}
               </button>
@@ -365,42 +361,45 @@ export default function WalletPage() {
             placeholder="Enter amount e.g. 7500"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
+            className="border-slate-300 text-black placeholder:text-slate-500 dark:border-gray-600 dark:bg-slate-950/80 dark:text-white dark:placeholder:text-slate-400"
           />
-          <p className="text-xs mt-1.5" style={{ color: TEXT_BLACK }}>Minimum funding amount: ₦100</p>
+          <p className="text-xs mt-1.5 text-slate-600 dark:text-slate-300">
+            Minimum funding amount: ₦100
+          </p>
         </div>
         {methods.pocketfi_enabled ? (
           <button
             type="button"
-            className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
             style={{ background: BTN_NAVY }}
             onClick={startPocketFiCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}
           >
             {checkoutLoading ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Redirecting to PocketFi…
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
+                <span className="text-white">Redirecting to PocketFi…</span>
               </>
             ) : (
               <>
-                <Wallet className="h-4 w-4" />
-                Continue to PocketFi
+                <Wallet className="h-4 w-4 shrink-0 text-white" />
+                <span className="text-white">Continue to PocketFi</span>
               </>
             )}
           </button>
         ) : (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 dark:border-amber-500/35">
             PocketFi is currently disabled by admin.
           </div>
         )}
 
         {!methods.manual_enabled && (
-          <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2 text-xs text-slate-300">
+          <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-700 dark:border-gray-600 dark:bg-slate-800/80 dark:text-slate-200">
             Manual transfer is currently disabled by admin.
           </div>
         )}
         {methods.manual_enabled && (
-          <div className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100 dark:border-emerald-500/35">
             Manual transfer is enabled. Contact support for manual funding instructions.
           </div>
         )}
@@ -408,8 +407,8 @@ export default function WalletPage() {
 
       {/* How it works */}
       <div className="glass-card p-6">
-        <h3 className="font-heading font-semibold mb-4 flex items-center gap-2">
-          <Wallet className="h-4 w-4 text-muted-foreground" />
+        <h3 className="font-heading font-semibold mb-4 flex items-center gap-2 text-black dark:text-white">
+          <Wallet className="h-4 w-4 text-slate-500 dark:text-slate-400" />
           How it works
         </h3>
         <ol className="space-y-3">
@@ -419,7 +418,7 @@ export default function WalletPage() {
             "After successful payment, your wallet updates automatically.",
             "Return to products and complete your purchase.",
           ].map((step, i) => (
-            <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
+            <li key={i} className="flex items-start gap-3 text-sm text-slate-600 dark:text-slate-300">
               <span className="flex-shrink-0 h-5 w-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
                 {i + 1}
               </span>
@@ -432,7 +431,7 @@ export default function WalletPage() {
       {/* Warning */}
       <div className="flex items-start gap-3 bg-amber-500/8 border border-amber-500/20 rounded-xl px-5 py-4">
         <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
           Manual receipt uploads are disabled. Use PocketFi for all wallet funding transactions.
         </p>
       </div>
