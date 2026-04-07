@@ -264,6 +264,8 @@ export default function WalletPage() {
           message =
             "PocketFi rejected the server secret. Set POCKETFI_SECRET_KEY in Supabase Edge Function secrets to the exact key from the PocketFi dashboard.";
         }
+        const hint = typeof payload.hint === "string" ? payload.hint.trim() : "";
+        if (hint) message = `${message} ${hint}`;
         throw new Error(message);
       }
 
