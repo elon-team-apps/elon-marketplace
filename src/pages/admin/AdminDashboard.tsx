@@ -396,7 +396,7 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="glass-card p-5 space-y-4">
+      <div id="payment-methods" className="glass-card p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Wallet className="h-4 w-4 text-accent" />
           <h2 className="font-heading font-semibold text-sm text-foreground">Payment Methods</h2>

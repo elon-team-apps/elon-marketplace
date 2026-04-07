@@ -14,6 +14,7 @@ const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
   { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
   { test: /facebook/i, url: "https://cdn.simpleicons.org/facebook/1877f2" },
   { test: /instagram/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
+  { test: /talkatone/i, url: "https://cdn.simpleicons.org/viber/7360f2" },
   { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
   { test: /tiktok/i, url: "https://cdn.simpleicons.org/tiktok/000000" },
   { test: /twitter|\bx\b/i, url: "https://cdn.simpleicons.org/x/000000" },
@@ -630,7 +631,7 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
   const stockLow = p.stock > 0 && p.stock <= 5;
 
   return (
-    <div className="flex flex-col rounded-xl overflow-hidden bg-white dark:bg-white/3 border border-slate-200 dark:border-white/8 shadow-sm hover:shadow-md transition-shadow duration-200">
+    <div className="flex flex-col rounded-xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
       {/* Thin brand accent bar at top */}
       <div className="h-[3px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
 
@@ -638,13 +639,13 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         {/* Branded logo + title */}
         <div className="flex items-center gap-2">
           <PlatformLogo product={p} platform={platform} size={35} />
-          <h3 className="font-bold text-[#000000] text-sm leading-snug flex-1 min-w-0">
+          <h3 className="font-bold text-black text-sm leading-snug flex-1 min-w-0">
             {p.title}
           </h3>
         </div>
 
         {/* Stock line */}
-        <p className="text-xs text-[#1a1a1a]">
+        <p className="text-xs text-gray-900">
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
@@ -655,9 +656,9 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         </p>
 
         {/* Price */}
-        <p className="text-xs text-[#1a1a1a]">
+        <p className="text-xs text-gray-900">
           Per Quantity:{" "}
-          <span className="font-bold text-[#000000]">
+          <span className="font-bold text-black">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>

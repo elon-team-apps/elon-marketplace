@@ -22,6 +22,7 @@ import {
   Moon,
   ToggleLeft,
   ToggleRight,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -39,6 +40,7 @@ const userNav = [
 
 const adminNav = [
   { label: "Analytics",          icon: BarChart3,     path: "/dashboard/admin",            exact: true  },
+  { label: "Payment Methods",    icon: SlidersHorizontal, path: "/dashboard/admin#payment-methods", exact: false },
   { label: "User Management",    icon: Users,         path: "/dashboard/admin/users",      exact: false },
   { label: "Deposit Requests",   icon: Wallet,        path: "/dashboard/admin/deposits",   exact: false },
   { label: "Inventory / Upload", icon: Upload,        path: "/dashboard/admin/products",   exact: false },
