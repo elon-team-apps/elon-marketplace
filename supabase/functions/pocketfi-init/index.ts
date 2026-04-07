@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 /**
  * Elon Marketplace — PocketFi Payment Initializer
  * Supabase Edge Function (Deno runtime)
@@ -17,8 +19,8 @@
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // Allow requests from any origin (Vercel, localhost, etc.).
-// Supabase still enforces JWT verification at the gateway: the browser must send
-// apikey (anon) plus Authorization: Bearer <user access_token> from functions.invoke.
+// Gateway JWT verification is disabled in supabase/config.toml for this function;
+// we validate the caller with auth.getUser() below (same project JWT).
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -42,6 +44,30 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
+
+  // ── Validate signed-in user (gateway verify_jwt is off; we check JWT here) ──
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return json({ error: "Unauthorized: missing session token." }, 401);
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("[pocketfi-init] SUPABASE_URL or SUPABASE_ANON_KEY missing in function env.");
+    return json({ error: "Server configuration error." }, 500);
+  }
+
+  const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+
+  const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
+  if (authErr || !authData.user) {
+    console.error("[pocketfi-init] auth.getUser failed:", authErr?.message);
+    return json({ error: authErr?.message ?? "Invalid or expired session." }, 401);
+  }
+  const authedUser = authData.user;
 
   // ── Validate secret is configured ─────────────────────────────────────────
   const secretKey = Deno.env.get("POCKETFI_SECRET_KEY");
@@ -69,10 +95,16 @@ Deno.serve(async (req: Request) => {
     return json({ error: "amount must be a positive number." }, 400);
   }
 
+  const requestedEmail = String(email).trim().toLowerCase();
+  const sessionEmail = authedUser.email?.trim().toLowerCase() ?? "";
+  if (!sessionEmail || requestedEmail !== sessionEmail) {
+    return json({ error: "Email must match the signed-in account." }, 403);
+  }
+
   // ── Call PocketFi server-side (no CORS issues here) ───────────────────────
   const payload = {
     amount:       amountNumber,     // PocketFi expects Naira, not kobo
-    email:        String(email),
+    email:        authedUser.email ?? String(email),
     reference:    String(reference),
     callback_url: String(callbackUrl),
   };
