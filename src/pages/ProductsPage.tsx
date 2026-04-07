@@ -292,7 +292,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               <div className="flex items-center gap-3">
                 <PlatformLogo product={product} platform={platform} size={35} />
                 <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-tight pr-2 line-clamp-1">{product.title}</h3>
+                  <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1" style={{ color: "#000000" }}>{product.title}</h3>
                   <p className="text-[11px] text-slate-500 dark:text-white/40 mt-0.5">{product.stock} available · {platform?.label ?? product.category}</p>
                 </div>
               </div>
@@ -345,7 +345,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               <div className="rounded-xl p-4 space-y-2.5 bg-slate-50 dark:bg-white/3 border border-slate-200 dark:border-white/7">
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-600 dark:text-slate-400">Unit price</span>
-                  <span className="font-semibold text-slate-900 dark:text-white/80">₦{product.price.toLocaleString()}</span>
+                  <span className="font-semibold" style={{ color: "#000000" }}>₦{product.price.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-600 dark:text-slate-400">Quantity</span>
@@ -353,8 +353,8 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 </div>
                 <div className="border-t border-slate-200 dark:border-white/10 pt-2.5">
                   <div className="flex justify-between items-baseline">
-                    <span className="font-bold text-slate-900 dark:text-white text-sm">Total</span>
-                    <span className="font-extrabold text-xl text-emerald-600 dark:text-emerald-400">
+                    <span className="font-bold text-sm" style={{ color: "#000000" }}>Total</span>
+                    <span className="font-extrabold text-xl" style={{ color: "#000000" }}>
                       ₦{total.toLocaleString()}
                     </span>
                   </div>
@@ -389,8 +389,11 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               <button
                 onClick={handlePurchase}
                 disabled={product.stock === 0 || purchasing || !canAfford || purchaseState.phase === "error" && purchaseState.message.toLowerCase().includes("out of stock")}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed bg-primary hover:bg-primary/90"
-                style={{ boxShadow: (!purchasing && canAfford) ? "0 4px 14px rgba(17,32,112,0.3)" : "none" }}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  background: "#0f172a",
+                  boxShadow: (!purchasing && canAfford) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
+                }}
               >
                 {purchasing ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Processing{qty > 1 ? ` ${qty} accounts` : ""}…</>

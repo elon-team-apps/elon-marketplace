@@ -149,7 +149,8 @@ export default function WalletPage() {
           Authorization: `Bearer ${accessToken}`,
         },
       });
-      const checkoutUrl = data?.checkoutUrl as string | undefined;
+      console.log("PocketFi Response:", data);
+      const checkoutUrl = (data?.checkout_url ?? data?.checkoutUrl) as string | undefined;
       if (error || !checkoutUrl) {
         let message = error?.message || "Could not initialize PocketFi checkout.";
         const ctx = error && typeof error === "object" && "context" in error
@@ -262,7 +263,8 @@ export default function WalletPage() {
         </div>
         {methods.pocketfi_enabled ? (
           <Button
-            className="w-full gap-2 bg-accent text-accent-foreground hover:bg-accent/90"
+            className="w-full gap-2 text-white"
+            style={{ background: "#0f172a" }}
             onClick={startPocketFiCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}
           >
