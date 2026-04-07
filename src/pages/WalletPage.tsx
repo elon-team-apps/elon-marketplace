@@ -4,13 +4,36 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  supabase,
+  supabaseUrl as configuredSupabaseUrl,
+  supabaseAnonKey as configuredAnonKey,
+  supabaseProjectRefFromUrl,
+} from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
 
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "pocketfi_pending_reference";
+
+/** Project ref embedded in Supabase user JWT `iss` — must match VITE_SUPABASE_URL */
+function supabaseProjectRefFromJwt(accessToken: string): string | null {
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4;
+    const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
+    const payload = JSON.parse(atob(padded)) as { iss?: string };
+    const iss = payload.iss;
+    if (!iss) return null;
+    const m = iss.match(/https?:\/\/([^.]+)\.supabase\.co\//);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
@@ -121,53 +144,74 @@ export default function WalletPage() {
       if (!activeUserData.user) {
         throw new Error("No active login session. Please sign in again and retry.");
       }
-
-      let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      let accessToken = sessionData.session?.access_token;
-      if (!accessToken && !sessionError) {
-        const refreshed = await supabase.auth.refreshSession();
-        sessionData = refreshed.data;
-        sessionError = refreshed.error;
-        accessToken = sessionData.session?.access_token;
+      if (activeUserData.user.id !== currentUser.id) {
+        throw new Error("Session mismatch. Refresh the page, then try again.");
       }
-      if (sessionError || !accessToken) {
+
+      const baseUrl = configuredSupabaseUrl;
+      const anonKey = configuredAnonKey;
+      if (!baseUrl || !anonKey) {
+        throw new Error("App configuration error: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.");
+      }
+
+      // Fresh access token — gateway 401 "Invalid JWT" is often an expired session.
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      let accessToken = refreshData.session?.access_token;
+      if (refreshError || !accessToken) {
+        const { data: fallback } = await supabase.auth.getSession();
+        accessToken = fallback.session?.access_token;
+      }
+      if (!accessToken) {
         throw new Error("Your session expired. Please sign out and sign in again, then retry.");
+      }
+
+      const urlRef = supabaseProjectRefFromUrl(baseUrl);
+      const jwtRef = supabaseProjectRefFromJwt(accessToken);
+      if (urlRef && jwtRef && urlRef !== jwtRef) {
+        console.error("[Wallet] JWT vs VITE_SUPABASE_URL project mismatch:", { urlRef, jwtRef });
+        throw new Error(
+          "Your login session does not match this app build (Invalid JWT). Sign out, sign in again, and verify Vercel uses the same Supabase URL + anon key as your project."
+        );
       }
 
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
-
-      // Call Edge Function via fetch with BOTH apikey + user JWT. Passing only
-      // Authorization to `functions.invoke` can drop the anon apikey header and
-      // yield 401 + null data at the gateway.
-      const baseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-      if (!baseUrl || !anonKey) {
-        throw new Error("App configuration error: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.");
-      }
       const fnUrl = `${baseUrl.replace(/\/$/, "")}/functions/v1/pocketfi-init`;
-      const resp = await fetch(fnUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: anonKey,
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          amount: naira,
-          email: currentUser.email,
-          reference,
-          callbackUrl,
-        }),
-      });
 
-      const rawText = await resp.text();
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
-      } catch {
-        payload = { _parseError: rawText };
+      const callPocketFiInit = async (token: string) => {
+        const resp = await fetch(fnUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anonKey,
+            Authorization: `Bearer ${token.trim()}`,
+          },
+          body: JSON.stringify({
+            amount: naira,
+            email: currentUser.email,
+            reference,
+            callbackUrl,
+          }),
+        });
+        const rawText = await resp.text();
+        let payload: Record<string, unknown> = {};
+        try {
+          payload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+        } catch {
+          payload = { _parseError: rawText };
+        }
+        return { resp, payload };
+      };
+
+      let { resp, payload } = await callPocketFiInit(accessToken);
+      if (resp.status === 401) {
+        const { data: again } = await supabase.auth.refreshSession();
+        const t2 = again.session?.access_token;
+        if (t2 && t2 !== accessToken) {
+          ({ resp, payload } = await callPocketFiInit(t2));
+        }
       }
+
       console.log("PocketFi Response:", { status: resp.status, ok: resp.ok, payload });
 
       const checkoutUrl =
@@ -181,15 +225,21 @@ export default function WalletPage() {
         let message =
           fromBody ||
           (resp.status === 401
-            ? "Session not accepted by server. Sign out, sign in again, then retry."
+            ? "Session not accepted by server. Sign out, clear site data for this site, sign in again."
             : `Could not initialize PocketFi checkout (${resp.status}).`);
+        if (resp.status === 401 && /invalid jwt/i.test(String(fromBody ?? ""))) {
+          message =
+            "Supabase rejected your session token (Invalid JWT). Sign out, sign in again. In Vercel, confirm VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY both belong to project " +
+            (urlRef ?? "your Supabase project") +
+            ".";
+        }
         if (/failed to send a request|fetch|load failed/i.test(message)) {
           message =
             "Network error calling PocketFi. Confirm `pocketfi-init` is deployed and CORS allows this origin.";
         }
-        if (/invalid jwt/i.test(message) && /pocketfi/i.test(message)) {
+        if (/invalid jwt/i.test(String(fromBody ?? "")) && /pocketfi error/i.test(String(fromBody ?? ""))) {
           message =
-            "PocketFi rejected the server secret (often shown as Invalid JWT). Ask admin to set POCKETFI_SECRET_KEY in Supabase Edge Function secrets to the exact key from the PocketFi dashboard.";
+            "PocketFi rejected the server secret. Set POCKETFI_SECRET_KEY in Supabase Edge Function secrets to the exact key from the PocketFi dashboard.";
         }
         throw new Error(message);
       }

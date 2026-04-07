@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
@@ -16,6 +16,17 @@ export const supabase =
   supabaseUrl && supabaseAnonKey
     ? createClient(supabaseUrl, supabaseAnonKey)
     : null;
+
+/** First subdomain of *.supabase.co — used to detect JWT vs project URL mismatch */
+export function supabaseProjectRefFromUrl(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    const m = host.match(/^([^.]+)\.supabase\.co$/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Convenience type helpers (generated from our schema) ─────────────────────
 
