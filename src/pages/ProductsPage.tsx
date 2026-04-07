@@ -639,13 +639,13 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         {/* Branded logo + title */}
         <div className="flex items-center gap-2">
           <PlatformLogo product={p} platform={platform} size={35} />
-          <h3 className="font-bold text-black text-sm leading-snug flex-1 min-w-0">
+          <h3 className="font-extrabold text-black text-sm leading-snug flex-1 min-w-0">
             {p.title}
           </h3>
         </div>
 
         {/* Stock line */}
-        <p className="text-xs text-gray-900">
+        <p className="text-xs text-gray-950">
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
@@ -656,9 +656,9 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         </p>
 
         {/* Price */}
-        <p className="text-xs text-gray-900">
+        <p className="text-xs text-gray-950">
           Per Quantity:{" "}
-          <span className="font-bold text-black">
+          <span className="font-bold text-gray-950">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>

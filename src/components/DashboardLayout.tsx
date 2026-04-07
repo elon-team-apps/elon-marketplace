@@ -100,7 +100,7 @@ const DashboardLayout = () => {
   if (!profileLoaded) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
-        <div className="h-10 w-10 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+        <div className="h-10 w-10 rounded-full border-2 border-slate-900 border-t-transparent animate-spin" />
         <p className="text-sm text-muted-foreground font-medium">Loading your account…</p>
       </div>
     );

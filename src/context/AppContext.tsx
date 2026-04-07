@@ -244,7 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let lastError: { message: string; code: string } | null = null;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
-      if (attempt > 1) await new Promise<void>((r) => setTimeout(r, attempt * 800));
+      if (attempt > 1) await new Promise<void>((r) => setTimeout(r, attempt * 250));
 
       const { data, error } = await supabase
         .from("profiles")
