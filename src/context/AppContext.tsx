@@ -9,7 +9,9 @@ export interface Product {
   category: string;
   price: number;
   description: string;
-  stock: number;
+  stock_count: number;
+  // Backward-compat alias while remaining screens migrate.
+  stock?: number;
   logs: string[];
   createdAt: string;
   image_url?: string;
@@ -79,6 +81,7 @@ const seedProducts: Product[] = [
     category: "Social Media",
     price: 1500,
     description: "Aged Facebook account with full profile, friends list, and genuine activity history. Verified email attached.",
+    stock_count: 5,
     stock: 5,
     logs: [
       "john.smith@gmail.com:SecurePass123!:AQVDwERT...",
@@ -96,6 +99,7 @@ const seedProducts: Product[] = [
     category: "Social Media",
     price: 2000,
     description: "Established Instagram account with organic followers and post history. High trust score.",
+    stock_count: 3,
     stock: 3,
     logs: [
       "ig.user1@gmail.com:IGPass123!:AQW7RTYU...",
@@ -111,6 +115,7 @@ const seedProducts: Product[] = [
     category: "Streaming",
     price: 5000,
     description: "Streaming-ready Netflix account logs for immediate access.",
+    stock_count: 2,
     stock: 2,
     logs: [
       "netflix.user1@gmail.com:NFPass123!:RecoveryMail1",
@@ -372,22 +377,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
 
-    const applyRows = (data: Record<string, unknown>[]) => {
+    const applyRows = async (data: Record<string, unknown>[]) => {
+      const baseRows = data.map((row) => ({
+        id:          String(row.id ?? ""),
+        title:       String(row.title ?? ""),
+        category:    String(row.category ?? ""),
+        price:       Number(row.price ?? 0),
+        description: String(row.description ?? ""),
+        stock_count: row.stock_count === null || row.stock_count === undefined
+          ? null
+          : Number(row.stock_count),
+        legacy_stock: Number(row.stock ?? 0),
+        logs:        Array.isArray(row.logs) ? (row.logs as string[]) : [],
+        createdAt:   String(row.created_at ?? ""),
+        image_url:   String(row.image_url ?? ""),
+        logo_url:    String(row.logo_url ?? ""),
+      }));
+
+      const missingCountIds = baseRows
+        .filter((r) => r.stock_count === null)
+        .map((r) => r.id)
+        .filter(Boolean);
+
+      const fallbackCounts: Record<string, number> = {};
+      if (missingCountIds.length > 0) {
+        const { data: logItems, error: logErr } = await supabase!
+          .from("log_items")
+          .select("product_id")
+          .in("product_id", missingCountIds);
+        if (logErr) {
+          console.warn("[AppContext] log_items fallback count error:", logErr.message);
+        } else if (logItems) {
+          for (const item of logItems as Array<{ product_id?: string }>) {
+            const pid = String(item.product_id ?? "");
+            if (!pid) continue;
+            fallbackCounts[pid] = (fallbackCounts[pid] ?? 0) + 1;
+          }
+        }
+      }
+
       setProducts(
-        data.map((row) => ({
-          id:          String(row.id ?? ""),
-          title:       String(row.title ?? ""),
-          category:    String(row.category ?? ""),
-          price:       Number(row.price ?? 0),
-          description: String(row.description ?? ""),
-          stock:       Number(row.stock_count ?? row.stock ?? 0),
-          logs:        Array.isArray(row.logs) ? (row.logs as string[]) : [],
-          // created_at may be absent if the column was not yet added to the table —
-          // fall back to empty string so the app never crashes on a missing column.
-          createdAt:   String(row.created_at ?? ""),
-          image_url:   String(row.image_url ?? ""),
-          logo_url:    String(row.logo_url ?? ""),
-        }))
+        baseRows.map((r) => {
+          const resolvedStock = Math.max(0, Number(
+            r.stock_count ?? fallbackCounts[r.id] ?? r.legacy_stock ?? 0,
+          ));
+          return {
+            id: r.id,
+            title: r.title,
+            category: r.category,
+            price: r.price,
+            description: r.description,
+            stock_count: resolvedStock,
+            stock: resolvedStock,
+            logs: r.logs,
+            createdAt: r.createdAt,
+            image_url: r.image_url,
+            logo_url: r.logo_url,
+          };
+        }),
       );
     };
 
@@ -396,7 +443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .select("*")
       .order("created_at", { ascending: false })
       .then(({ data, error }) => {
-        if (!error && data && data.length > 0) { applyRows(data); return; }
+        if (!error && data && data.length > 0) { void applyRows(data); return; }
 
         if (error) {
           console.warn("[AppContext] Products fetch (ordered) error:", error.message, "— retrying without order.");
@@ -408,7 +455,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .select("*")
           .then(({ data: d2, error: e2 }) => {
             if (e2) { console.warn("[AppContext] Products fetch error:", e2.message); return; }
-            if (d2 && d2.length > 0) applyRows(d2);
+            if (d2 && d2.length > 0) void applyRows(d2);
           });
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -507,7 +554,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (product) {
         setCurrentUser((prev) => ({ ...prev, wallet_balance: prev.wallet_balance - product.price }));
         setProducts((prev) =>
-          prev.map((p) => (p.id === productId ? { ...p, stock: Math.max(0, p.stock - 1) } : p))
+          prev.map((p) => {
+            if (p.id !== productId) return p;
+            const nextStock = Math.max(0, (p.stock_count ?? p.stock ?? 0) - 1);
+            return { ...p, stock_count: nextStock, stock: nextStock };
+          })
         );
         // Push into local orders so OrdersPage shows it without a DB refetch
         const order: Order = {
@@ -530,18 +581,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // ── Offline / localStorage fallback ──────────────────────────────────────
     const product = products.find((p) => p.id === productId);
     if (!product) return { success: false, message: "Product not found." };
-    if (product.stock === 0) return { success: false, message: "Out of stock." };
+    const availableStock = product.stock_count ?? product.stock ?? 0;
+    if (availableStock <= 0) return { success: false, message: "Out of stock." };
     const balance = currentUser?.wallet_balance ?? 0;
     if (balance < product.price) {
       return { success: false, message: `Insufficient balance. Need ₦${(product.price - balance).toLocaleString()} more.` };
     }
 
-    const logToDeliver = product.logs[product.stock - 1];
+    const logToDeliver = product.logs[Math.max(0, availableStock - 1)];
 
     const updatedUser = { ...currentUser, wallet_balance: balance - product.price };
     setCurrentUser(updatedUser);
     setUsers((prev) => prev.map((u) => (u.id === currentUser?.id ? updatedUser : u)));
-    updateProduct(productId, { stock: product.stock - 1 });
+    updateProduct(productId, {
+      stock_count: Math.max(0, availableStock - 1),
+      stock: Math.max(0, availableStock - 1),
+    });
 
     const order: Order = {
       id: `order-${Date.now()}`,

@@ -69,6 +69,10 @@ function inferPlatformKey(title: string) {
   return "";
 }
 
+function getAvailableStock(product: Product): number {
+  return Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+}
+
 // ─── Platform registry ────────────────────────────────────────────────────────
 
 const PLATFORMS: {
@@ -244,7 +248,8 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
     setPurchaseState({ phase: "idle" });
   }, [product.id]);
 
-  const maxQty = Math.min(product.stock, 10);
+  const availableStock = getAvailableStock(product);
+  const maxQty = Math.min(availableStock, 10);
   const total = qty * product.price;
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= total;
@@ -321,7 +326,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 <div>
                   <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1" style={{ color: TEXT_BLACK }}>{product.title}</h3>
                   <p className="text-[11px] mt-0.5" style={{ color: TEXT_BLACK }}>
-                    {product.stock} available · {platform?.label ?? product.category}
+                    {availableStock} available · {platform?.label ?? product.category}
                   </p>
                 </div>
               </div>
@@ -409,7 +414,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 </div>
               )}
 
-              {!canAfford && product.stock > 0 && (
+              {!canAfford && availableStock > 0 && (
                 <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
                   Need ₦{(total - balance).toLocaleString()} more.{" "}
                   <Link to={`/dashboard/wallet?amount=${Math.max(100, total - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
@@ -421,7 +426,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               <button
                 type="button"
                 onClick={handlePurchase}
-                disabled={product.stock === 0 || purchasing || !canAfford}
+                disabled={availableStock <= 0 || purchasing || !canAfford}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
                   background: BTN_NAVY,
@@ -664,8 +669,9 @@ function ProductGrid({
 }
 
 function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Product) => void }) {
+  const availableStock = getAvailableStock(p);
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
-  const stockLow = p.stock > 0 && p.stock <= 5;
+  const stockLow = availableStock > 0 && availableStock <= 5;
 
   return (
     <div className="flex flex-col rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
@@ -683,12 +689,12 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
 
         {/* Stock line — body black; only “Out of Stock” stays red */}
         <p className="text-[11px] leading-tight text-black">
-          {p.stock === 0 ? (
+          {availableStock <= 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
-            <>In Stock: <span className="font-semibold text-black">{p.stock} qty.</span> — low!</>
+            <>In Stock: <span className="font-semibold text-black">{availableStock} qty.</span> — low!</>
           ) : (
-            <>In Stock: <span className="font-semibold text-black">{p.stock} qty.</span></>
+            <>In Stock: <span className="font-semibold text-black">{availableStock} qty.</span></>
           )}
         </p>
 
@@ -707,15 +713,15 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         <button
           type="button"
           onClick={() => onBuy(p)}
-          disabled={p.stock === 0}
+          disabled={availableStock <= 0}
           className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-opacity duration-150 hover:opacity-95 active:scale-95 disabled:cursor-not-allowed disabled:hover:opacity-100"
           style={{
             background: BTN_NAVY,
-            opacity: p.stock === 0 ? 0.45 : 1,
+            opacity: availableStock <= 0 ? 0.45 : 1,
           }}
         >
           <ShoppingCart className="h-3 w-3 shrink-0" />
-          {p.stock === 0 ? "Sold Out" : "Purchase"}
+          {availableStock <= 0 ? "Sold Out" : "Purchase"}
         </button>
       </div>
     </div>

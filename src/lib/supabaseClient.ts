@@ -50,7 +50,8 @@ export interface Product {
   category: string;
   price: number;
   description: string | null;
-  stock: number;
+  stock_count: number;
+  stock?: number;
   status: ProductStatus;
   preview_data: Record<string, unknown> | null;
   created_at: string;

@@ -110,7 +110,7 @@ function BulkUploadModal({
     // ── Offline / localStorage fallback ───────────────────────────────────────
     // Supabase not configured — update AppContext directly so the UI still works.
     onSuccess(selectedId, lines);
-    setResult({ inserted: lineCount, newStock: (selectedProduct?.stock ?? 0) + lineCount });
+    setResult({ inserted: lineCount, newStock: (selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0) + lineCount });
     setStatus("success");
   };
 
@@ -204,7 +204,7 @@ function BulkUploadModal({
                     )}
                     {products.map((p) => (
                       <option key={p.id} value={p.id} className="bg-[hsl(222,60%,12%)]">
-                        {p.title} — {p.category} ({p.stock} in stock)
+                        {p.title} — {p.category} ({(p.stock_count ?? p.stock ?? 0)} in stock)
                       </option>
                     ))}
                   </select>
@@ -348,6 +348,7 @@ export default function AdminProducts() {
         price,
         description: form.description.trim(),
         logs,
+        stock_count: logs.length,
         stock: logs.length,
         logo_url: autoLogoUrl,
       });
@@ -359,6 +360,7 @@ export default function AdminProducts() {
         price,
         description: form.description.trim(),
         logs,
+        stock_count: logs.length,
         stock: logs.length,
         logo_url: autoLogoUrl,
       });
@@ -404,7 +406,8 @@ export default function AdminProducts() {
     // If offline, this IS the source of truth.
     updateProduct(productId, {
       logs: [...product.logs, ...newLines],
-      stock: product.stock + newLines.length,
+      stock_count: (product.stock_count ?? product.stock ?? 0) + newLines.length,
+      stock: (product.stock_count ?? product.stock ?? 0) + newLines.length,
     });
 
     toast({
@@ -614,14 +617,14 @@ export default function AdminProducts() {
                     <td className="px-5 py-4 text-center">
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          product.stock > 5
+                          (product.stock_count ?? product.stock ?? 0) > 5
                             ? "bg-accent/15 text-accent"
-                            : product.stock > 0
+                            : (product.stock_count ?? product.stock ?? 0) > 0
                             ? "bg-warning/15 text-warning"
                             : "bg-destructive/15 text-destructive"
                         }`}
                       >
-                        {product.stock}
+                        {(product.stock_count ?? product.stock ?? 0)}
                       </span>
                     </td>
                     <td className="px-5 py-4">

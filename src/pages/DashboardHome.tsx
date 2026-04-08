@@ -35,7 +35,7 @@ export default function DashboardHome() {
     },
     {
       label: "In Stock",
-      value: products.filter((p) => p.stock > 0).length.toString(),
+      value: products.filter((p) => (p.stock_count ?? p.stock ?? 0) > 0).length.toString(),
       icon: Package,
       color: "text-purple-400",
       bg: "bg-purple-400/10 border-purple-400/20",

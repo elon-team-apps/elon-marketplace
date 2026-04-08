@@ -303,7 +303,7 @@ export default function AdminDashboard() {
   const totalRevenue = orders.reduce((sum, o) => sum + o.amount, 0);
   const totalLogsSold = orders.length;
   const totalUsers = users.filter((u) => !u.is_admin).length;
-  const activeStock = products.reduce((sum, p) => sum + p.stock, 0);
+  const activeStock = products.reduce((sum, p) => sum + (p.stock_count ?? p.stock ?? 0), 0);
 
   const stats = [
     {
@@ -483,14 +483,14 @@ export default function AdminDashboard() {
                 <div className="shrink-0">
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                      p.stock > 5
+                      (p.stock_count ?? p.stock ?? 0) > 5
                         ? "bg-accent/15 text-accent border border-accent/20"
-                        : p.stock > 0
+                        : (p.stock_count ?? p.stock ?? 0) > 0
                         ? "bg-amber-400/15 text-amber-400 border border-amber-400/20"
                         : "bg-red-500/15 text-red-400 border border-red-500/20"
                     }`}
                   >
-                    {p.stock} in stock
+                    {(p.stock_count ?? p.stock ?? 0)} in stock
                   </span>
                 </div>
               </div>
