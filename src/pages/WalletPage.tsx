@@ -15,7 +15,7 @@ const PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
 
-/** Accept checkout_url from Edge Function or nested gateway payloads */
+/** Accept payment_link / checkout_url from Edge Function (Postman shape). */
 function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
   const pick = (v: unknown): string | undefined => {
     if (typeof v !== "string") return undefined;
@@ -23,19 +23,19 @@ function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | 
     return /^https?:\/\//i.test(s) ? s : undefined;
   };
 
-  const direct = pick(payload.checkout_url) ?? pick(payload.checkoutUrl);
+  const direct =
+    pick(payload.payment_link) ??
+    pick(payload.checkout_url) ??
+    pick(payload.checkoutUrl);
   if (direct) return direct;
 
   const data = payload.data;
   if (data && typeof data === "object") {
     const d = data as Record<string, unknown>;
     return (
+      pick(d.payment_link) ??
       pick(d.checkout_url) ??
-      pick(d.checkoutUrl) ??
-      pick(d.authorization_url) ??
-      pick(d.payment_url) ??
-      pick(d.link) ??
-      pick(d.url)
+      pick(d.checkoutUrl)
     );
   }
   return undefined;
@@ -155,13 +155,12 @@ export default function WalletPage() {
       }
 
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const callbackUrl = `${window.location.origin}/dashboard/wallet`;
       const invokePromise = supabase.functions.invoke("pocketfi-init", {
         body: {
           amount: naira,
           email: currentUser.email,
-          reference,
-          callbackUrl,
+          description: "Wallet funding — Elon Marketplace",
+          redirect_url: `${window.location.origin}/dashboard/wallet`,
         },
       });
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -224,7 +223,7 @@ export default function WalletPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
       const friendly = /aborted|timeout|load failed|failed to fetch|networkerror/i.test(msg)
-        ? "PocketFi is taking too long to respond. Please try again. If this keeps happening, verify `POCKETFI_INIT_URL`, `POCKETFI_API_KEY`, and `POCKETFI_SECRET_KEY` in Supabase secrets."
+        ? "PocketFi is taking too long to respond. Please try again. If this keeps happening, verify `POCKETFI_INIT_URL` and `POCKETFI_SECRET_KEY` in Supabase secrets."
         : msg;
       toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {

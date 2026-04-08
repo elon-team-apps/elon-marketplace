@@ -80,12 +80,16 @@ function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | 
     const s = v.trim();
     return /^https?:\/\//i.test(s) ? s : undefined;
   };
-  const direct = pick(payload.checkout_url);
+  const direct =
+    pick(payload.payment_link) ??
+    pick(payload.checkout_url) ??
+    pick(payload.checkoutUrl);
   if (direct) return direct;
   const data = payload.data;
   if (data && typeof data === "object") {
     const d = data as Record<string, unknown>;
     return (
+      pick(d.payment_link) ??
       pick(d.checkout_url) ??
       pick(d.checkoutUrl)
     );
@@ -293,14 +297,11 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
         return;
       }
 
-      const callbackUrl = "https://elonmarketplace.com.ng/dashboard/payments";
-      const reference = `REF-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const { data, error } = await supabase.functions.invoke("pocketfi-init", {
         body: {
           amount: totalPrice,
           email: currentUser.email,
-          reference,
-          callback_url: callbackUrl,
+          description: `Purchase from Elon Marketplace — ${product.title}`,
         },
       });
 

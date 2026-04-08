@@ -5,10 +5,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * Supabase Edge Function (Deno runtime)
  *
  * Secrets (Dashboard → Edge Functions → Secrets):
- *   POCKETFI_SECRET_KEY   — required. Secret key from PocketFi settings.
- *   POCKETFI_API_KEY      — required. Exact API key value from PocketFi dashboard.
- *   POCKETFI_INIT_URL     — strongly recommended: exact POST URL PocketFi gave you
- *                           (full https://...). We call this URL only.
+ *   POCKETFI_SECRET_KEY   — required. Used as Bearer token (Postman: Authorization).
+ *   POCKETFI_INIT_URL     — required. Exact POST URL from PocketFi docs.
+ *   POCKETFI_BUSINESS_ID    — optional. Defaults to 29828 if unset.
  */
 
 const CORS = {
@@ -24,11 +23,19 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function extractCheckoutUrl(j: Record<string, unknown>): string | undefined {
+const DEFAULT_BUSINESS_ID = "29828";
+const DEFAULT_REDIRECT_URL = "https://elonmarketplace.com.ng/dashboard/payments";
+const DEFAULT_DESCRIPTION = "Purchase from Elon Marketplace";
+
+function extractPaymentLink(j: Record<string, unknown>): string | undefined {
   const data = (j?.data ?? {}) as Record<string, unknown>;
+  const pick = (v: unknown): string | undefined =>
+    typeof v === "string" && /^https?:\/\//i.test(v.trim()) ? v.trim() : undefined;
   return (
-    (data.checkout_url as string | undefined) ??
-    (j.checkout_url as string | undefined)
+    pick(j.payment_link) ??
+    pick(data.payment_link) ??
+    pick(data.checkout_url) ??
+    pick(j.checkout_url)
   );
 }
 
@@ -58,15 +65,10 @@ const MAX_TOTAL_ATTEMPTS = 3;
 
 function redactHeaderMeta(headers: Record<string, string>) {
   const auth = headers.Authorization ?? "";
-  const xApiKey = headers["X-Api-Key"] ?? headers["x-api-key"] ?? "";
   return {
     hasAuthorization: Boolean(auth),
     authLooksBearer: /^Bearer\s+/i.test(auth),
     authorizationLength: auth.length,
-    hasXApiKey: Boolean(xApiKey),
-    xApiKeyLength: xApiKey.length,
-    hasXSecretKey: Boolean(headers["x-secret-key"]),
-    xSecretKeyLength: (headers["x-secret-key"] ?? "").length,
   };
 }
 
@@ -126,20 +128,24 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Payment gateway not configured. Contact support." }, 500);
     }
 
-    const apiKey = Deno.env.get("POCKETFI_API_KEY")?.trim();
-
-    let body: { amount: unknown; email: unknown; reference: unknown; callbackUrl?: unknown; callback_url?: unknown };
+    let body: {
+      amount: unknown;
+      email: unknown;
+      description?: unknown;
+      redirect_url?: unknown;
+    };
     try {
       body = await req.json();
     } catch {
       return json({ error: "Invalid JSON body." }, 400);
     }
 
-    const { amount, email, reference } = body;
-    const callbackUrl = body.callback_url ?? body.callbackUrl;
+    const { amount, email } = body;
+    const descriptionRaw = body.description;
+    const redirectUrlRaw = body.redirect_url;
 
-    if (!amount || !email || !reference || !callbackUrl) {
-      return json({ error: "Missing required fields: amount, email, reference, callback_url." }, 400);
+    if (!amount || !email) {
+      return json({ error: "Missing required fields: amount, email." }, 400);
     }
 
     const amountNumber = Number(amount);
@@ -153,42 +159,46 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Email must match the signed-in account." }, 403);
     }
 
+    const businessId = (Deno.env.get("POCKETFI_BUSINESS_ID") ?? DEFAULT_BUSINESS_ID).trim();
+    const redirectUrl =
+      (typeof redirectUrlRaw === "string" && redirectUrlRaw.trim())
+        ? redirectUrlRaw.trim()
+        : DEFAULT_REDIRECT_URL;
+    const description =
+      typeof descriptionRaw === "string" && descriptionRaw.trim()
+        ? descriptionRaw.trim()
+        : DEFAULT_DESCRIPTION;
+
+    // Postman: only these fields — amount as string (e.g. "10").
     const payload = {
-      amount: amountNumber,
+      amount: String(Math.trunc(amountNumber)),
       email: authedUser.email ?? String(email),
-      reference: String(reference),
-      callback_url: String(callbackUrl),
+      business_id: businessId,
+      redirect_url: redirectUrl,
+      description,
     };
 
-    console.log("[pocketfi-init] PocketFi payload →", { ...payload, secretKey: "[REDACTED]" });
+    console.log("[pocketfi-init] PocketFi payload (Postman shape) →", payload);
 
-    const initUrlRaw = Deno.env.get("POCKETFI_INIT_URL")?.trim();
-    if (!initUrlRaw) {
+    const initUrlRaw = Deno.env.get("POCKETFI_INIT_URL");
+    if (!initUrlRaw || !initUrlRaw.trim()) {
       return json({
         error: "POCKETFI_INIT_URL is required. Set the exact PocketFi v2 initialization URL in secrets.",
       }, 500);
     }
-    const initUrlOverride = initUrlRaw.replace(/\/+$/, "");
+    // Use exactly what is stored in the secret (no suffixing/normalization).
+    const initUrlOverride = initUrlRaw;
     const candidateEndpoints = [initUrlOverride];
-    console.log("[pocketfi-init] Using strict normalized POCKETFI_INIT_URL only:", initUrlOverride);
+    console.log("[pocketfi-init] Using strict POCKETFI_INIT_URL only:", initUrlOverride);
 
-    // PocketFi v2 payload standard.
     const candidatePayloads = [payload];
 
     const baseHeaders = { "Content-Type": "application/json" };
-    if (!apiKey) {
-      return json({
-        error:
-          "POCKETFI_API_KEY is missing. Set the full API key exactly as shown in dashboard (including pipe '|').",
-      }, 500);
-    }
 
-    // Strict required strategy only:
-    // Authorization: Bearer <POCKETFI_SECRET_KEY>
-    // X-Api-Key: <POCKETFI_API_KEY>
+    // Postman: Authorization: Bearer <secret key>
     const authStrategies: { name: string; headers: Record<string, string> }[] = [{
-      name: "Bearer secret + x-api-key (strict)",
-      headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "X-Api-Key": apiKey },
+      name: "Bearer secret (Postman)",
+      headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` },
     }];
 
     let lastNetworkError = "";
@@ -203,7 +213,7 @@ Deno.serve(async (req: Request) => {
             return json({
               error:
                 "PocketFi init timed out while trying prioritized auth/path combinations. " +
-                "Set the exact POCKETFI_INIT_URL and verify POCKETFI_API_KEY + POCKETFI_SECRET_KEY.",
+                "Set the exact POCKETFI_INIT_URL and verify POCKETFI_SECRET_KEY.",
             }, 504);
           }
           attempts += 1;
@@ -245,14 +255,18 @@ Deno.serve(async (req: Request) => {
               if (res.ok) {
                 const fromRaw = extractCheckoutUrlFromRawBody(txt);
                 if (fromRaw) {
-                  console.log("[pocketfi-init] ✓ checkout URL from non-JSON body via", name);
-                  return json({ checkoutUrl: fromRaw, checkout_url: fromRaw });
+                  console.log("[pocketfi-init] ✓ payment link from non-JSON body via", name);
+                  return json({
+                    payment_link: fromRaw,
+                    checkoutUrl: fromRaw,
+                    checkout_url: fromRaw,
+                  });
                 }
                 console.error("[pocketfi-init] OK but body not JSON and no URL found; sample:", txt.slice(0, 400));
                 return json({
                   error:
-                    "PocketFi returned a non-JSON success response without a recognizable payment URL. " +
-                      "Confirm POCKETFI_INIT_URL matches their docs and set POCKETFI_API_KEY if the dashboard lists a separate API key.",
+                    "PocketFi returned a non-JSON success response without a recognizable payment_link URL. " +
+                      "Confirm POCKETFI_INIT_URL matches the Postman collection.",
                 }, 502);
               }
               lastNon404Error = txt.slice(0, 500);
@@ -260,17 +274,21 @@ Deno.serve(async (req: Request) => {
             }
 
             if (res.ok) {
-              let checkoutUrl = extractCheckoutUrl(pocketFiJson);
-              if (!checkoutUrl && txt) {
-                checkoutUrl = extractCheckoutUrlFromRawBody(txt);
+              let paymentLink = extractPaymentLink(pocketFiJson);
+              if (!paymentLink && txt) {
+                paymentLink = extractCheckoutUrlFromRawBody(txt);
               }
-              if (checkoutUrl) {
-                console.log("[pocketfi-init] ✓ checkout URL via", name);
-                return json({ checkoutUrl, checkout_url: checkoutUrl });
+              if (paymentLink) {
+                console.log("[pocketfi-init] ✓ payment_link via", name);
+                return json({
+                  payment_link: paymentLink,
+                  checkoutUrl: paymentLink,
+                  checkout_url: paymentLink,
+                });
               }
-              console.error("[pocketfi-init] OK but no checkout URL:", pocketFiJson);
+              console.error("[pocketfi-init] OK but no payment_link:", pocketFiJson);
               return json({
-                error: "PocketFi did not return a checkout URL in the response.",
+                error: "PocketFi did not return payment_link in the response.",
                 raw: pocketFiJson,
               }, 502);
             }
@@ -318,6 +336,7 @@ Deno.serve(async (req: Request) => {
       return json({
         error:
           "PocketFi returned 404 at POCKETFI_INIT_URL. Confirm the exact live v2 endpoint with PocketFi support and update POCKETFI_INIT_URL.",
+        attempted_url: initUrlOverride,
         hint: initUrlOverride
           ? `Your secret starts with: ${initUrlOverride.slice(0, 48)}…`
           : undefined,
