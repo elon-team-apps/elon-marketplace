@@ -172,8 +172,20 @@ export default function WalletPage() {
       const { data, error } = await Promise.race([invokePromise, timeoutPromise]) as Awaited<typeof invokePromise>;
 
       if (error) {
-        const details = `${error.message} ${JSON.stringify((error as { context?: unknown }).context ?? {})}`;
-        if (/404|504|not found|timeout|timed out/i.test(details)) {
+        let statusCode: number | undefined;
+        let bodyText = "";
+        const ctx = (error as { context?: unknown }).context;
+        if (ctx instanceof Response) {
+          statusCode = ctx.status;
+          try {
+            bodyText = await ctx.text();
+          } catch {
+            bodyText = "";
+          }
+        }
+
+        const details = `${error.message} ${statusCode ?? ""} ${bodyText}`;
+        if (statusCode === 404 || statusCode === 504 || /404|504|not found|timeout|timed out/i.test(details)) {
           setShowDeployPrompt(true);
           throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
         }
