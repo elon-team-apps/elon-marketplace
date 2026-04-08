@@ -1,23 +1,23 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 /**
- * Elon Marketplace — Paystack transaction initialize (Edge Function name kept `pocketfi-init` for stable client URLs).
+ * Paystack transaction initialize. Function name stays `pocketfi-init` for stable client URLs.
  *
- * Secrets:
- *   PAYSTACK_SECRET_KEY — required. sk_test_… or sk_live_… (Authorization: Bearer …)
+ * Secret: PAYSTACK_SECRET_KEY (sk_test_… / sk_live_…)
+ * Optional: PAYSTACK_INITIALIZE_URL — default https://api.paystack.co/transaction/initialize
  *
- * Optional:
- *   PAYSTACK_INITIALIZE_URL — defaults to https://api.paystack.co/transaction/initialize
+ * Client sends amount in Naira; this function converts to Kobo (×100).
+ * callback_url is always https://elonmarketplace.com.ng/dashboard/payments (not client-overridable).
  */
+
+const CALLBACK_URL = "https://elonmarketplace.com.ng/dashboard/payments";
+const PAYSTACK_DEFAULT_URL = "https://api.paystack.co/transaction/initialize";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const DEFAULT_CALLBACK_URL = "https://elonmarketplace.com.ng/dashboard/payments";
-const PAYSTACK_DEFAULT_URL = "https://api.paystack.co/transaction/initialize";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -65,12 +65,7 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Payment gateway not configured. Contact support." }, 500);
     }
 
-    let body: {
-      amount: unknown;
-      email: unknown;
-      callback_url?: unknown;
-      callbackUrl?: unknown;
-    };
+    let body: { amount: unknown; email: unknown };
     try {
       body = await req.json();
     } catch {
@@ -78,8 +73,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const { amount, email } = body;
-    const callbackRaw = body.callback_url ?? body.callbackUrl;
-
     if (!amount || !email) {
       return json({ error: "Missing required fields: amount, email." }, 400);
     }
@@ -98,29 +91,25 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Email must match the signed-in account." }, 403);
     }
 
-    const callbackUrl =
-      (typeof callbackRaw === "string" && callbackRaw.trim())
-        ? callbackRaw.trim()
-        : DEFAULT_CALLBACK_URL;
-
     const amountKobo = Math.round(amountNaira * 100);
 
     const paystackBody = {
       email: authedUser.email ?? String(email),
       amount: amountKobo,
-      callback_url: callbackUrl,
+      callback_url: CALLBACK_URL,
     };
 
     const initUrl =
       (Deno.env.get("PAYSTACK_INITIALIZE_URL")?.trim() || PAYSTACK_DEFAULT_URL).replace(/\/+$/, "");
 
-    console.log("[pocketfi-init] Paystack initialize →", initUrl, {
+    console.log("[pocketfi-init] Paystack initialize", {
+      url: initUrl,
       amount_naira: Math.trunc(amountNaira),
       amount_kobo: amountKobo,
-      callback_url: callbackUrl,
+      callback_url: CALLBACK_URL,
     });
 
-    const res = await fetch(`${initUrl}`, {
+    const paystackRes = await fetch(initUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${paystackSecret}`,
@@ -129,7 +118,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify(paystackBody),
     });
 
-    const txt = await res.text();
+    const txt = await paystackRes.text();
     let parsed: Record<string, unknown>;
     try {
       parsed = txt ? (JSON.parse(txt) as Record<string, unknown>) : {};
@@ -138,7 +127,7 @@ Deno.serve(async (req: Request) => {
       return json(
         {
           error: "Paystack returned an invalid response.",
-          upstream_status: res.status,
+          upstream_status: paystackRes.status,
           upstream_raw: txt.slice(0, 2000),
         },
         502,
@@ -155,19 +144,17 @@ Deno.serve(async (req: Request) => {
     if (!parsed.status || !authorizationUrl) {
       const msg =
         (typeof parsed.message === "string" && parsed.message) ||
-        `Paystack error (HTTP ${res.status})`;
+        `Paystack error (HTTP ${paystackRes.status})`;
       console.error("[pocketfi-init] Paystack init failed:", msg, parsed);
       return json(
         {
           error: msg,
-          upstream_status: res.status,
+          upstream_status: paystackRes.status,
           upstream_raw: txt.slice(0, 2000),
         },
         502,
       );
     }
-
-    console.log("[pocketfi-init] Paystack OK, reference:", reference ?? "(none)");
 
     return json({
       authorization_url: authorizationUrl,

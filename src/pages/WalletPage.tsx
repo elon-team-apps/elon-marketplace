@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
+import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
 
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
@@ -15,27 +16,6 @@ const PENDING_REF_KEY = "paystack_pending_reference";
 const LEGACY_PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
-
-/** Paystack: `data.authorization_url`; Edge Function mirrors checkoutUrl. */
-function extractPaystackRedirectUrl(payload: Record<string, unknown>): string | undefined {
-  const pick = (v: unknown): string | undefined => {
-    if (typeof v !== "string") return undefined;
-    const s = v.trim();
-    return /^https?:\/\//i.test(s) ? s : undefined;
-  };
-
-  const nested = payload.data;
-  if (nested && typeof nested === "object") {
-    const d = nested as Record<string, unknown>;
-    const fromData = pick(d.authorization_url);
-    if (fromData) return fromData;
-  }
-  return (
-    pick(payload.authorization_url) ??
-    pick(payload.checkout_url) ??
-    pick(payload.checkoutUrl)
-  );
-}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
@@ -155,7 +135,6 @@ export default function WalletPage() {
         body: {
           amount: naira,
           email: currentUser.email,
-          callback_url: `${window.location.origin}/dashboard/wallet`,
         },
       });
       const timeoutPromise = new Promise<never>((_, reject) => {
