@@ -25,44 +25,11 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Extra URL shapes when POCKETFI_INIT_URL is close but not exact (common 404 fixes). */
-function expandPocketFiUrlVariants(url: string): string[] {
-  const u = url.trim();
-  const out = new Set<string>();
-  if (!u) return [];
-  out.add(u);
-  if (!u.endsWith("/")) out.add(u + "/");
-  else out.add(u.replace(/\/+$/, ""));
-
-  const addSwaps = (s: string) => {
-    const pairs: [string, string][] = [
-      ["/transaction/", "/transactions/"],
-      ["/transactions/", "/transaction/"],
-      ["/payment/", "/payments/"],
-      ["/payments/", "/payment/"],
-      ["/checkout", "/checkout/initialize"],
-      ["/checkout/initialize", "/checkout"],
-    ];
-    for (const [a, b] of pairs) {
-      if (s.includes(a)) out.add(s.split(a).join(b));
-    }
-  };
-
-  for (const x of [...out]) addSwaps(x);
-  return [...out];
-}
-
 function extractCheckoutUrl(j: Record<string, unknown>): string | undefined {
   const data = (j?.data ?? {}) as Record<string, unknown>;
   return (
-    (data.authorization_url as string | undefined) ??
     (data.checkout_url as string | undefined) ??
-    (data.payment_url as string | undefined) ??
-    (data.link as string | undefined) ??
-    (data.url as string | undefined) ??
-    (j.authorization_url as string | undefined) ??
-    (j.checkout_url as string | undefined) ??
-    (j.payment_url as string | undefined)
+    (j.checkout_url as string | undefined)
   );
 }
 
@@ -88,7 +55,7 @@ function tryParseLenientJson(txt: string): Record<string, unknown> | null {
 
 const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\\)]+/gi;
 const FETCH_TIMEOUT_MS = 30000;
-const MAX_TOTAL_ATTEMPTS = 12;
+const MAX_TOTAL_ATTEMPTS = 3;
 
 function redactHeaderMeta(headers: Record<string, string>) {
   const auth = headers.Authorization ?? "";
@@ -161,17 +128,18 @@ Deno.serve(async (req: Request) => {
 
     const apiKey = Deno.env.get("POCKETFI_API_KEY")?.trim();
 
-    let body: { amount: unknown; email: unknown; reference: unknown; callbackUrl: unknown };
+    let body: { amount: unknown; email: unknown; reference: unknown; callbackUrl?: unknown; callback_url?: unknown };
     try {
       body = await req.json();
     } catch {
       return json({ error: "Invalid JSON body." }, 400);
     }
 
-    const { amount, email, reference, callbackUrl } = body;
+    const { amount, email, reference } = body;
+    const callbackUrl = body.callback_url ?? body.callbackUrl;
 
     if (!amount || !email || !reference || !callbackUrl) {
-      return json({ error: "Missing required fields: amount, email, reference, callbackUrl." }, 400);
+      return json({ error: "Missing required fields: amount, email, reference, callback_url." }, 400);
     }
 
     const amountNumber = Number(amount);
@@ -195,50 +163,16 @@ Deno.serve(async (req: Request) => {
     console.log("[pocketfi-init] PocketFi payload →", { ...payload, secretKey: "[REDACTED]" });
 
     const initUrlOverride = Deno.env.get("POCKETFI_INIT_URL")?.trim();
-
-    const defaultEndpoints = [
-      "https://api.pocketfi.ng/v1/checkout",
-      "https://api.pocketfi.ng/v1/checkout/initialize",
-      "https://api.pocketfi.ng/v1/transaction/initialize",
-      "https://api.pocketfi.ng/v1/transactions/initialize",
-      "https://api.pocketfi.ng/v1/payment/initialize",
-      "https://api.pocketfi.ng/v1/payments/initialize",
-      "https://api.pocketfi.ng/v1/pay/initialize",
-      "https://api.pocketfi.ng/transaction/initialize",
-      "https://api.pocketfi.ng/transactions/initialize",
-      "https://api.pocketfi.ng/api/v1/transaction/initialize",
-      "https://api.pocketfi.ng/api/v1/transactions/initialize",
-      "https://pocketfi.ng/api/v1/transaction/initialize",
-      "https://pocketfi.ng/api/v1/transactions/initialize",
-    ];
-
-    // If POCKETFI_INIT_URL is set, only use its small set of variants (fast + deterministic).
-    // If unset, use built-in fallbacks.
-    const fromSecret = initUrlOverride ? expandPocketFiUrlVariants(initUrlOverride) : [];
-    const candidateEndpoints = initUrlOverride
-      ? [...new Set(fromSecret)].slice(0, 4)
-      : [...new Set(defaultEndpoints)].slice(0, 6);
-
-    if (initUrlOverride) {
-      console.log(
-        "[pocketfi-init] POCKETFI_INIT_URL expanded to",
-        fromSecret.length,
-        "variants; total endpoints to try:",
-        candidateEndpoints.length,
-      );
+    if (!initUrlOverride) {
+      return json({
+        error: "POCKETFI_INIT_URL is required. Set the exact PocketFi v2 initialization URL in secrets.",
+      }, 500);
     }
+    const candidateEndpoints = [initUrlOverride];
+    console.log("[pocketfi-init] Using strict POCKETFI_INIT_URL only:", initUrlOverride);
 
-    // Prioritized payload shapes only; avoid long hangs from exhaustive permutations.
-    const candidatePayloads = [
-      payload,
-      { ...payload, callbackUrl: payload.callback_url },
-      {
-        amount: payload.amount,
-        email: payload.email,
-        reference: payload.reference,
-        redirect_url: payload.callback_url,
-      },
-    ];
+    // PocketFi v2 payload standard.
+    const candidatePayloads = [payload];
 
     const baseHeaders = { "Content-Type": "application/json" };
     if (!apiKey) {

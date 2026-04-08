@@ -80,18 +80,14 @@ function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | 
     const s = v.trim();
     return /^https?:\/\//i.test(s) ? s : undefined;
   };
-  const direct = pick(payload.checkout_url) ?? pick(payload.checkoutUrl);
+  const direct = pick(payload.checkout_url);
   if (direct) return direct;
   const data = payload.data;
   if (data && typeof data === "object") {
     const d = data as Record<string, unknown>;
     return (
       pick(d.checkout_url) ??
-      pick(d.checkoutUrl) ??
-      pick(d.authorization_url) ??
-      pick(d.payment_url) ??
-      pick(d.link) ??
-      pick(d.url)
+      pick(d.checkoutUrl)
     );
   }
   return undefined;
@@ -304,7 +300,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
           amount: totalPrice,
           email: currentUser.email,
           reference,
-          callbackUrl,
+          callback_url: callbackUrl,
         },
       });
 
