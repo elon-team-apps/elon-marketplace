@@ -40,6 +40,8 @@ function expandPocketFiUrlVariants(url: string): string[] {
       ["/transactions/", "/transaction/"],
       ["/payment/", "/payments/"],
       ["/payments/", "/payment/"],
+      ["/checkout", "/checkout/initialize"],
+      ["/checkout/initialize", "/checkout"],
     ];
     for (const [a, b] of pairs) {
       if (s.includes(a)) out.add(s.split(a).join(b));
@@ -182,6 +184,8 @@ Deno.serve(async (req: Request) => {
     const initUrlOverride = Deno.env.get("POCKETFI_INIT_URL")?.trim();
 
     const defaultEndpoints = [
+      "https://api.pocketfi.ng/v1/checkout",
+      "https://api.pocketfi.ng/v1/checkout/initialize",
       "https://api.pocketfi.ng/v1/transaction/initialize",
       "https://api.pocketfi.ng/v1/transactions/initialize",
       "https://api.pocketfi.ng/v1/payment/initialize",

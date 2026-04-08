@@ -49,7 +49,6 @@ export default function WalletPage() {
 
   const [amount, setAmount] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [showDeployPrompt, setShowDeployPrompt] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | null>(null);
   const [methods, setMethods] = useState({ pocketfi_enabled: true, manual_enabled: false });
@@ -130,7 +129,6 @@ export default function WalletPage() {
   // ── Start PocketFi checkout ────────────────────────────────────────────────
   const startPocketFiCheckout = async () => {
     if (checkoutLoading) return;
-    setShowDeployPrompt(false);
     const numeric = Number(amount);
     const naira = Math.trunc(numeric);
     if (isNaN(naira) || naira < 100) {
@@ -186,7 +184,6 @@ export default function WalletPage() {
 
         const details = `${error.message} ${statusCode ?? ""} ${bodyText}`;
         if (statusCode === 404 || statusCode === 504 || /404|504|not found|timeout|timed out/i.test(details)) {
-          setShowDeployPrompt(true);
           throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
         }
         throw new Error(error.message || "Unable to initialize PocketFi checkout.");
@@ -200,7 +197,6 @@ export default function WalletPage() {
           (typeof payload.message === "string" && payload.message) ||
           "Payment Gateway is currently being updated. Please try again in 5 minutes.";
         if (/404|504|not found|timeout|timed out/i.test(bodyErr)) {
-          setShowDeployPrompt(true);
           throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
         }
         throw new Error(bodyErr);
@@ -268,11 +264,6 @@ export default function WalletPage() {
       )}
 
       <div className="glass-card p-6 space-y-5">
-        {showDeployPrompt && (
-          <div className="rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-2 text-xs text-sky-900 dark:text-sky-100">
-            Developer action needed: push latest code and redeploy `pocketfi-init` before testing checkout again.
-          </div>
-        )}
         <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
           Fund Wallet with PocketFi
         </h2>
