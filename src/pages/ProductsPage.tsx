@@ -278,7 +278,10 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
   const totalPrice = qty * product.price;
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
-  const canStartPayment = Boolean(currentUser?.email) && Number.isFinite(totalPrice) && totalPrice > 0;
+  const MIN_POCKET_NAIRA = 100;
+  const meetsMinimumPocket = Number.isFinite(totalPrice) && totalPrice >= MIN_POCKET_NAIRA;
+  const canStartPayment =
+    Boolean(currentUser?.email) && Number.isFinite(totalPrice) && totalPrice > 0 && meetsMinimumPocket;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
   const canAttemptPurchase = availableStock > 0;
 
@@ -293,6 +296,11 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
       }
       if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
         setPurchaseState({ phase: "error", message: "Invalid purchase amount. Please try again." });
+        setPurchasing(false);
+        return;
+      }
+      if (totalPrice < MIN_POCKET_NAIRA) {
+        setPurchaseState({ phase: "error", message: "Minimum purchase amount is ₦100" });
         setPurchasing(false);
         return;
       }
@@ -506,6 +514,11 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               {!currentUser?.email && (
                 <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
                   Please log in to continue.
+                </p>
+              )}
+              {availableStock > 0 && totalPrice > 0 && totalPrice < MIN_POCKET_NAIRA && (
+                <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
+                  Minimum purchase amount is ₦100
                 </p>
               )}
 

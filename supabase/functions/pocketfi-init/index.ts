@@ -5,7 +5,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  * Supabase Edge Function (Deno runtime)
  *
  * Secrets (Dashboard → Edge Functions → Secrets):
- *   POCKETFI_SECRET_KEY   — required. Used as Bearer token (Postman: Authorization).
+ *   POCKETFI_SECRET_KEY   — required. Sent raw in Authorization (no "Bearer" prefix) for PocketFi v1.
  *   POCKETFI_INIT_URL     — required. Exact POST URL from PocketFi docs.
  *   POCKETFI_BUSINESS_ID    — optional. Defaults to 29828 if unset.
  */
@@ -152,6 +152,9 @@ Deno.serve(async (req: Request) => {
     if (isNaN(amountNumber) || amountNumber <= 0) {
       return json({ error: "amount must be a positive number." }, 400);
     }
+    if (Math.trunc(amountNumber) < 100) {
+      return json({ error: "Minimum purchase amount is ₦100" }, 400);
+    }
 
     const requestedEmail = String(email).trim().toLowerCase();
     const sessionEmail = authedUser.email?.trim().toLowerCase() ?? "";
@@ -159,7 +162,8 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Email must match the signed-in account." }, 403);
     }
 
-    const businessId = (Deno.env.get("POCKETFI_BUSINESS_ID") ?? DEFAULT_BUSINESS_ID).trim();
+    const businessId: string =
+      String((Deno.env.get("POCKETFI_BUSINESS_ID") ?? DEFAULT_BUSINESS_ID).trim()) || DEFAULT_BUSINESS_ID;
     const redirectUrl =
       (typeof redirectUrlRaw === "string" && redirectUrlRaw.trim())
         ? redirectUrlRaw.trim()
@@ -195,10 +199,10 @@ Deno.serve(async (req: Request) => {
 
     const baseHeaders = { "Content-Type": "application/json" };
 
-    // Postman: Authorization: Bearer <secret key>
+    // PocketFi v1: raw secret in Authorization (no "Bearer" prefix).
     const authStrategies: { name: string; headers: Record<string, string> }[] = [{
-      name: "Bearer secret (Postman)",
-      headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` },
+      name: "Raw secret token (Authorization)",
+      headers: { ...baseHeaders, Authorization: secretKey },
     }];
 
     let lastNetworkError = "";
