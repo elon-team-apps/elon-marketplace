@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
+import { supabase } from "@/lib/supabaseClient";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
 /** Client: all Purchase / primary actions */
@@ -233,6 +234,7 @@ function PlatformLogo({
 type PurchaseState =
   | { phase: "idle" }
   | { phase: "success"; logs: string[]; count: number }
+  | { phase: "processing"; message: string }
   | { phase: "error"; message: string };
 
 function PurchaseModal({ product, onClose }: { product: Product; onClose: () => void }) {
@@ -254,6 +256,24 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= total;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
+  const [logInventoryCount, setLogInventoryCount] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    const checkInventory = async () => {
+      if (!supabase) return;
+      const { count } = await supabase
+        .from("log_items")
+        .select("id", { count: "exact", head: true })
+        .eq("product_id", product.id)
+        .eq("is_delivered", false);
+      if (mounted) setLogInventoryCount(Number(count ?? 0));
+    };
+    void checkInventory();
+    return () => { mounted = false; };
+  }, [product.id]);
+
+  const canAttemptPurchase = availableStock > 0 || logInventoryCount > 0;
 
   const handlePurchase = async () => {
     setPurchasing(true);
@@ -263,6 +283,11 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
     for (let i = 0; i < qty; i++) {
       const result = await purchaseProduct(product.id);
       if (!result.success) {
+        if (result.message.toLowerCase().includes("out of stock") && availableStock > 0) {
+          setPurchaseState({ phase: "processing", message: "Your order is being processed." });
+          setPurchasing(false);
+          return;
+        }
         setPurchaseState({ phase: "error", message: result.message });
         if (result.message.toLowerCase().includes("out of stock")) {
           setQty(1);
@@ -413,6 +438,12 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                   <p className="text-sm text-red-600 dark:text-red-400">{purchaseState.message}</p>
                 </div>
               )}
+              {purchaseState.phase === "processing" && (
+                <div className="flex items-start gap-2.5 rounded-xl px-4 py-3 bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/20">
+                  <Loader2 className="h-4 w-4 text-sky-500 mt-0.5 shrink-0 animate-spin" />
+                  <p className="text-sm text-sky-700 dark:text-sky-300">{purchaseState.message}</p>
+                </div>
+              )}
 
               {!canAfford && availableStock > 0 && (
                 <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
@@ -426,7 +457,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               <button
                 type="button"
                 onClick={handlePurchase}
-                disabled={availableStock <= 0 || purchasing || !canAfford}
+                disabled={!canAttemptPurchase || purchasing || !canAfford}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
                   background: BTN_NAVY,
