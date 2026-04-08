@@ -275,9 +275,10 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
 
   const availableStock = getAvailableStock(product);
   const maxQty = Math.min(availableStock, 10);
-  const total = qty * product.price;
+  const totalPrice = qty * product.price;
   const balance = currentUser?.wallet_balance ?? 0;
-  const canAfford = balance >= total;
+  const canAfford = balance >= totalPrice;
+  const canStartPayment = Boolean(currentUser?.email) && Number.isFinite(totalPrice) && totalPrice > 0;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
   const canAttemptPurchase = availableStock > 0;
 
@@ -286,20 +287,24 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
     setPurchaseState({ phase: "idle" });
     try {
       if (!supabase || !currentUser?.email) {
-        setPurchaseState({ phase: "error", message: "Session not ready. Please refresh and try again." });
+        setPurchaseState({ phase: "error", message: "Please log in to continue." });
+        setPurchasing(false);
+        return;
+      }
+      if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
+        setPurchaseState({ phase: "error", message: "Invalid purchase amount. Please try again." });
         setPurchasing(false);
         return;
       }
 
-      const redirectUrl = "https://elonmarketplace.com.ng/dashboard/payments";
+      const callbackUrl = "https://elonmarketplace.com.ng/dashboard/payments";
+      const reference = `REF-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const { data, error } = await supabase.functions.invoke("pocketfi-init", {
         body: {
-          amount: total,
-          productId: product.id,
-          quantity: qty,
+          amount: totalPrice,
           email: currentUser.email,
-          redirect_url: redirectUrl,
-          callbackUrl: redirectUrl,
+          reference,
+          callbackUrl,
         },
       });
 
@@ -465,7 +470,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                   <div className="flex justify-between items-baseline">
                     <span className="font-bold text-sm" style={{ color: TEXT_BLACK }}>Total</span>
                     <span className="font-extrabold text-xl" style={{ color: TEXT_BLACK }}>
-                      ₦{total.toLocaleString()}
+                      ₦{totalPrice.toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -495,17 +500,22 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
 
               {!canAfford && availableStock > 0 && (
                 <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
-                  Need ₦{(total - balance).toLocaleString()} more.{" "}
-                  <Link to={`/dashboard/wallet?amount=${Math.max(100, total - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
+                  Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
+                  <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
                     Fund with PocketFi →
                   </Link>
+                </p>
+              )}
+              {!currentUser?.email && (
+                <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
+                  Please log in to continue.
                 </p>
               )}
 
               <button
                 type="button"
                 onClick={handlePurchase}
-                disabled={!canAttemptPurchase || purchasing || !canAfford}
+                disabled={!canAttemptPurchase || purchasing || !canAfford || !canStartPayment}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
                   background: BTN_NAVY,
@@ -515,7 +525,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 {purchasing ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting to Payment...</>
                 ) : (
-                  <><Eye className="h-4 w-4" /> Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{total.toLocaleString()}</>
+                  <><Eye className="h-4 w-4" /> Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{totalPrice.toLocaleString()}</>
                 )}
               </button>
             </div>
