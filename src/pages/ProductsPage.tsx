@@ -291,19 +291,40 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
         return;
       }
 
-      const callbackUrl = `${window.location.origin}/dashboard/orders`;
+      const redirectUrl = "https://elonmarketplace.com.ng/dashboard/payments";
       const { data, error } = await supabase.functions.invoke("pocketfi-init", {
         body: {
           amount: total,
           productId: product.id,
           quantity: qty,
           email: currentUser.email,
-          callbackUrl,
+          redirect_url: redirectUrl,
+          callbackUrl: redirectUrl,
         },
       });
 
       if (error) {
-        setPurchaseState({ phase: "error", message: error.message || "Unable to start payment." });
+        let detailed = error.message || "Unable to start payment.";
+        const ctx = (error as { context?: unknown }).context;
+        if (ctx instanceof Response) {
+          try {
+            const text = await ctx.text();
+            if (text) {
+              try {
+                const parsed = JSON.parse(text) as Record<string, unknown>;
+                detailed =
+                  (typeof parsed.error === "string" && parsed.error) ||
+                  (typeof parsed.message === "string" && parsed.message) ||
+                  text;
+              } catch {
+                detailed = text;
+              }
+            }
+          } catch {
+            // keep default
+          }
+        }
+        setPurchaseState({ phase: "error", message: detailed });
         setPurchasing(false);
         return;
       }
