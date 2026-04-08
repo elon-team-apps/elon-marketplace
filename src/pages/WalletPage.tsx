@@ -69,6 +69,7 @@ export default function WalletPage() {
 
   const [amount, setAmount] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [showDeployPrompt, setShowDeployPrompt] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | null>(null);
   const [methods, setMethods] = useState({ pocketfi_enabled: true, manual_enabled: false });
@@ -149,6 +150,7 @@ export default function WalletPage() {
   // ── Start PocketFi checkout ────────────────────────────────────────────────
   const startPocketFiCheckout = async () => {
     if (checkoutLoading) return;
+    setShowDeployPrompt(false);
     const numeric = Number(amount);
     const naira = Math.trunc(numeric);
     if (isNaN(naira) || naira < 100) {
@@ -203,8 +205,11 @@ export default function WalletPage() {
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
       const fnUrl = `${baseUrl.replace(/\/$/, "")}/functions/v1/pocketfi-init`;
+      const EDGE_TIMEOUT_MS = 20000;
 
       const callPocketFiInit = async (token: string) => {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), EDGE_TIMEOUT_MS);
         const resp = await fetch(fnUrl, {
           method: "POST",
           headers: {
@@ -218,15 +223,41 @@ export default function WalletPage() {
             reference,
             callbackUrl,
           }),
+          signal: controller.signal,
         });
-        const rawText = await resp.text();
-        let payload: Record<string, unknown> = {};
         try {
-          payload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
-        } catch {
-          payload = { _parseError: rawText };
+          const rawText = await resp.text();
+          let payload: Record<string, unknown> = {};
+          try {
+            payload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+          } catch {
+            payload = { _parseError: rawText };
+          }
+          return { resp, payload };
+        } finally {
+          window.clearTimeout(timeoutId);
         }
-        return { resp, payload };
+      };
+
+      const callVercelPayProxy = async () => {
+        const proxyResp = await fetch("/api/pay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: naira,
+            email: currentUser.email,
+            reference,
+            callbackUrl,
+          }),
+        });
+        const rawText = await proxyResp.text();
+        let proxyPayload: Record<string, unknown> = {};
+        try {
+          proxyPayload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+        } catch {
+          proxyPayload = { _parseError: rawText };
+        }
+        return { proxyResp, proxyPayload };
       };
 
       let { resp, payload } = await callPocketFiInit(accessToken);
@@ -240,7 +271,24 @@ export default function WalletPage() {
 
       console.log("PocketFi Response:", { status: resp.status, ok: resp.ok, payload });
 
-      const checkoutUrl = extractPocketFiCheckoutUrl(payload);
+      let checkoutUrl = extractPocketFiCheckoutUrl(payload);
+
+      // Fallback path: if Supabase edge route timed out, try Vercel server proxy (/api/pay).
+      if (!checkoutUrl && !resp.ok && resp.status === 504) {
+        try {
+          const { proxyResp, proxyPayload } = await callVercelPayProxy();
+          if (proxyResp.ok) {
+            const fromProxy =
+              (typeof proxyPayload.checkoutUrl === "string" && proxyPayload.checkoutUrl) ||
+              (typeof proxyPayload.checkout_url === "string" && proxyPayload.checkout_url);
+            if (fromProxy && /^https?:\/\//i.test(fromProxy)) {
+              checkoutUrl = fromProxy;
+            }
+          }
+        } catch {
+          // keep original edge failure message path below
+        }
+      }
 
       if (!resp.ok || !checkoutUrl) {
         const fromBody =
@@ -260,6 +308,9 @@ export default function WalletPage() {
         if (/failed to send a request|fetch|load failed/i.test(message)) {
           message =
             "Network error calling PocketFi. Confirm `pocketfi-init` is deployed and CORS allows this origin.";
+        }
+        if (resp.status === 504 || /timed out while trying/i.test(String(fromBody ?? ""))) {
+          setShowDeployPrompt(true);
         }
         if (/invalid jwt/i.test(String(fromBody ?? "")) && /pocketfi error/i.test(String(fromBody ?? ""))) {
           message =
@@ -291,8 +342,8 @@ export default function WalletPage() {
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
-      const friendly = /load failed|failed to fetch|networkerror/i.test(msg)
-        ? "Network request failed while contacting PocketFi. Please check your internet and ensure `pocketfi-init` is deployed."
+      const friendly = /aborted|timeout|load failed|failed to fetch|networkerror/i.test(msg)
+        ? "PocketFi is taking too long to respond. Please try again. If this keeps happening, verify `POCKETFI_INIT_URL`, `POCKETFI_API_KEY`, and `POCKETFI_SECRET_KEY` in Supabase secrets."
         : msg;
       toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {
@@ -332,6 +383,11 @@ export default function WalletPage() {
       )}
 
       <div className="glass-card p-6 space-y-5">
+        {showDeployPrompt && (
+          <div className="rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-2 text-xs text-sky-900 dark:text-sky-100">
+            Developer action needed: push latest code and redeploy `pocketfi-init` before testing checkout again.
+          </div>
+        )}
         <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
           Fund Wallet with PocketFi
         </h2>
@@ -363,7 +419,7 @@ export default function WalletPage() {
             onChange={(e) => setAmount(e.target.value)}
             className="border-slate-300 text-black placeholder:text-slate-500 dark:border-gray-600 dark:bg-slate-950/80 dark:text-white dark:placeholder:text-slate-400"
           />
-          <p className="text-xs mt-1.5 text-slate-600 dark:text-slate-300">
+          <p className="text-xs mt-1.5 text-slate-600 dark:text-white">
             Minimum funding amount: ₦100
           </p>
         </div>
@@ -394,7 +450,7 @@ export default function WalletPage() {
         )}
 
         {!methods.manual_enabled && (
-          <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-700 dark:border-gray-600 dark:bg-slate-800/80 dark:text-slate-200">
+          <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-700 dark:border-gray-600 dark:bg-slate-800/80 dark:text-white">
             Manual transfer is currently disabled by admin.
           </div>
         )}

@@ -85,6 +85,8 @@ function tryParseLenientJson(txt: string): Record<string, unknown> | null {
 }
 
 const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\\)]+/gi;
+const FETCH_TIMEOUT_MS = 2800;
+const MAX_TOTAL_ATTEMPTS = 12;
 
 /** When PocketFi returns 200 with HTML or plain text, pull the first plausible payment URL. */
 function extractCheckoutUrlFromRawBody(txt: string): string | undefined {
@@ -193,9 +195,12 @@ Deno.serve(async (req: Request) => {
       "https://pocketfi.ng/api/v1/transactions/initialize",
     ];
 
-    // Try expanded POCKETFI_INIT_URL first (slash + transaction/transactions variants), then fallbacks.
+    // If POCKETFI_INIT_URL is set, only use its small set of variants (fast + deterministic).
+    // If unset, use built-in fallbacks.
     const fromSecret = initUrlOverride ? expandPocketFiUrlVariants(initUrlOverride) : [];
-    const candidateEndpoints = [...new Set([...fromSecret, ...defaultEndpoints])];
+    const candidateEndpoints = initUrlOverride
+      ? [...new Set(fromSecret)].slice(0, 4)
+      : [...new Set(defaultEndpoints)].slice(0, 6);
 
     if (initUrlOverride) {
       console.log(
@@ -206,6 +211,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Prioritized payload shapes only; avoid long hangs from exhaustive permutations.
     const candidatePayloads = [
       payload,
       { ...payload, callbackUrl: payload.callback_url },
@@ -214,12 +220,6 @@ Deno.serve(async (req: Request) => {
         email: payload.email,
         reference: payload.reference,
         redirect_url: payload.callback_url,
-      },
-      {
-        amount: payload.amount,
-        email: payload.email,
-        reference: payload.reference,
-        callbackUrl: payload.callback_url,
       },
     ];
 
@@ -236,38 +236,39 @@ Deno.serve(async (req: Request) => {
           name: "Bearer secret + x-api-key (dashboard id|token)",
           headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
         },
-        {
-          name: "x-api-key (API) + Authorization Bearer (secret)",
-          headers: { ...baseHeaders, "x-api-key": apiKey, Authorization: `Bearer ${secretKey}` },
-        },
       );
     }
 
     authStrategies.push(
-      { name: "x-api-key only (secret)", headers: { ...baseHeaders, "x-api-key": secretKey } },
-      {
-        name: "Bearer + x-api-key (same secret)",
-        headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": secretKey },
-      },
       { name: "Bearer only (secret)", headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` } },
-      {
-        name: "Authorization raw (no Bearer)",
-        headers: { ...baseHeaders, Authorization: secretKey },
-      },
+      { name: "x-api-key only (secret)", headers: { ...baseHeaders, "x-api-key": secretKey } },
     );
 
     let lastNetworkError = "";
     let lastNon404Error = "";
     let saw404Only = true;
+    let attempts = 0;
 
     for (const endpoint of candidateEndpoints) {
-      for (const bodyCandidate of candidatePayloads) {
-        for (const { name, headers } of authStrategies) {
+      for (const { name, headers } of authStrategies) {
+        for (const bodyCandidate of candidatePayloads) {
+          if (attempts >= MAX_TOTAL_ATTEMPTS) {
+            return json({
+              error:
+                "PocketFi init timed out while trying prioritized auth/path combinations. " +
+                "Set the exact POCKETFI_INIT_URL and verify POCKETFI_API_KEY + POCKETFI_SECRET_KEY.",
+            }, 504);
+          }
+          attempts += 1;
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort("timeout"), FETCH_TIMEOUT_MS);
           try {
             const res = await fetch(endpoint, {
               method: "POST",
               headers,
               body: JSON.stringify(bodyCandidate),
+              signal: controller.signal,
             });
             const txt = await res.text();
             console.log(`[pocketfi-init] ${endpoint} [${name}] -> ${res.status}:`, txt.slice(0, 800));
@@ -323,8 +324,15 @@ Deno.serve(async (req: Request) => {
             const errMsg = (pocketFiJson?.message ?? pocketFiJson?.error ?? txt) as string;
             return json({ error: `PocketFi error (${res.status}): ${errMsg}` }, 502);
           } catch (err) {
-            lastNetworkError = err instanceof Error ? err.message : String(err);
+            const message = err instanceof Error ? err.message : String(err);
+            if (/aborted|timeout/i.test(message)) {
+              lastNetworkError = `Timed out after ${FETCH_TIMEOUT_MS}ms`;
+            } else {
+              lastNetworkError = message;
+            }
             console.error(`[pocketfi-init] Network error calling ${endpoint}:`, lastNetworkError);
+          } finally {
+            clearTimeout(timeoutId);
           }
         }
       }

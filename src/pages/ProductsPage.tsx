@@ -669,26 +669,26 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
         {/* Branded logo + title */}
         <div className="flex items-center gap-2.5">
           <PlatformLogo product={p} platform={platform} size={30} />
-          <h3 className="font-extrabold text-[12px] leading-tight flex-1 min-w-0 line-clamp-2" style={{ color: TEXT_BLACK }}>
+          <h3 className="font-extrabold text-[12px] leading-tight flex-1 min-w-0 line-clamp-2 text-black dark:text-white">
             {p.title}
           </h3>
         </div>
 
         {/* Stock line — body black; only “Out of Stock” stays red */}
-        <p className="text-[11px] leading-tight" style={{ color: TEXT_BLACK }}>
+        <p className="text-[11px] leading-tight text-black dark:text-white">
           {p.stock === 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
-            <>In Stock: <span className="font-semibold" style={{ color: TEXT_BLACK }}>{p.stock} qty.</span> — low!</>
+            <>In Stock: <span className="font-semibold text-black dark:text-white">{p.stock} qty.</span> — low!</>
           ) : (
-            <>In Stock: <span className="font-semibold" style={{ color: TEXT_BLACK }}>{p.stock} qty.</span></>
+            <>In Stock: <span className="font-semibold text-black dark:text-white">{p.stock} qty.</span></>
           )}
         </p>
 
         {/* Price */}
-        <p className="text-[11px] leading-tight" style={{ color: TEXT_BLACK }}>
+        <p className="text-[11px] leading-tight text-black dark:text-white">
           Per Quantity:{" "}
-          <span className="font-bold" style={{ color: TEXT_BLACK }}>
+          <span className="font-bold text-black dark:text-white">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
