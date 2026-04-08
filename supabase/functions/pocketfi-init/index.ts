@@ -6,10 +6,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
  *
  * Secrets (Dashboard → Edge Functions → Secrets):
  *   POCKETFI_SECRET_KEY   — required. Secret key from PocketFi settings.
- *   POCKETFI_API_KEY      — optional. If your dashboard shows a separate "API Key" (e.g. id|token),
- *                           set it here; we try API+secret header combinations.
+ *   POCKETFI_API_KEY      — required. Exact API key value from PocketFi dashboard.
  *   POCKETFI_INIT_URL     — strongly recommended: exact POST URL PocketFi gave you
- *                           (full https://...). If unset, we guess common paths (often 404).
+ *                           (full https://...). We call this URL only.
  */
 
 const CORS = {
@@ -59,12 +58,13 @@ const MAX_TOTAL_ATTEMPTS = 3;
 
 function redactHeaderMeta(headers: Record<string, string>) {
   const auth = headers.Authorization ?? "";
+  const xApiKey = headers["X-Api-Key"] ?? headers["x-api-key"] ?? "";
   return {
     hasAuthorization: Boolean(auth),
     authLooksBearer: /^Bearer\s+/i.test(auth),
     authorizationLength: auth.length,
-    hasXApiKey: Boolean(headers["x-api-key"]),
-    xApiKeyLength: (headers["x-api-key"] ?? "").length,
+    hasXApiKey: Boolean(xApiKey),
+    xApiKeyLength: xApiKey.length,
     hasXSecretKey: Boolean(headers["x-secret-key"]),
     xSecretKeyLength: (headers["x-secret-key"] ?? "").length,
   };
@@ -162,14 +162,15 @@ Deno.serve(async (req: Request) => {
 
     console.log("[pocketfi-init] PocketFi payload →", { ...payload, secretKey: "[REDACTED]" });
 
-    const initUrlOverride = Deno.env.get("POCKETFI_INIT_URL")?.trim();
-    if (!initUrlOverride) {
+    const initUrlRaw = Deno.env.get("POCKETFI_INIT_URL")?.trim();
+    if (!initUrlRaw) {
       return json({
         error: "POCKETFI_INIT_URL is required. Set the exact PocketFi v2 initialization URL in secrets.",
       }, 500);
     }
+    const initUrlOverride = initUrlRaw.replace(/\/+$/, "");
     const candidateEndpoints = [initUrlOverride];
-    console.log("[pocketfi-init] Using strict POCKETFI_INIT_URL only:", initUrlOverride);
+    console.log("[pocketfi-init] Using strict normalized POCKETFI_INIT_URL only:", initUrlOverride);
 
     // PocketFi v2 payload standard.
     const candidatePayloads = [payload];
@@ -187,7 +188,7 @@ Deno.serve(async (req: Request) => {
     // X-Api-Key: <POCKETFI_API_KEY>
     const authStrategies: { name: string; headers: Record<string, string> }[] = [{
       name: "Bearer secret + x-api-key (strict)",
-      headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
+      headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "X-Api-Key": apiKey },
     }];
 
     let lastNetworkError = "";
@@ -225,6 +226,7 @@ Deno.serve(async (req: Request) => {
             console.log(`[pocketfi-init] ${endpoint} [${name}] -> ${res.status}:`, txt.slice(0, 800));
 
             if (res.status === 404) {
+              console.log("[pocketfi-init] 404 full response body:", txt);
               continue;
             }
             saw404Only = false;
@@ -307,9 +309,7 @@ Deno.serve(async (req: Request) => {
     if (saw404Only) {
       return json({
         error:
-          "PocketFi returned 404 for every endpoint we tried (including path variants of POCKETFI_INIT_URL and built-in fallbacks). " +
-            "Confirm the live POST URL with PocketFi support (support@pocketfi.ng) — the path may differ from examples. " +
-            "Update POCKETFI_INIT_URL, then: npx supabase functions deploy pocketfi-init",
+          "PocketFi returned 404 at POCKETFI_INIT_URL. Confirm the exact live v2 endpoint with PocketFi support and update POCKETFI_INIT_URL.",
         hint: initUrlOverride
           ? `Your secret starts with: ${initUrlOverride.slice(0, 48)}…`
           : undefined,
