@@ -3,15 +3,15 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 /**
  * Paystack transaction initialize. Function name stays `pocketfi-init` for stable client URLs.
  *
- * Secret: PAYSTACK_SECRET_KEY (sk_test_… / sk_live_…)
- * Optional: PAYSTACK_INITIALIZE_URL — default https://api.paystack.co/transaction/initialize
+ * Secret: PAYSTACK_SECRET_KEY (sk_test_… / sk_live_…) — value only, no "Bearer " prefix in the secret.
  *
  * Client sends amount in Naira; this function converts to Kobo (×100).
  * callback_url is always https://elonmarketplace.com.ng/dashboard/payments (not client-overridable).
  */
 
 const CALLBACK_URL = "https://elonmarketplace.com.ng/dashboard/payments";
-const PAYSTACK_DEFAULT_URL = "https://api.paystack.co/transaction/initialize";
+/** Exact Paystack endpoint — no trailing slash, no env override (avoids typos / Invalid key confusion). */
+const PAYSTACK_INIT_URL = "https://api.paystack.co/transaction/initialize";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -59,11 +59,23 @@ Deno.serve(async (req: Request) => {
     }
     const authedUser = authData.user;
 
-    const paystackSecret = Deno.env.get("PAYSTACK_SECRET_KEY")?.trim();
-    if (!paystackSecret) {
+    const rawKey = Deno.env.get("PAYSTACK_SECRET_KEY");
+    if (rawKey == null || rawKey.trim() === "") {
       console.error("[pocketfi-init] PAYSTACK_SECRET_KEY not set.");
       return json({ error: "Payment gateway not configured. Contact support." }, 500);
     }
+    let paystackSecret = rawKey.trim();
+    if (
+      (paystackSecret.startsWith('"') && paystackSecret.endsWith('"')) ||
+      (paystackSecret.startsWith("'") && paystackSecret.endsWith("'"))
+    ) {
+      paystackSecret = paystackSecret.slice(1, -1).trim();
+    }
+    if (!paystackSecret.startsWith("sk_")) {
+      console.warn("[pocketfi-init] PAYSTACK_SECRET_KEY should start with sk_test_ or sk_live_.");
+    }
+    // Exactly one space after "Bearer"; no quotes in the header value.
+    const authorizationHeader = "Bearer " + paystackSecret;
 
     let body: { amount: unknown; email: unknown };
     try {
@@ -91,28 +103,30 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Email must match the signed-in account." }, 403);
     }
 
-    const amountKobo = Math.round(amountNaira * 100);
+    const amountKobo = Math.round(Number(amountNaira) * 100);
+    if (!Number.isFinite(amountKobo) || amountKobo < 10000) {
+      return json({ error: "Invalid amount after conversion to Kobo." }, 400);
+    }
 
-    const paystackBody = {
-      email: authedUser.email ?? String(email),
+    const paystackBody: { email: string; amount: number; callback_url: string } = {
+      email: authedUser.email ?? String(email).trim(),
       amount: amountKobo,
       callback_url: CALLBACK_URL,
     };
 
-    const initUrl =
-      (Deno.env.get("PAYSTACK_INITIALIZE_URL")?.trim() || PAYSTACK_DEFAULT_URL).replace(/\/+$/, "");
-
     console.log("[pocketfi-init] Paystack initialize", {
-      url: initUrl,
+      url: PAYSTACK_INIT_URL,
       amount_naira: Math.trunc(amountNaira),
-      amount_kobo: amountKobo,
+      amount_kobo: paystackBody.amount,
+      amount_type: typeof paystackBody.amount,
+      auth_prefix: authorizationHeader.slice(0, 12) + "…",
       callback_url: CALLBACK_URL,
     });
 
-    const paystackRes = await fetch(initUrl, {
+    const paystackRes = await fetch(PAYSTACK_INIT_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${paystackSecret}`,
+        Authorization: authorizationHeader,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(paystackBody),
