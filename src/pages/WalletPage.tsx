@@ -12,6 +12,7 @@ import { useSearchParams } from "react-router-dom";
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "paystack_pending_reference";
+const LEGACY_PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
 
@@ -72,7 +73,8 @@ export default function WalletPage() {
       searchParams.get("reference") ||
       searchParams.get("trxref") ||
       searchParams.get("tx_ref");
-    const stored = localStorage.getItem(PENDING_REF_KEY);
+    const stored =
+      localStorage.getItem(PENDING_REF_KEY) ?? localStorage.getItem(LEGACY_PENDING_REF_KEY);
     const ref = fromUrl || stored;
     if (ref) {
       setPendingRef(ref);
