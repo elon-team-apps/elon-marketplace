@@ -87,7 +87,7 @@ function tryParseLenientJson(txt: string): Record<string, unknown> | null {
 }
 
 const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\\)]+/gi;
-const FETCH_TIMEOUT_MS = 2800;
+const FETCH_TIMEOUT_MS = 30000;
 const MAX_TOTAL_ATTEMPTS = 12;
 
 function redactHeaderMeta(headers: Record<string, string>) {
@@ -241,23 +241,20 @@ Deno.serve(async (req: Request) => {
     ];
 
     const baseHeaders = { "Content-Type": "application/json" };
-    const authStrategies: { name: string; headers: Record<string, string> }[] = [];
-
-    // Primary required strategy:
-    // Authorization: Bearer <POCKETFI_SECRET_KEY>
-    // X-Api-Key: <POCKETFI_API_KEY>
-    if (apiKey) {
-      authStrategies.push({
-        name: "Bearer secret + x-api-key (required primary)",
-        headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
-      });
+    if (!apiKey) {
+      return json({
+        error:
+          "POCKETFI_API_KEY is missing. Set the full API key exactly as shown in dashboard (including pipe '|').",
+      }, 500);
     }
 
-    // Fallbacks only when API key is not configured or PocketFi integration differs.
-    authStrategies.push(
-      { name: "Bearer only (secret fallback)", headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` } },
-      { name: "x-api-key only (secret fallback)", headers: { ...baseHeaders, "x-api-key": secretKey } },
-    );
+    // Strict required strategy only:
+    // Authorization: Bearer <POCKETFI_SECRET_KEY>
+    // X-Api-Key: <POCKETFI_API_KEY>
+    const authStrategies: { name: string; headers: Record<string, string> }[] = [{
+      name: "Bearer secret + x-api-key (strict)",
+      headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
+    }];
 
     let lastNetworkError = "";
     let lastNon404Error = "";
@@ -342,7 +339,11 @@ Deno.serve(async (req: Request) => {
             }
 
             const errMsg = (pocketFiJson?.message ?? pocketFiJson?.error ?? txt) as string;
-            return json({ error: `PocketFi error (${res.status}): ${errMsg}` }, 502);
+            return json({
+              error: `PocketFi error (${res.status}): ${errMsg}`,
+              upstream_status: res.status,
+              upstream_raw: txt.slice(0, 2000),
+            }, 502);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             if (/aborted|timeout/i.test(message)) {
@@ -363,7 +364,10 @@ Deno.serve(async (req: Request) => {
     }
 
     if (lastNetworkError) {
-      return json({ error: `Network error reaching PocketFi: ${lastNetworkError}` }, 502);
+      return json({
+        error: `Network error reaching PocketFi: ${lastNetworkError}`,
+        upstream_hint: "No response body received from PocketFi before failure.",
+      }, 502);
     }
 
     if (saw404Only) {
