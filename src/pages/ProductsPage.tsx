@@ -74,27 +74,24 @@ function getAvailableStock(product: Product): number {
   return Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
 }
 
-function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
+/** Paystack returns `data.authorization_url`; Edge Function also mirrors checkoutUrl. */
+function extractPaystackRedirectUrl(payload: Record<string, unknown>): string | undefined {
   const pick = (v: unknown): string | undefined => {
     if (typeof v !== "string") return undefined;
     const s = v.trim();
     return /^https?:\/\//i.test(s) ? s : undefined;
   };
-  const direct =
-    pick(payload.payment_link) ??
-    pick(payload.checkout_url) ??
-    pick(payload.checkoutUrl);
-  if (direct) return direct;
-  const data = payload.data;
-  if (data && typeof data === "object") {
-    const d = data as Record<string, unknown>;
-    return (
-      pick(d.payment_link) ??
-      pick(d.checkout_url) ??
-      pick(d.checkoutUrl)
-    );
+  const nested = payload.data;
+  if (nested && typeof nested === "object") {
+    const d = nested as Record<string, unknown>;
+    const fromData = pick(d.authorization_url);
+    if (fromData) return fromData;
   }
-  return undefined;
+  return (
+    pick(payload.authorization_url) ??
+    pick(payload.checkout_url) ??
+    pick(payload.checkoutUrl)
+  );
 }
 
 // ─── Platform registry ────────────────────────────────────────────────────────
@@ -309,7 +306,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
         body: {
           amount: totalPrice,
           email: currentUser.email,
-          description: `Purchase from Elon Marketplace — ${product.title}`,
+          callback_url: "https://elonmarketplace.com.ng/dashboard/payments",
         },
       });
 
@@ -340,7 +337,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
       }
 
       const payload = (data ?? {}) as Record<string, unknown>;
-      const checkoutUrl = extractPocketFiCheckoutUrl(payload);
+      const checkoutUrl = extractPaystackRedirectUrl(payload);
       if (!checkoutUrl) {
         const msg =
           (typeof payload.error === "string" && payload.error) ||
@@ -507,7 +504,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
                   Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
                   <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
-                    Fund with PocketFi →
+                    Fund with Paystack →
                   </Link>
                 </p>
               )}

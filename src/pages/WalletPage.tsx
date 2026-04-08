@@ -11,34 +11,29 @@ import { useSearchParams } from "react-router-dom";
 
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
-const PENDING_REF_KEY = "pocketfi_pending_reference";
+const PENDING_REF_KEY = "paystack_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
 
-/** Accept payment_link / checkout_url from Edge Function (Postman shape). */
-function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
+/** Paystack: `data.authorization_url`; Edge Function mirrors checkoutUrl. */
+function extractPaystackRedirectUrl(payload: Record<string, unknown>): string | undefined {
   const pick = (v: unknown): string | undefined => {
     if (typeof v !== "string") return undefined;
     const s = v.trim();
     return /^https?:\/\//i.test(s) ? s : undefined;
   };
 
-  const direct =
-    pick(payload.payment_link) ??
-    pick(payload.checkout_url) ??
-    pick(payload.checkoutUrl);
-  if (direct) return direct;
-
-  const data = payload.data;
-  if (data && typeof data === "object") {
-    const d = data as Record<string, unknown>;
-    return (
-      pick(d.payment_link) ??
-      pick(d.checkout_url) ??
-      pick(d.checkoutUrl)
-    );
+  const nested = payload.data;
+  if (nested && typeof nested === "object") {
+    const d = nested as Record<string, unknown>;
+    const fromData = pick(d.authorization_url);
+    if (fromData) return fromData;
   }
-  return undefined;
+  return (
+    pick(payload.authorization_url) ??
+    pick(payload.checkout_url) ??
+    pick(payload.checkoutUrl)
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -126,8 +121,8 @@ export default function WalletPage() {
     };
   }, [pendingRef, currentUser?.id, toast]);
 
-  // ── Start PocketFi checkout ────────────────────────────────────────────────
-  const startPocketFiCheckout = async () => {
+  // ── Start Paystack checkout (Edge Function slug kept: pocketfi-init) ───────
+  const startPaystackCheckout = async () => {
     if (checkoutLoading) return;
     const numeric = Number(amount);
     const naira = Math.trunc(numeric);
@@ -154,17 +149,15 @@ export default function WalletPage() {
         throw new Error("Session mismatch. Refresh the page, then try again.");
       }
 
-      const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const invokePromise = supabase.functions.invoke("pocketfi-init", {
         body: {
           amount: naira,
           email: currentUser.email,
-          description: "Wallet funding — Elon Marketplace",
-          redirect_url: `${window.location.origin}/dashboard/wallet`,
+          callback_url: `${window.location.origin}/dashboard/wallet`,
         },
       });
       const timeoutPromise = new Promise<never>((_, reject) => {
-        window.setTimeout(() => reject(new Error("PocketFi init request timeout")), 20_000);
+        window.setTimeout(() => reject(new Error("Paystack init request timeout")), 20_000);
       });
       const { data, error } = await Promise.race([invokePromise, timeoutPromise]) as Awaited<typeof invokePromise>;
 
@@ -185,11 +178,15 @@ export default function WalletPage() {
         if (statusCode === 404 || statusCode === 504 || /404|504|not found|timeout|timed out/i.test(details)) {
           throw new Error("Payment Gateway is temporarily unavailable. Please try again shortly or contact support.");
         }
-        throw new Error(error.message || "Unable to initialize PocketFi checkout.");
+        throw new Error(error.message || "Unable to initialize Paystack checkout.");
       }
 
       const payload = (data ?? {}) as Record<string, unknown>;
-      const checkoutUrl = extractPocketFiCheckoutUrl(payload);
+      const checkoutUrl = extractPaystackRedirectUrl(payload);
+      const paystackRef =
+        typeof payload.reference === "string" && payload.reference.trim()
+          ? payload.reference.trim()
+          : null;
       if (!checkoutUrl) {
         const bodyErr =
           (typeof payload.error === "string" && payload.error) ||
@@ -201,29 +198,32 @@ export default function WalletPage() {
         throw new Error(bodyErr);
       }
 
-      // Persist pending deposit transaction before redirect so webhook can reconcile.
+      if (!paystackRef) {
+        throw new Error("Paystack did not return a transaction reference. Try again or contact support.");
+      }
+
+      // Persist pending deposit before redirect (reference must match Paystack for verification).
       const { error: txError } = await supabase.from("transactions").insert({
         user_id: currentUser.id,
         amount: naira,
         type: "deposit",
         status: "pending",
-        reference,
+        reference: paystackRef,
       });
 
       if (txError) {
         throw new Error(`Could not create pending transaction: ${txError.message}`);
       }
-      localStorage.setItem(PENDING_REF_KEY, reference);
+      localStorage.setItem(PENDING_REF_KEY, paystackRef);
 
-      // Immediate handover: only `replace` (never assign/href/router) so checkout opens in-tab
-      // without a wallet history entry — Back from PocketFi skips the broken intermediate step.
+      // Immediate handover: only `replace` so Back from Paystack skips the wallet step.
       const handoverUrl = checkoutUrl.trim();
       window.location.replace(handoverUrl);
       return;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
+      const msg = err instanceof Error ? err.message : "Unable to start Paystack checkout.";
       const friendly = /aborted|timeout|load failed|failed to fetch|networkerror/i.test(msg)
-        ? "PocketFi is taking too long to respond. Please try again. If this keeps happening, verify `POCKETFI_INIT_URL` and `POCKETFI_SECRET_KEY` in Supabase secrets."
+        ? "Paystack is taking too long to respond. Please try again. If this keeps happening, verify `PAYSTACK_SECRET_KEY` in Supabase Edge Function secrets."
         : msg;
       toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {
@@ -237,7 +237,7 @@ export default function WalletPage() {
       <div>
         <h1 className="font-heading text-2xl font-bold text-black dark:text-white">Wallet</h1>
         <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-          Fund your wallet securely with PocketFi.
+          Fund your wallet securely with Paystack.
         </p>
       </div>
 
@@ -258,13 +258,13 @@ export default function WalletPage() {
 
       {pendingRef && pendingStatus !== "completed" && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100 dark:border-amber-500/35">
-          Payment pending verification... we are waiting for PocketFi webhook confirmation.
+          Payment pending verification... we are waiting for Paystack webhook confirmation.
         </div>
       )}
 
       <div className="glass-card p-6 space-y-5">
         <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
-          Fund Wallet with PocketFi
+          Fund Wallet with Paystack
         </h2>
         <div>
           <Label className="mb-2 block font-medium text-black dark:text-white">Amount</Label>
@@ -303,7 +303,7 @@ export default function WalletPage() {
             type="button"
             className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
             style={{ background: BTN_NAVY }}
-            onClick={startPocketFiCheckout}
+            onClick={startPaystackCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}
           >
             {checkoutLoading ? (
@@ -314,13 +314,13 @@ export default function WalletPage() {
             ) : (
               <>
                 <Wallet className="h-4 w-4 shrink-0 text-white" />
-                <span className="text-white">Continue to PocketFi</span>
+                <span className="text-white">Continue to Paystack</span>
               </>
             )}
           </button>
         ) : (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 dark:border-amber-500/35">
-            PocketFi is currently disabled by admin.
+            Paystack checkout is currently disabled by admin.
           </div>
         )}
 
@@ -345,7 +345,7 @@ export default function WalletPage() {
         <ol className="space-y-3">
           {[
             "Enter your preferred amount.",
-            "Click Continue to PocketFi to complete payment.",
+            "Click Continue to Paystack to complete payment.",
             "After successful payment, your wallet updates automatically.",
             "Return to products and complete your purchase.",
           ].map((step, i) => (
@@ -363,7 +363,7 @@ export default function WalletPage() {
       <div className="flex items-start gap-3 bg-amber-500/8 border border-amber-500/20 rounded-xl px-5 py-4">
         <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
         <p className="text-xs text-slate-600 dark:text-slate-300">
-          Manual receipt uploads are disabled. Use PocketFi for all wallet funding transactions.
+          Manual receipt uploads are disabled. Use Paystack for all wallet funding transactions.
         </p>
       </div>
     </div>
