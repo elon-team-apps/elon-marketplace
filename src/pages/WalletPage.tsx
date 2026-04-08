@@ -184,7 +184,7 @@ export default function WalletPage() {
 
         const details = `${error.message} ${statusCode ?? ""} ${bodyText}`;
         if (statusCode === 404 || statusCode === 504 || /404|504|not found|timeout|timed out/i.test(details)) {
-          throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
+          throw new Error("Payment Gateway is temporarily unavailable. Please try again shortly or contact support.");
         }
         throw new Error(error.message || "Unable to initialize PocketFi checkout.");
       }
@@ -195,9 +195,9 @@ export default function WalletPage() {
         const bodyErr =
           (typeof payload.error === "string" && payload.error) ||
           (typeof payload.message === "string" && payload.message) ||
-          "Payment Gateway is currently being updated. Please try again in 5 minutes.";
+          "Payment Gateway is temporarily unavailable. Please try again shortly or contact support.";
         if (/404|504|not found|timeout|timed out/i.test(bodyErr)) {
-          throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
+          throw new Error("Payment Gateway is temporarily unavailable. Please try again shortly or contact support.");
         }
         throw new Error(bodyErr);
       }
