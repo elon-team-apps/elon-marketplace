@@ -14,7 +14,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Exported as nullable — always guard with `if (supabase)` before calling
 export const supabase =
   supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        storageKey: "elon-auth-token",
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
     : null;
 
 /** First subdomain of *.supabase.co — used to detect JWT vs project URL mismatch */

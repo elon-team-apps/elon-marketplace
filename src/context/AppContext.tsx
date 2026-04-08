@@ -223,6 +223,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Ref tracks latest user state without stale closures.
   const currentUserRef = useRef<User>(loadingUser);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+  const authBootstrapDoneRef = useRef(false);
 
   const syncProfile = useCallback(async (authUser: { id: string; email?: string }) => {
     if (!authUser?.id || !UUID_REGEX.test(authUser.id)) {
@@ -340,15 +341,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       console.log("[AppContext] onAuthStateChange:", event, "— uid:", session?.user?.id ?? "none");
 
-      // TOKEN_REFRESHED doesn't change role/balance — skip to avoid wiping state.
+      // TOKEN_REFRESHED doesn't change role/balance — skip to avoid churn.
       if (event === "TOKEN_REFRESHED") return;
 
-      if (session?.user) {
+      // INITIAL_SESSION can briefly emit null before persisted storage is restored.
+      // Let getSession() below resolve first auth state to avoid login bounce loops.
+      if (event === "INITIAL_SESSION" && !session?.user) return;
+
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") && session?.user) {
         syncProfile(session.user);
-      } else {
-        // No session = signed out or expired. Reset to loadingUser and mark loaded
-        // so DashboardLayout's auth guard can redirect to /auth immediately.
-        console.log("[AppContext] No session — clearing user state.");
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        // On cold boot some browsers briefly emit SIGNED_OUT before persisted
+        // session hydration finishes. Ignore until initial getSession resolves.
+        if (!authBootstrapDoneRef.current) {
+          console.log("[AppContext] Ignoring early SIGNED_OUT during bootstrap.");
+          return;
+        }
+        console.log("[AppContext] Signed out — clearing user state.");
         setCurrentUser(loadingUser);
         setIsAdminView(false);
         setProfileLoaded(true);
@@ -361,6 +373,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // the same data.
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) console.error("[AppContext] getSession error:", error.message);
+      authBootstrapDoneRef.current = true;
       if (data.session?.user) {
         syncProfile(data.session.user);
       } else {

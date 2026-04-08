@@ -45,7 +45,7 @@ const queryClient = new QueryClient();
 function RouteLoading() {
   return (
     <div className="min-h-screen bg-background/95 flex flex-col items-center justify-center gap-3">
-      <div className="h-9 w-9 rounded-full border-2 border-slate-900 border-t-transparent animate-spin" />
+      <div className="h-9 w-9 rounded-full border-2 border-[#0f172a] border-t-transparent animate-spin" />
       <p className="text-sm text-slate-700">Loading page...</p>
     </div>
   );
