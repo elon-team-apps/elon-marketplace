@@ -223,7 +223,15 @@ Deno.serve(async (req: Request) => {
               signal: controller.signal,
             });
             const txt = await res.text();
+            const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+            const looksHtml =
+              contentType.includes("text/html") ||
+              /^\s*<!doctype html/i.test(txt) ||
+              /^\s*<html/i.test(txt);
             console.log(`[pocketfi-init] ${endpoint} [${name}] -> ${res.status}:`, txt.slice(0, 800));
+            if (looksHtml) {
+              console.log("Error: PocketFi returned HTML instead of API response. Check URL.");
+            }
 
             if (res.status === 404) {
               console.log("[pocketfi-init] 404 full response body:", txt);
