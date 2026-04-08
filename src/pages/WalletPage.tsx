@@ -5,9 +5,6 @@ import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
 import {
   supabase,
-  supabaseUrl as configuredSupabaseUrl,
-  supabaseAnonKey as configuredAnonKey,
-  supabaseProjectRefFromUrl,
 } from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
@@ -42,23 +39,6 @@ function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | 
     );
   }
   return undefined;
-}
-
-function supabaseProjectRefFromJwt(accessToken: string): string | null {
-  try {
-    const parts = accessToken.split(".");
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const pad = base64.length % 4;
-    const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
-    const payload = JSON.parse(atob(padded)) as { iss?: string };
-    const iss = payload.iss;
-    if (!iss) return null;
-    const m = iss.match(/https?:\/\/([^.]+)\.supabase\.co\//);
-    return m ? m[1] : null;
-  } catch {
-    return null;
-  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -176,149 +156,42 @@ export default function WalletPage() {
         throw new Error("Session mismatch. Refresh the page, then try again.");
       }
 
-      const baseUrl = configuredSupabaseUrl;
-      const anonKey = configuredAnonKey;
-      if (!baseUrl || !anonKey) {
-        throw new Error("App configuration error: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.");
-      }
-
-      // Fresh access token — gateway 401 "Invalid JWT" is often an expired session.
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-      let accessToken = refreshData.session?.access_token;
-      if (refreshError || !accessToken) {
-        const { data: fallback } = await supabase.auth.getSession();
-        accessToken = fallback.session?.access_token;
-      }
-      if (!accessToken) {
-        throw new Error("Your session expired. Please sign out and sign in again, then retry.");
-      }
-
-      const urlRef = supabaseProjectRefFromUrl(baseUrl);
-      const jwtRef = supabaseProjectRefFromJwt(accessToken);
-      if (urlRef && jwtRef && urlRef !== jwtRef) {
-        console.error("[Wallet] JWT vs VITE_SUPABASE_URL project mismatch:", { urlRef, jwtRef });
-        throw new Error(
-          "Your login session does not match this app build (Invalid JWT). Sign out, sign in again, and verify Vercel uses the same Supabase URL + anon key as your project."
-        );
-      }
-
       const reference = `PM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const callbackUrl = `${window.location.origin}/dashboard/wallet`;
-      const fnUrl = `${baseUrl.replace(/\/$/, "")}/functions/v1/pocketfi-init`;
-      const EDGE_TIMEOUT_MS = 20000;
+      const invokePromise = supabase.functions.invoke("pocketfi-init", {
+        body: {
+          amount: naira,
+          email: currentUser.email,
+          reference,
+          callbackUrl,
+        },
+      });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("PocketFi init request timeout")), 20_000);
+      });
+      const { data, error } = await Promise.race([invokePromise, timeoutPromise]) as Awaited<typeof invokePromise>;
 
-      const callPocketFiInit = async (token: string) => {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), EDGE_TIMEOUT_MS);
-        const resp = await fetch(fnUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: anonKey,
-            Authorization: `Bearer ${token.trim()}`,
-          },
-          body: JSON.stringify({
-            amount: naira,
-            email: currentUser.email,
-            reference,
-            callbackUrl,
-          }),
-          signal: controller.signal,
-        });
-        try {
-          const rawText = await resp.text();
-          let payload: Record<string, unknown> = {};
-          try {
-            payload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
-          } catch {
-            payload = { _parseError: rawText };
-          }
-          return { resp, payload };
-        } finally {
-          window.clearTimeout(timeoutId);
-        }
-      };
-
-      const callVercelPayProxy = async () => {
-        const proxyResp = await fetch("/api/pay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            amount: naira,
-            email: currentUser.email,
-            reference,
-            callbackUrl,
-          }),
-        });
-        const rawText = await proxyResp.text();
-        let proxyPayload: Record<string, unknown> = {};
-        try {
-          proxyPayload = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
-        } catch {
-          proxyPayload = { _parseError: rawText };
-        }
-        return { proxyResp, proxyPayload };
-      };
-
-      let { resp, payload } = await callPocketFiInit(accessToken);
-      if (resp.status === 401) {
-        const { data: again } = await supabase.auth.refreshSession();
-        const t2 = again.session?.access_token;
-        if (t2 && t2 !== accessToken) {
-          ({ resp, payload } = await callPocketFiInit(t2));
-        }
-      }
-
-      console.log("PocketFi Response:", { status: resp.status, ok: resp.ok, payload });
-
-      let checkoutUrl = extractPocketFiCheckoutUrl(payload);
-
-      // Fallback path: if Supabase edge route timed out, try Vercel server proxy (/api/pay).
-      if (!checkoutUrl && !resp.ok && resp.status === 504) {
-        try {
-          const { proxyResp, proxyPayload } = await callVercelPayProxy();
-          if (proxyResp.ok) {
-            const fromProxy =
-              (typeof proxyPayload.checkoutUrl === "string" && proxyPayload.checkoutUrl) ||
-              (typeof proxyPayload.checkout_url === "string" && proxyPayload.checkout_url);
-            if (fromProxy && /^https?:\/\//i.test(fromProxy)) {
-              checkoutUrl = fromProxy;
-            }
-          }
-        } catch {
-          // keep original edge failure message path below
-        }
-      }
-
-      if (!resp.ok || !checkoutUrl) {
-        const fromBody =
-          (typeof payload.error === "string" && payload.error) ||
-          (typeof payload.message === "string" && payload.message);
-        let message =
-          fromBody ||
-          (resp.status === 401
-            ? "Session not accepted by server. Sign out, clear site data for this site, sign in again."
-            : `Could not initialize PocketFi checkout (${resp.status}).`);
-        if (resp.status === 401 && /invalid jwt/i.test(String(fromBody ?? ""))) {
-          message =
-            "Supabase rejected your session token (Invalid JWT). Sign out, sign in again. In Vercel, confirm VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY both belong to project " +
-            (urlRef ?? "your Supabase project") +
-            ".";
-        }
-        if (/failed to send a request|fetch|load failed/i.test(message)) {
-          message =
-            "Network error calling PocketFi. Confirm `pocketfi-init` is deployed and CORS allows this origin.";
-        }
-        if (resp.status === 504 || /timed out while trying/i.test(String(fromBody ?? ""))) {
+      if (error) {
+        const details = `${error.message} ${JSON.stringify((error as { context?: unknown }).context ?? {})}`;
+        if (/404|504|not found|timeout|timed out/i.test(details)) {
           setShowDeployPrompt(true);
+          throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
         }
-        if (/invalid jwt/i.test(String(fromBody ?? "")) && /pocketfi error/i.test(String(fromBody ?? ""))) {
-          message =
-            "PocketFi rejected the server secret. Set POCKETFI_SECRET_KEY in Supabase Edge Function secrets to the exact key from the PocketFi dashboard.";
+        throw new Error(error.message || "Unable to initialize PocketFi checkout.");
+      }
+
+      const payload = (data ?? {}) as Record<string, unknown>;
+      const checkoutUrl = extractPocketFiCheckoutUrl(payload);
+      if (!checkoutUrl) {
+        const bodyErr =
+          (typeof payload.error === "string" && payload.error) ||
+          (typeof payload.message === "string" && payload.message) ||
+          "Payment Gateway is currently being updated. Please try again in 5 minutes.";
+        if (/404|504|not found|timeout|timed out/i.test(bodyErr)) {
+          setShowDeployPrompt(true);
+          throw new Error("Payment Gateway is currently being updated. Please try again in 5 minutes.");
         }
-        const hint = typeof payload.hint === "string" ? payload.hint.trim() : "";
-        if (hint) message = `${message} ${hint}`;
-        throw new Error(message);
+        throw new Error(bodyErr);
       }
 
       // Persist pending deposit transaction before redirect so webhook can reconcile.
@@ -434,7 +307,7 @@ export default function WalletPage() {
             {checkoutLoading ? (
               <>
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
-                <span className="text-white">Redirecting to PocketFi…</span>
+                <span className="text-white">Processing...</span>
               </>
             ) : (
               <>
