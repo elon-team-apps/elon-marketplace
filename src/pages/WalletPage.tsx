@@ -402,7 +402,7 @@ export default function WalletPage() {
                 className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150 ${
                   amount === preset.toString()
                     ? "border-transparent text-white"
-                    : "bg-transparent text-black dark:text-white border-slate-300 dark:border-gray-700 hover:border-[#0f172a]/60 dark:hover:border-slate-500"
+                    : "bg-transparent text-black dark:text-white border-slate-300 dark:border-white/60 hover:border-[#0f172a]/60 dark:hover:border-white"
                 }`}
                 style={amount === preset.toString() ? { background: BTN_NAVY } : undefined}
               >
@@ -417,9 +417,9 @@ export default function WalletPage() {
             placeholder="Enter amount e.g. 7500"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="border-slate-300 text-black placeholder:text-slate-500 dark:border-gray-600 dark:bg-slate-950/80 dark:text-white dark:placeholder:text-slate-400"
+            className="border-slate-300 text-black placeholder:text-slate-500 dark:border-white/50 dark:bg-slate-950/80 dark:text-white dark:placeholder:text-slate-300"
           />
-          <p className="text-xs mt-1.5 text-slate-600 dark:text-white">
+          <p className="text-xs mt-1.5 text-black dark:text-white">
             Minimum funding amount: ₦100
           </p>
         </div>
@@ -450,7 +450,7 @@ export default function WalletPage() {
         )}
 
         {!methods.manual_enabled && (
-          <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-700 dark:border-gray-600 dark:bg-slate-800/80 dark:text-white">
+          <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-black dark:border-white/40 dark:bg-slate-800/80 dark:text-white">
             Manual transfer is currently disabled by admin.
           </div>
         )}
