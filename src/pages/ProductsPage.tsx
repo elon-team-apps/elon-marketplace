@@ -237,6 +237,13 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
   const [purchaseState, setPurchaseState] = useState<PurchaseState>({ phase: "idle" });
   const [purchasing, setPurchasing] = useState(false);
 
+  // Reset transient modal state whenever a different product is opened.
+  useEffect(() => {
+    setQty(1);
+    setPurchasing(false);
+    setPurchaseState({ phase: "idle" });
+  }, [product.id]);
+
   const maxQty = Math.min(product.stock, 10);
   const total = qty * product.price;
   const balance = currentUser?.wallet_balance ?? 0;
@@ -414,7 +421,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
               <button
                 type="button"
                 onClick={handlePurchase}
-                disabled={product.stock === 0 || purchasing || !canAfford || purchaseState.phase === "error" && purchaseState.message.toLowerCase().includes("out of stock")}
+                disabled={product.stock === 0 || purchasing || !canAfford}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
                   background: BTN_NAVY,
@@ -635,7 +642,7 @@ export default function ProductsPage() {
       )}
 
       {/* ── Purchase modal ───────────────────────────────────────────────────── */}
-      {buyProduct && <PurchaseModal product={buyProduct} onClose={() => setBuyProduct(null)} />}
+      {buyProduct && <PurchaseModal key={buyProduct.id} product={buyProduct} onClose={() => setBuyProduct(null)} />}
     </div>
   );
 }
