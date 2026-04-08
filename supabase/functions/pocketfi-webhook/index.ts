@@ -16,13 +16,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PocketFiWebhookPayload {
-  event: string;
-  data: {
-    reference: string;
-    amount: number;       // PocketFi sends amount in kobo (smallest unit)
-    email: string;
-    status: string;
-    currency: string;
+  event?: string;
+  status?: string;
+  reference?: string;
+  amount?: number;
+  data?: {
+    reference?: string;
+    amount?: number; // often kobo (smallest unit)
+    email?: string;
+    status?: string;
+    currency?: string;
   };
 }
 
@@ -75,6 +78,24 @@ async function verifySignature(
   }
 }
 
+function extractWebhookFields(payload: PocketFiWebhookPayload) {
+  const event = String(payload.event ?? "").toLowerCase();
+  const rootStatus = String(payload.status ?? "").toLowerCase();
+  const dataStatus = String(payload.data?.status ?? "").toLowerCase();
+  const status = dataStatus || rootStatus;
+
+  const reference = String(payload.data?.reference ?? payload.reference ?? "").trim();
+  const rawAmount = Number(payload.data?.amount ?? payload.amount ?? 0);
+
+  return { event, status, reference, rawAmount };
+}
+
+function toNaira(rawAmount: number): number {
+  if (!Number.isFinite(rawAmount) || rawAmount <= 0) return 0;
+  // Heuristic: >=1000 likely smallest-unit amount (kobo). Small values treated as naira.
+  return rawAmount >= 1000 ? Math.floor(rawAmount / 100) : Math.floor(rawAmount);
+}
+
 // ─── Main Handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -88,7 +109,12 @@ Deno.serve(async (req: Request) => {
   const rawBody = await req.text();
 
   // ── 2. Verify the PocketFi signature ─────────────────────────────────────
-  const signatureHeader = req.headers.get("X-PocketFi-Signature") ?? "";
+  const signatureHeader =
+    req.headers.get("X-PocketFi-Signature") ??
+    req.headers.get("x-pocketfi-signature") ??
+    req.headers.get("X-Signature") ??
+    req.headers.get("x-signature") ??
+    "";
   const pocketFiSecret = Deno.env.get("POCKETFI_SECRET_KEY") ?? "";
 
   if (!pocketFiSecret) {
@@ -114,33 +140,33 @@ Deno.serve(async (req: Request) => {
 
   // Only handle the success event — silently acknowledge all others
   // so PocketFi stops retrying them.
-  if (payload.event !== "transaction.success") {
-    console.log(`Unhandled event type: ${payload.event} — acknowledged.`);
+  const { event, status, reference, rawAmount } = extractWebhookFields(payload);
+
+  // Accept common success patterns across gateway integrations.
+  const isSuccessEvent =
+    event === "transaction.success" ||
+    event === "charge.success" ||
+    event === "payment.success" ||
+    event === "checkout.success" ||
+    event === "";
+  const isSuccessStatus = status === "success" || status === "successful" || status === "paid" || status === "";
+
+  if (!isSuccessEvent || !isSuccessStatus) {
+    console.log(`Unhandled webhook state: event="${event}" status="${status}" — acknowledged.`);
     return new Response(JSON.stringify({ received: true }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  const { reference, amount: amountKobo, status } = payload.data;
 
   if (!reference) {
     return new Response("Missing reference in payload", { status: 400 });
   }
 
-  // Double-check the status field inside the payload as a second guard
-  if (status !== "success") {
-    console.log(`Payment reference ${reference} has status "${status}" — skipping.`);
-    return new Response(JSON.stringify({ received: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
   // ── 4. Convert amount: kobo → Naira (integer) ────────────────────────────
   // PocketFi sends amounts in kobo (smallest unit). ₦5,000 = 500000 kobo.
   // Our DB stores wallet_balance in whole Naira.
-  const amountNaira = Math.floor(amountKobo / 100);
+  const amountNaira = toNaira(rawAmount);
 
   if (amountNaira <= 0) {
     return new Response("Invalid amount in payload", { status: 400 });
