@@ -5,7 +5,6 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
-import { supabase } from "@/lib/supabaseClient";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
 /** Client: all Purchase / primary actions */
@@ -256,24 +255,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= total;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
-  const [logInventoryCount, setLogInventoryCount] = useState(0);
-
-  useEffect(() => {
-    let mounted = true;
-    const checkInventory = async () => {
-      if (!supabase) return;
-      const { count } = await supabase
-        .from("log_items")
-        .select("id", { count: "exact", head: true })
-        .eq("product_id", product.id)
-        .eq("is_delivered", false);
-      if (mounted) setLogInventoryCount(Number(count ?? 0));
-    };
-    void checkInventory();
-    return () => { mounted = false; };
-  }, [product.id]);
-
-  const canAttemptPurchase = availableStock > 0 || logInventoryCount > 0;
+  const canAttemptPurchase = availableStock > 0;
 
   const handlePurchase = async () => {
     setPurchasing(true);
@@ -283,7 +265,8 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
     for (let i = 0; i < qty; i++) {
       const result = await purchaseProduct(product.id);
       if (!result.success) {
-        if (result.message.toLowerCase().includes("out of stock") && availableStock > 0) {
+        const lowerMsg = result.message.toLowerCase();
+        if (availableStock > 0 && (lowerMsg.includes("out of stock") || lowerMsg.includes("just grabbed the last one"))) {
           setPurchaseState({ phase: "processing", message: "Your order is being processed." });
           setPurchasing(false);
           return;
