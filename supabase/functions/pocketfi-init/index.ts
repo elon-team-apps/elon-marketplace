@@ -90,6 +90,19 @@ const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\\)]+/gi;
 const FETCH_TIMEOUT_MS = 2800;
 const MAX_TOTAL_ATTEMPTS = 12;
 
+function redactHeaderMeta(headers: Record<string, string>) {
+  const auth = headers.Authorization ?? "";
+  return {
+    hasAuthorization: Boolean(auth),
+    authLooksBearer: /^Bearer\s+/i.test(auth),
+    authorizationLength: auth.length,
+    hasXApiKey: Boolean(headers["x-api-key"]),
+    xApiKeyLength: (headers["x-api-key"] ?? "").length,
+    hasXSecretKey: Boolean(headers["x-secret-key"]),
+    xSecretKeyLength: (headers["x-secret-key"] ?? "").length,
+  };
+}
+
 /** When PocketFi returns 200 with HTML or plain text, pull the first plausible payment URL. */
 function extractCheckoutUrlFromRawBody(txt: string): string | undefined {
   const candidates = txt.match(URL_IN_TEXT_RE) ?? [];
@@ -230,22 +243,20 @@ Deno.serve(async (req: Request) => {
     const baseHeaders = { "Content-Type": "application/json" };
     const authStrategies: { name: string; headers: Record<string, string> }[] = [];
 
+    // Primary required strategy:
+    // Authorization: Bearer <POCKETFI_SECRET_KEY>
+    // X-Api-Key: <POCKETFI_API_KEY>
     if (apiKey) {
-      authStrategies.push(
-        {
-          name: "Bearer API key + x-secret-key",
-          headers: { ...baseHeaders, Authorization: `Bearer ${apiKey}`, "x-secret-key": secretKey },
-        },
-        {
-          name: "Bearer secret + x-api-key (dashboard id|token)",
-          headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
-        },
-      );
+      authStrategies.push({
+        name: "Bearer secret + x-api-key (required primary)",
+        headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}`, "x-api-key": apiKey },
+      });
     }
 
+    // Fallbacks only when API key is not configured or PocketFi integration differs.
     authStrategies.push(
-      { name: "Bearer only (secret)", headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` } },
-      { name: "x-api-key only (secret)", headers: { ...baseHeaders, "x-api-key": secretKey } },
+      { name: "Bearer only (secret fallback)", headers: { ...baseHeaders, Authorization: `Bearer ${secretKey}` } },
+      { name: "x-api-key only (secret fallback)", headers: { ...baseHeaders, "x-api-key": secretKey } },
     );
 
     let lastNetworkError = "";
@@ -268,6 +279,11 @@ Deno.serve(async (req: Request) => {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort("timeout"), FETCH_TIMEOUT_MS);
           try {
+            console.log("[pocketfi-init] Attempting URL:", endpoint);
+            console.log("[pocketfi-init] Header meta:", {
+              strategy: name,
+              ...redactHeaderMeta(headers),
+            });
             const res = await fetch(endpoint, {
               method: "POST",
               headers,
@@ -334,7 +350,11 @@ Deno.serve(async (req: Request) => {
             } else {
               lastNetworkError = message;
             }
-            console.error(`[pocketfi-init] Network error calling ${endpoint}:`, lastNetworkError);
+            console.error(`[pocketfi-init] Fetch failed before response from ${endpoint}:`, {
+              strategy: name,
+              error: lastNetworkError,
+              raw: err instanceof Error ? err.stack ?? err.message : String(err),
+            });
           } finally {
             clearTimeout(timeoutId);
           }
