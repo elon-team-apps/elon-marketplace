@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp, Product } from "@/context/AppContext";
+import { supabase } from "@/lib/supabaseClient";
 
 const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
 /** Client: all Purchase / primary actions */
@@ -71,6 +72,29 @@ function inferPlatformKey(title: string) {
 
 function getAvailableStock(product: Product): number {
   return Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+}
+
+function extractPocketFiCheckoutUrl(payload: Record<string, unknown>): string | undefined {
+  const pick = (v: unknown): string | undefined => {
+    if (typeof v !== "string") return undefined;
+    const s = v.trim();
+    return /^https?:\/\//i.test(s) ? s : undefined;
+  };
+  const direct = pick(payload.checkout_url) ?? pick(payload.checkoutUrl);
+  if (direct) return direct;
+  const data = payload.data;
+  if (data && typeof data === "object") {
+    const d = data as Record<string, unknown>;
+    return (
+      pick(d.checkout_url) ??
+      pick(d.checkoutUrl) ??
+      pick(d.authorization_url) ??
+      pick(d.payment_url) ??
+      pick(d.link) ??
+      pick(d.url)
+    );
+  }
+  return undefined;
 }
 
 // ─── Platform registry ────────────────────────────────────────────────────────
@@ -237,7 +261,7 @@ type PurchaseState =
   | { phase: "error"; message: string };
 
 function PurchaseModal({ product, onClose }: { product: Product; onClose: () => void }) {
-  const { currentUser, purchaseProduct } = useApp();
+  const { currentUser } = useApp();
   const [qty, setQty] = useState(1);
   const [purchaseState, setPurchaseState] = useState<PurchaseState>({ phase: "idle" });
   const [purchasing, setPurchasing] = useState(false);
@@ -260,29 +284,49 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
   const handlePurchase = async () => {
     setPurchasing(true);
     setPurchaseState({ phase: "idle" });
-    const logs: string[] = [];
-    let purchased = 0;
-    for (let i = 0; i < qty; i++) {
-      const result = await purchaseProduct(product.id);
-      if (!result.success) {
-        const lowerMsg = result.message.toLowerCase();
-        if (availableStock > 0 && (lowerMsg.includes("out of stock") || lowerMsg.includes("just grabbed the last one"))) {
-          setPurchaseState({ phase: "processing", message: "Your order is being processed." });
-          setPurchasing(false);
-          return;
-        }
-        setPurchaseState({ phase: "error", message: result.message });
-        if (result.message.toLowerCase().includes("out of stock")) {
-          setQty(1);
-        }
+    try {
+      if (!supabase || !currentUser?.email) {
+        setPurchaseState({ phase: "error", message: "Session not ready. Please refresh and try again." });
         setPurchasing(false);
         return;
       }
-      purchased++;
-      if (result.deliveredLog) logs.push(result.deliveredLog);
+
+      const callbackUrl = `${window.location.origin}/dashboard/orders`;
+      const { data, error } = await supabase.functions.invoke("pocketfi-init", {
+        body: {
+          amount: total,
+          productId: product.id,
+          quantity: qty,
+          email: currentUser.email,
+          callbackUrl,
+        },
+      });
+
+      if (error) {
+        setPurchaseState({ phase: "error", message: error.message || "Unable to start payment." });
+        setPurchasing(false);
+        return;
+      }
+
+      const payload = (data ?? {}) as Record<string, unknown>;
+      const checkoutUrl = extractPocketFiCheckoutUrl(payload);
+      if (!checkoutUrl) {
+        const msg =
+          (typeof payload.error === "string" && payload.error) ||
+          (typeof payload.message === "string" && payload.message) ||
+          "Unable to start payment right now.";
+        setPurchaseState({ phase: "error", message: msg });
+        setPurchasing(false);
+        return;
+      }
+
+      window.location.replace(checkoutUrl.trim());
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unable to start payment.";
+      setPurchaseState({ phase: "error", message: msg });
+      setPurchasing(false);
     }
-    setPurchasing(false);
-    setPurchaseState({ phase: "success", logs, count: purchased });
   };
 
   return (
@@ -448,7 +492,7 @@ function PurchaseModal({ product, onClose }: { product: Product; onClose: () => 
                 }}
               >
                 {purchasing ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Processing{qty > 1 ? ` ${qty} accounts` : ""}…</>
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting to Payment...</>
                 ) : (
                   <><Eye className="h-4 w-4" /> Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{total.toLocaleString()}</>
                 )}
