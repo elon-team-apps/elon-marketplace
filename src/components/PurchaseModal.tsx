@@ -70,6 +70,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         body: {
           amount: totalPrice,
           email: currentUser.email,
+          product_id: product.id,
+          quantity: qty,
         },
       });
 

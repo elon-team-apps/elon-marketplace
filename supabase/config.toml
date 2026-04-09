@@ -3,3 +3,6 @@
 # We validate the user session inside the function instead.
 [functions.pocketfi-init]
 verify_jwt = false
+
+[functions.pocketfi-webhook]
+verify_jwt = false

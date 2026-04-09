@@ -77,14 +77,14 @@ Deno.serve(async (req: Request) => {
     // Exactly one space after "Bearer"; no quotes in the header value.
     const authorizationHeader = "Bearer " + paystackSecret;
 
-    let body: { amount: unknown; email: unknown };
+    let body: { amount: unknown; email: unknown; product_id?: unknown; quantity?: unknown };
     try {
       body = await req.json();
     } catch {
       return json({ error: "Invalid JSON body." }, 400);
     }
 
-    const { amount, email } = body;
+    const { amount, email, product_id: productIdRaw, quantity: quantityRaw } = body;
     if (!amount || !email) {
       return json({ error: "Missing required fields: amount, email." }, 400);
     }
@@ -108,10 +108,41 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Invalid amount after conversion to Kobo." }, 400);
     }
 
-    const paystackBody: { email: string; amount: number; callback_url: string } = {
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let productId: string | undefined;
+    if (productIdRaw != null && String(productIdRaw).trim() !== "") {
+      const pid = String(productIdRaw).trim();
+      if (!UUID_RE.test(pid)) {
+        return json({ error: "Invalid product_id." }, 400);
+      }
+      productId = pid;
+    }
+    let purchaseQty = 1;
+    if (quantityRaw != null && quantityRaw !== "") {
+      const q = Math.trunc(Number(quantityRaw));
+      if (!Number.isFinite(q) || q < 1 || q > 50) {
+        return json({ error: "quantity must be between 1 and 50." }, 400);
+      }
+      purchaseQty = q;
+    }
+
+    const paystackBody: {
+      email: string;
+      amount: number;
+      callback_url: string;
+      metadata: Record<string, string>;
+    } = {
       email: authedUser.email ?? String(email).trim(),
       amount: amountKobo,
       callback_url: CALLBACK_URL,
+      metadata: {
+        user_id: authedUser.id,
+        flow: productId ? "purchase" : "deposit",
+        ...(productId
+          ? { product_id: productId, quantity: String(purchaseQty) }
+          : {}),
+      },
     };
 
     console.log("[pocketfi-init] Paystack initialize", {
@@ -168,6 +199,29 @@ Deno.serve(async (req: Request) => {
         },
         502,
       );
+    }
+
+    const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+    if (productId && reference && serviceRole) {
+      const admin = createClient(supabaseUrl, serviceRole, {
+        auth: { persistSession: false },
+      });
+      const { error: pendingErr } = await admin.from("transactions").insert({
+        user_id: authedUser.id,
+        amount: Math.trunc(amountNaira),
+        type: "purchase",
+        status: "pending",
+        product_id: productId,
+        reference,
+        quantity: purchaseQty,
+      });
+      if (pendingErr) {
+        console.error("[pocketfi-init] pending purchase insert failed:", pendingErr);
+        return json(
+          { error: "Could not reserve purchase. Try again.", detail: pendingErr.message },
+          500,
+        );
+      }
     }
 
     return json({
