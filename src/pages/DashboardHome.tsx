@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   Wallet,
   CreditCard,
@@ -7,36 +6,21 @@ import {
   Package,
   ArrowRight,
   Menu,
-  Siren,
   Send,
   MessageCircle,
+  Megaphone,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
-import logo from "@/assets/logo-transparent.png";
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
 
-const ANNOUNCEMENTS = [
-  "For international accounts, always connect with a stable VPN before login to avoid security checks.",
-  "Use a clean browser profile and avoid switching countries repeatedly while accessing purchased accounts.",
-  "Keep recovery details secure immediately after delivery to protect your purchased digital products.",
-];
-
 export default function DashboardHome() {
   const { currentUser, orders, products } = useApp();
-  const [announcementIndex, setAnnouncementIndex] = useState(0);
 
   const myOrders = orders.filter((o) => o.userId === currentUser?.id);
   const totalSpent = myOrders.reduce((s, o) => s + o.amount, 0);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setAnnouncementIndex((prev) => (prev + 1) % ANNOUNCEMENTS.length);
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const stats = [
     {
@@ -79,16 +63,25 @@ export default function DashboardHome() {
     <div className="space-y-6">
       {/* Sticky mobile-first top strip */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 rounded-xl border border-slate-200 dark:border-white/10 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <img src={logo} alt="Elon Marketplace" className="h-10 w-auto object-contain" />
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex items-center rounded-full px-3 py-1.5 text-sm font-semibold text-white"
-              style={{ background: BTN_NAVY }}
-            >
-              ₦{(currentUser?.wallet_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </button>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-8 w-8 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: BTN_NAVY }}>
+              <Wallet className="h-4 w-4" />
+            </div>
+            <p className="font-extrabold text-sm truncate" style={{ color: TEXT_BLACK }}>
+              ELON MARKETPLACE
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-full px-4 py-2 text-base font-bold text-white whitespace-nowrap"
+            style={{ background: BTN_NAVY }}
+          >
+            ₦ {(currentUser?.wallet_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </button>
+
+          <div className="flex justify-end">
             <button
               type="button"
               className="h-9 w-9 rounded-full border border-slate-200 dark:border-white/10 flex items-center justify-center"
@@ -101,81 +94,43 @@ export default function DashboardHome() {
         </div>
       </div>
 
-      {/* Announcement carousel */}
+      {/* Announcement banner */}
       <section className="rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/40 p-4">
         <div className="flex items-center gap-2 mb-2">
-          <Siren className="h-4 w-4 text-red-500" />
+          <Megaphone className="h-4 w-4 text-red-500" />
           <span className="text-xs font-bold tracking-wider" style={{ color: TEXT_BLACK }}>
             ANNOUNCEMENT
           </span>
         </div>
         <p className="text-sm leading-relaxed" style={{ color: TEXT_BLACK }}>
-          {ANNOUNCEMENTS[announcementIndex]}
+          KINDLY NOTE: ALL USERS MUST JOIN OUR WHATSAPP & TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.
         </p>
-        <div className="flex items-center gap-1.5 mt-3">
-          {ANNOUNCEMENTS.map((_, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => setAnnouncementIndex(idx)}
-              className="h-1.5 rounded-full transition-all"
-              style={{
-                width: announcementIndex === idx ? 18 : 8,
-                background: announcementIndex === idx ? BTN_NAVY : "#cbd5e1",
-              }}
-              aria-label={`View announcement ${idx + 1}`}
-            />
-          ))}
-        </div>
       </section>
 
       {/* Social cards */}
-      <section className="space-y-3">
-        {[
-          {
-            name: "Telegram",
-            href: "/dashboard/support",
-            icon: Send,
-            iconBg: "#e0f2fe",
-            iconColor: "#0284c7",
-            buttonLabel: "Telegram Group",
-          },
-          {
-            name: "WhatsApp",
-            href: "/dashboard/support",
-            icon: MessageCircle,
-            iconBg: "#dcfce7",
-            iconColor: "#16a34a",
-            buttonLabel: "WhatsApp Group",
-          },
-        ].map((item) => (
-          <div key={item.name} className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-bold text-base leading-tight" style={{ color: TEXT_BLACK }}>
-                  Join our announcements group
-                </p>
-                <span className="inline-block mt-2 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
-                  STAY UPDATED AT ALL TIMES
-                </span>
-              </div>
-              <div
-                className="h-14 w-14 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: item.iconBg }}
-              >
-                <item.icon className="h-7 w-7" style={{ color: item.iconColor }} />
-              </div>
-            </div>
-            <Link
-              to={item.href}
-              className="inline-flex items-center gap-2 mt-4 rounded-full px-4 py-2 text-sm font-semibold text-white"
-              style={{ background: BTN_NAVY }}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.buttonLabel}
-            </Link>
+      <section className="grid grid-cols-2 gap-3">
+        <Link
+          to="/dashboard/support"
+          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-4"
+        >
+          <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
+            Telegram Group
+          </p>
+          <div className="h-14 w-14 rounded-full bg-sky-100 flex items-center justify-center">
+            <Send className="h-7 w-7 text-sky-600" />
           </div>
-        ))}
+        </Link>
+        <Link
+          to="/dashboard/support"
+          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-4"
+        >
+          <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
+            WhatsApp Channel
+          </p>
+          <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center">
+            <MessageCircle className="h-7 w-7 text-emerald-600" />
+          </div>
+        </Link>
       </section>
 
       <div>
