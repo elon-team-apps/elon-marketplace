@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Wallet,
   CreditCard,
@@ -9,18 +11,45 @@ import {
   Send,
   MessageCircle,
   Megaphone,
+  ShieldCheck,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
+const ROYAL_BLUE = "#2563eb";
+
+const announcementSlides = [
+  {
+    title: "ANNOUNCEMENT",
+    icon: Megaphone,
+    iconClass: "text-red-500",
+    body:
+      "KINDLY NOTE: ALL USERS MUST JOIN OUR WHATSAPP & TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.",
+  },
+  {
+    title: "ANNOUNCEMENT",
+    icon: ShieldCheck,
+    iconClass: "text-emerald-600",
+    body:
+      "Keep recovery details secure immediately after delivery to protect your purchased digital products.",
+  },
+];
 
 export default function DashboardHome() {
   const { currentUser, orders, products } = useApp();
+  const [activeSlide, setActiveSlide] = useState(0);
 
   const myOrders = orders.filter((o) => o.userId === currentUser?.id);
   const totalSpent = myOrders.reduce((s, o) => s + o.amount, 0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setActiveSlide((prev) => (prev + 1) % announcementSlides.length);
+    }, 4500);
+    return () => window.clearInterval(id);
+  }, []);
 
   const stats = [
     {
@@ -60,7 +89,7 @@ export default function DashboardHome() {
   const firstName = currentUser?.name?.split(" ")[0] || "there";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Sticky mobile-first top strip */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 rounded-xl border border-slate-200 dark:border-white/10 p-3">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
@@ -76,7 +105,7 @@ export default function DashboardHome() {
           <button
             type="button"
             className="inline-flex items-center justify-center rounded-full px-4 py-2 text-base font-bold text-white whitespace-nowrap"
-            style={{ background: BTN_NAVY }}
+            style={{ background: ROYAL_BLUE }}
           >
             ₦ {(currentUser?.wallet_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </button>
@@ -96,39 +125,76 @@ export default function DashboardHome() {
 
       {/* Announcement banner */}
       <section className="rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/40 p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Megaphone className="h-4 w-4 text-red-500" />
-          <span className="text-xs font-bold tracking-wider" style={{ color: TEXT_BLACK }}>
-            ANNOUNCEMENT
-          </span>
+        <div className="relative min-h-[96px] overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeSlide}
+              initial={{ x: 30, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -30, opacity: 0 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="absolute inset-0"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                {(() => {
+                  const Icon = announcementSlides[activeSlide].icon;
+                  return <Icon className={`h-4 w-4 ${announcementSlides[activeSlide].iconClass}`} />;
+                })()}
+                <span className="text-xs font-bold tracking-wider" style={{ color: TEXT_BLACK }}>
+                  {announcementSlides[activeSlide].title}
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: TEXT_BLACK }}>
+                {announcementSlides[activeSlide].body}
+              </p>
+            </motion.div>
+          </AnimatePresence>
         </div>
-        <p className="text-sm leading-relaxed" style={{ color: TEXT_BLACK }}>
-          KINDLY NOTE: ALL USERS MUST JOIN OUR WHATSAPP & TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.
-        </p>
+        <div className="mt-2 flex items-center justify-center gap-1.5">
+          {announcementSlides.map((_, idx) => (
+            <button
+              key={idx}
+              type="button"
+              aria-label={`Go to announcement ${idx + 1}`}
+              onClick={() => setActiveSlide(idx)}
+              className="h-1.5 rounded-full transition-all"
+              style={{
+                width: activeSlide === idx ? 14 : 7,
+                background: activeSlide === idx ? "#94a3b8" : "#d1d5db",
+              }}
+            />
+          ))}
+        </div>
       </section>
 
       {/* Social cards */}
       <section className="grid grid-cols-2 gap-3">
         <Link
           to="/dashboard/support"
-          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-4"
+          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-3.5 aspect-square flex flex-col items-center justify-center gap-3"
         >
           <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
             Telegram Group
           </p>
-          <div className="h-14 w-14 rounded-full bg-sky-100 flex items-center justify-center">
-            <Send className="h-7 w-7 text-sky-600" />
+          <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
+            STAY UPDATED AT ALL TIMES
+          </span>
+          <div className="h-16 w-16 rounded-full bg-sky-100 flex items-center justify-center">
+            <Send className="h-8 w-8 text-sky-500" />
           </div>
         </Link>
         <Link
           to="/dashboard/support"
-          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-4"
+          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-3.5 aspect-square flex flex-col items-center justify-center gap-3"
         >
           <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
             WhatsApp Channel
           </p>
-          <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center">
-            <MessageCircle className="h-7 w-7 text-emerald-600" />
+          <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
+            STAY UPDATED AT ALL TIMES
+          </span>
+          <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center">
+            <MessageCircle className="h-8 w-8 text-emerald-500" />
           </div>
         </Link>
       </section>
