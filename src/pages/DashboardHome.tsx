@@ -18,22 +18,20 @@ import { useApp } from "@/context/AppContext";
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
-const ROYAL_BLUE = "#2563eb";
+const TEXT_WHITE = "#ffffff";
 
 const announcementSlides = [
   {
-    title: "ANNOUNCEMENT",
+    line:
+      "ANNOUNCEMENT: KINDLY NOTE: ALL USERS MUST JOIN OUR WHATSAPP & TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.",
     icon: Megaphone,
-    iconClass: "text-red-500",
-    body:
-      "KINDLY NOTE: ALL USERS MUST JOIN OUR WHATSAPP & TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.",
+    iconClass: "text-red-500 shrink-0",
   },
   {
-    title: "ANNOUNCEMENT",
+    line:
+      "ANNOUNCEMENT: Keep recovery details secure immediately after delivery to protect your purchased digital products.",
     icon: ShieldCheck,
-    iconClass: "text-emerald-600",
-    body:
-      "Keep recovery details secure immediately after delivery to protect your purchased digital products.",
+    iconClass: "text-white shrink-0",
   },
 ];
 
@@ -91,7 +89,7 @@ export default function DashboardHome() {
   return (
     <div className="space-y-4">
       {/* Sticky mobile-first top strip */}
-      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 rounded-xl border border-slate-200 dark:border-white/10 p-3">
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 rounded-2xl border border-slate-200 dark:border-white/10 p-3.5">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="h-8 w-8 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: BTN_NAVY }}>
@@ -104,10 +102,14 @@ export default function DashboardHome() {
 
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-full px-4 py-2 text-base font-bold text-white whitespace-nowrap"
-            style={{ background: ROYAL_BLUE }}
+            className="inline-flex items-center justify-center rounded-full px-4 py-2 text-base font-extrabold tabular-nums text-white whitespace-nowrap shadow-sm"
+            style={{ background: BTN_NAVY }}
           >
-            ₦ {(currentUser?.wallet_balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            ₦{" "}
+            {(currentUser?.wallet_balance ?? 0).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </button>
 
           <div className="flex justify-end">
@@ -123,44 +125,50 @@ export default function DashboardHome() {
         </div>
       </div>
 
-      {/* Announcement banner */}
-      <section className="rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/40 p-4">
-        <div className="relative min-h-[96px] overflow-hidden">
-          <AnimatePresence mode="wait">
+      {/* Announcement carousel — deep navy card, white copy */}
+      <section
+        className="rounded-2xl border border-white/10 p-4 shadow-md overflow-hidden"
+        style={{ backgroundColor: BTN_NAVY }}
+      >
+        <div className="relative min-h-[5.25rem] overflow-hidden">
+          <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeSlide}
-              initial={{ x: 30, opacity: 0 }}
+              initial={{ x: 40, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -30, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              className="absolute inset-0"
+              exit={{ x: -40, opacity: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 flex gap-2.5 items-start"
             >
-              <div className="flex items-center gap-2 mb-2">
-                {(() => {
-                  const Icon = announcementSlides[activeSlide].icon;
-                  return <Icon className={`h-4 w-4 ${announcementSlides[activeSlide].iconClass}`} />;
-                })()}
-                <span className="text-xs font-bold tracking-wider" style={{ color: TEXT_BLACK }}>
-                  {announcementSlides[activeSlide].title}
-                </span>
-              </div>
-              <p className="text-sm leading-relaxed" style={{ color: TEXT_BLACK }}>
-                {announcementSlides[activeSlide].body}
-              </p>
+              {(() => {
+                const slide = announcementSlides[activeSlide];
+                const Icon = slide.icon;
+                return (
+                  <>
+                    <Icon className={`h-5 w-5 mt-0.5 ${slide.iconClass}`} aria-hidden />
+                    <p
+                      className="text-[13px] sm:text-sm font-semibold leading-snug flex-1 min-w-0"
+                      style={{ color: TEXT_WHITE }}
+                    >
+                      {slide.line}
+                    </p>
+                  </>
+                );
+              })()}
             </motion.div>
           </AnimatePresence>
         </div>
-        <div className="mt-2 flex items-center justify-center gap-1.5">
+        <div className="mt-3 flex items-center justify-start gap-1.5">
           {announcementSlides.map((_, idx) => (
             <button
               key={idx}
               type="button"
               aria-label={`Go to announcement ${idx + 1}`}
               onClick={() => setActiveSlide(idx)}
-              className="h-1.5 rounded-full transition-all"
+              className="h-1 rounded-full transition-all duration-300"
               style={{
-                width: activeSlide === idx ? 14 : 7,
-                background: activeSlide === idx ? "#94a3b8" : "#d1d5db",
+                width: activeSlide === idx ? 18 : 8,
+                background: activeSlide === idx ? TEXT_WHITE : "rgba(255,255,255,0.28)",
               }}
             />
           ))}
@@ -168,10 +176,10 @@ export default function DashboardHome() {
       </section>
 
       {/* Social cards */}
-      <section className="grid grid-cols-2 gap-3">
+      <section className="grid grid-cols-2 gap-2.5">
         <Link
           to="/dashboard/support"
-          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-3.5 aspect-square flex flex-col items-center justify-center gap-3"
+          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm"
         >
           <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
             Telegram Group
@@ -179,13 +187,13 @@ export default function DashboardHome() {
           <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
             STAY UPDATED AT ALL TIMES
           </span>
-          <div className="h-16 w-16 rounded-full bg-sky-100 flex items-center justify-center">
-            <Send className="h-8 w-8 text-sky-500" />
+          <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-sky-100 flex items-center justify-center">
+            <Send className="h-9 w-9 text-sky-500" />
           </div>
         </Link>
         <Link
           to="/dashboard/support"
-          className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-3.5 aspect-square flex flex-col items-center justify-center gap-3"
+          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm"
         >
           <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
             WhatsApp Channel
@@ -193,8 +201,8 @@ export default function DashboardHome() {
           <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
             STAY UPDATED AT ALL TIMES
           </span>
-          <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center">
-            <MessageCircle className="h-8 w-8 text-emerald-500" />
+          <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-emerald-100 flex items-center justify-center">
+            <MessageCircle className="h-9 w-9 text-emerald-500" />
           </div>
         </Link>
       </section>
@@ -214,10 +222,10 @@ export default function DashboardHome() {
           <Link
             key={s.label}
             to={s.href}
-            className="glass-card p-5 flex flex-col gap-4 hover:border-white/14 transition-all group"
+            className="glass-card rounded-2xl p-5 flex flex-col gap-4 hover:border-white/14 transition-all group"
           >
             <div className="flex items-center justify-between">
-              <div className={`h-10 w-10 rounded-lg border ${s.bg} flex items-center justify-center`}>
+              <div className={`h-10 w-10 rounded-xl border ${s.bg} flex items-center justify-center`}>
                 <s.icon className={`h-5 w-5 ${s.color}`} />
               </div>
               <ArrowRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-400 transition-colors" />
@@ -233,7 +241,7 @@ export default function DashboardHome() {
       </div>
 
       {/* CTA banner */}
-      <div className="glass-card p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      <div className="glass-card rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <div className="flex-1">
           <h2 className="font-heading text-base font-semibold text-white mb-1">
             Fund your wallet to get started
@@ -260,7 +268,7 @@ export default function DashboardHome() {
 
       {/* Recent orders (only if any exist) */}
       {myOrders.length > 0 && (
-        <div className="glass-card overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-white/6 flex items-center justify-between">
             <h3 className="font-heading text-sm font-semibold text-slate-200">Recent Orders</h3>
             <Link to="/dashboard/orders" className="text-xs text-accent hover:text-accent/80 font-medium">
@@ -289,8 +297,8 @@ export default function DashboardHome() {
       )}
 
       {/* Support */}
-      <div className="glass-card p-5 flex items-center gap-4">
-        <div className="h-10 w-10 rounded-lg bg-sky-400/10 border border-sky-400/20 flex items-center justify-center shrink-0">
+      <div className="glass-card rounded-2xl p-5 flex items-center gap-4">
+        <div className="h-10 w-10 rounded-xl bg-sky-400/10 border border-sky-400/20 flex items-center justify-center shrink-0">
           <Headphones className="h-5 w-5 text-sky-400" />
         </div>
         <div className="flex-1">
