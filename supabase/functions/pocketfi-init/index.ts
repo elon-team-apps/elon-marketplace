@@ -201,28 +201,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
-    if (productId && reference && serviceRole) {
-      const admin = createClient(supabaseUrl, serviceRole, {
-        auth: { persistSession: false },
-      });
-      const { error: pendingErr } = await admin.from("transactions").insert({
-        user_id: authedUser.id,
-        amount: Math.trunc(amountNaira),
-        type: "purchase",
-        status: "pending",
-        product_id: productId,
-        reference,
-        quantity: purchaseQty,
-      });
-      if (pendingErr) {
-        console.error("[pocketfi-init] pending purchase insert failed:", pendingErr);
-        return json(
-          { error: "Could not reserve purchase. Try again.", detail: pendingErr.message },
-          500,
-        );
-      }
-    }
+    // Pending purchase rows are inserted by the client (PurchaseModal) after init succeeds,
+    // same pattern as wallet deposits — avoids duplicate rows and keeps RLS on the user session.
 
     return json({
       authorization_url: authorizationUrl,

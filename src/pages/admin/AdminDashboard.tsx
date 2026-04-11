@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   TrendingUp, Users, Package, ShoppingCart, ArrowUpRight,
   Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet,
@@ -292,53 +292,122 @@ function UsersTable() {
 // ── AdminDashboard ─────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
-  const { products, users, orders } = useApp();
+  const { products, orders } = useApp();
   const { toast } = useToast();
   const [pmSettings, setPmSettings] = useState<PaymentMethodSettings>({
     pocketfi_enabled: true,
     manual_enabled: false,
   });
   const [pmLoading, setPmLoading] = useState(false);
+  const [dbTotalUsers, setDbTotalUsers] = useState<number | null>(null);
+  const [dbPurchaseRevenue, setDbPurchaseRevenue] = useState<number | null>(null);
+  const [dbLogsSold, setDbLogsSold] = useState<number | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
-  const totalRevenue = orders.reduce((sum, o) => sum + o.amount, 0);
-  const totalLogsSold = orders.length;
-  const totalUsers = users.filter((u) => !u.is_admin).length;
+  const fetchAnalytics = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!supabase) {
+      setAnalyticsLoading(false);
+      return;
+    }
+    if (!opts?.silent) setAnalyticsLoading(true);
+
+    const [profilesRes, purchasesRes] = await Promise.all([
+      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase
+        .from("transactions")
+        .select("amount, quantity")
+        .eq("status", "completed")
+        .eq("type", "purchase"),
+    ]);
+
+    if (!profilesRes.error && typeof profilesRes.count === "number") {
+      setDbTotalUsers(profilesRes.count);
+    }
+
+    if (!purchasesRes.error && purchasesRes.data) {
+      const rows = purchasesRes.data as { amount: number; quantity: number | null }[];
+      const revenue = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+      const logs = rows.reduce((sum, r) => sum + Math.max(1, Number(r.quantity ?? 1) || 1), 0);
+      setDbPurchaseRevenue(revenue);
+      setDbLogsSold(logs);
+    }
+
+    setAnalyticsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel("admin-dashboard-analytics")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        void fetchAnalytics({ silent: true });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => {
+        void fetchAnalytics({ silent: true });
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchAnalytics]);
+
   const activeStock = products.reduce((sum, p) => sum + (p.stock_count ?? p.stock ?? 0), 0);
 
-  const stats = [
-    {
-      label: "Total Revenue",
-      value: `₦${totalRevenue.toLocaleString()}`,
-      icon: TrendingUp,
-      color: "text-accent",
-      bg: "bg-accent/10",
-      change: `${orders.length} orders`,
-    },
-    {
-      label: "Logs Sold",
-      value: totalLogsSold.toString(),
-      icon: ShoppingCart,
-      color: "text-sky-400",
-      bg: "bg-sky-400/10",
-      change: "total deliveries",
-    },
-    {
-      label: "Registered Users",
-      value: totalUsers.toString(),
-      icon: Users,
-      color: "text-amber-400",
-      bg: "bg-amber-400/10",
-      change: "active accounts",
-    },
-    {
-      label: "Active Stock",
-      value: activeStock.toString(),
-      icon: Package,
-      color: "text-purple-400",
-      bg: "bg-purple-400/10",
-      change: `across ${products.length} products`,
-    },
-  ];
+  const totalRevenue = dbPurchaseRevenue ?? 0;
+  const totalLogsSold = dbLogsSold ?? 0;
+  const totalUsers = dbTotalUsers ?? 0;
+
+  const stats = useMemo(
+    () => [
+      {
+        label: "Total Revenue",
+        value: analyticsLoading && dbPurchaseRevenue === null ? "—" : `₦${totalRevenue.toLocaleString()}`,
+        icon: TrendingUp,
+        color: "text-accent",
+        bg: "bg-accent/10",
+        change: `${analyticsLoading && dbLogsSold === null ? "—" : totalLogsSold} units sold (completed purchases)`,
+      },
+      {
+        label: "Logs Sold",
+        value: analyticsLoading && dbLogsSold === null ? "—" : totalLogsSold.toString(),
+        icon: ShoppingCart,
+        color: "text-sky-400",
+        bg: "bg-sky-400/10",
+        change: "sum of quantities on completed purchases",
+      },
+      {
+        label: "Registered Users",
+        value: analyticsLoading && dbTotalUsers === null ? "—" : totalUsers.toString(),
+        icon: Users,
+        color: "text-amber-400",
+        bg: "bg-amber-400/10",
+        change: "profiles table (live)",
+      },
+      {
+        label: "Active Stock",
+        value: activeStock.toString(),
+        icon: Package,
+        color: "text-purple-400",
+        bg: "bg-purple-400/10",
+        change: `across ${products.length} products`,
+      },
+    ],
+    [
+      totalRevenue,
+      totalLogsSold,
+      totalUsers,
+      activeStock,
+      products.length,
+      analyticsLoading,
+      dbPurchaseRevenue,
+      dbLogsSold,
+      dbTotalUsers,
+    ],
+  );
 
   const fetchPaymentSettings = useCallback(async () => {
     if (!supabase) return;

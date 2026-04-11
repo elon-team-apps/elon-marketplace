@@ -20,7 +20,7 @@ const BTN_NAVY = "#0f172a";
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
   const [searchParams] = useSearchParams();
-  const { currentUser } = useApp();
+  const { currentUser, refreshProfile } = useApp();
   const { toast } = useToast();
 
   const [amount, setAmount] = useState("");
@@ -81,6 +81,7 @@ export default function WalletPage() {
       setPendingStatus(status);
 
       if (status === "completed") {
+        void refreshProfile();
         toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
         localStorage.removeItem(PENDING_REF_KEY);
         setPendingRef(null);
@@ -101,7 +102,7 @@ export default function WalletPage() {
     return () => {
       if (timer) window.clearTimeout(timer);
     };
-  }, [pendingRef, currentUser?.id, toast]);
+  }, [pendingRef, currentUser?.id, toast, refreshProfile]);
 
   // ── Start Paystack checkout (Edge Function slug kept: pocketfi-init) ───────
   const startPaystackCheckout = async () => {

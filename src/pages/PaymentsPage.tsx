@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CreditCard, ArrowDownLeft, CheckCircle2, Clock, XCircle, Loader2, Wallet } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useApp } from "@/context/AppContext";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -22,9 +22,17 @@ const STATUS = {
 };
 
 export default function PaymentsPage() {
-  const { currentUser } = useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { currentUser, refreshProfile } = useApp();
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [loading, setLoading] = useState(false);
+  const refreshedForRef = useRef<string | null>(null);
+
+  const paystackRefParam =
+    searchParams.get("reference")?.trim() ||
+    searchParams.get("trxref")?.trim() ||
+    searchParams.get("tx_ref")?.trim() ||
+    "";
 
   useEffect(() => {
     if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
@@ -40,6 +48,75 @@ export default function PaymentsPage() {
         setLoading(false);
       });
   }, [currentUser?.id]);
+
+  /** After Paystack redirect (deposits or purchases), poll until the row completes then sync header balance. */
+  useEffect(() => {
+    if (!paystackRefParam || !supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
+    if (refreshedForRef.current === paystackRefParam) return;
+
+    let timer: number | undefined;
+    let cancelled = false;
+
+    const clearPaystackQueryParams = () => {
+      setSearchParams(
+        (prev) => {
+          const n = new URLSearchParams(prev);
+          n.delete("reference");
+          n.delete("trxref");
+          n.delete("tx_ref");
+          return n;
+        },
+        { replace: true },
+      );
+    };
+
+    const poll = async () => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("status")
+        .eq("reference", paystackRefParam)
+        .eq("user_id", currentUser.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error || !data) {
+        timer = window.setTimeout(poll, 4000);
+        return;
+      }
+
+      const st = data.status as string;
+      if (st === "completed") {
+        refreshedForRef.current = paystackRefParam;
+        await refreshProfile();
+        clearPaystackQueryParams();
+        supabase
+          .from("transactions")
+          .select("id, amount, status, reference, created_at")
+          .eq("user_id", currentUser.id)
+          .eq("type", "deposit")
+          .order("created_at", { ascending: false })
+          .then(({ data: rows }) => {
+            if (rows) setDeposits(rows as Deposit[]);
+          });
+        return;
+      }
+
+      if (st === "failed") {
+        refreshedForRef.current = paystackRefParam;
+        clearPaystackQueryParams();
+        return;
+      }
+
+      timer = window.setTimeout(poll, 3000);
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [paystackRefParam, currentUser?.id, refreshProfile, setSearchParams]);
 
   const totalDeposited = deposits
     .filter((d) => d.status === "completed")

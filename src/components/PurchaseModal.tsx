@@ -15,6 +15,7 @@ import {
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type PurchaseState =
   | { phase: "idle" }
@@ -109,6 +110,51 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           (typeof payload.message === "string" && payload.message) ||
           "Unable to start payment right now.";
         setPurchaseState({ phase: "error", message: msg });
+        setPurchasing(false);
+        return;
+      }
+
+      const reference =
+        typeof payload.reference === "string" && payload.reference.trim()
+          ? payload.reference.trim()
+          : typeof (payload.data as Record<string, unknown> | undefined)?.reference === "string"
+            ? String((payload.data as Record<string, unknown>).reference).trim()
+            : "";
+
+      if (!reference) {
+        setPurchaseState({
+          phase: "error",
+          message: "Paystack did not return a transaction reference. Try again or contact support.",
+        });
+        setPurchasing(false);
+        return;
+      }
+
+      if (!UUID_REGEX.test(product.id)) {
+        setPurchaseState({
+          phase: "error",
+          message: "This product cannot be purchased online. Please refresh the catalogue and try again.",
+        });
+        setPurchasing(false);
+        return;
+      }
+
+      const naira = Math.trunc(totalPrice);
+      const { error: txError } = await supabase.from("transactions").insert({
+        user_id: currentUser.id,
+        amount: naira,
+        type: "purchase",
+        status: "pending",
+        reference,
+        product_id: product.id,
+        quantity: qty,
+      });
+
+      if (txError) {
+        setPurchaseState({
+          phase: "error",
+          message: `Could not record purchase: ${txError.message}`,
+        });
         setPurchasing(false);
         return;
       }

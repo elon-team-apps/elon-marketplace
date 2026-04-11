@@ -510,13 +510,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Manually re-fetch profile from Supabase (the ↻ Sync button in the header).
   // Clears currentUserRef.role so the retry logic doesn't skip the fetch.
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     if (!supabase) return;
-    // Reset ref so syncProfile doesn't treat this as "already loaded and keeping state"
     currentUserRef.current = { ...currentUserRef.current, role: "" };
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) await syncProfile(session.user);
-  };
+  }, [syncProfile]);
 
   const addProduct = (product: Omit<Product, "id" | "createdAt">) => {
     const newProd: Product = {
