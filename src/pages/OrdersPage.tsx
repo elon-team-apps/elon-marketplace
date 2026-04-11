@@ -51,19 +51,35 @@ function CredentialModal({
 
     setFetching(true);
     supabase
-      .from("logs_data")
+      .from("log_items")
       .select("credentials")
       .eq("id", logId)
       .single()
       .then(({ data, error }) => {
-        if (error || !data) {
+        if (error) {
+          void supabase
+            .from("logs_data")
+            .select("credentials")
+            .eq("id", logId)
+            .single()
+            .then(({ data: d2, error: e2 }) => {
+              setFetching(false);
+              if (e2 || !d2) {
+                setFetchError("Could not retrieve credentials. Please contact support.");
+                return;
+              }
+              setCredentials(String((d2 as { credentials?: string }).credentials ?? ""));
+            });
+          return;
+        }
+        if (!data) {
           setFetchError("Could not retrieve credentials. Please contact support.");
         } else {
-          setCredentials(data.credentials);
+          setCredentials(String((data as { credentials?: string }).credentials ?? ""));
         }
         setFetching(false);
       });
-  }, []);
+  }, [credentials, order]);
 
   const handleCopy = () => {
     if (!credentials) return;

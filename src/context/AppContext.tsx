@@ -56,6 +56,7 @@ interface AppContextType {
   adjustWallet: (userId: string, amount: number, type: "add" | "deduct") => { success: boolean; message: string };
   topUpWallet: (amount: number) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  refreshProducts: () => Promise<void>;
 }
 
 const STORAGE_KEY = "elon_marketplace_v2";
@@ -386,8 +387,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { listener.subscription.unsubscribe(); };
   }, [syncProfile]);
 
-  // ── Fetch live products from Supabase ─────────────────────────────────────
-  useEffect(() => {
+  const refreshProducts = useCallback(async () => {
     if (!supabase) return;
 
     const applyRows = async (data: Record<string, unknown>[]) => {
@@ -414,14 +414,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const fallbackCounts: Record<string, number> = {};
       if (missingCountIds.length > 0) {
-        const { data: logItems, error: logErr } = await supabase!
+        let logItems: Array<{ product_id?: string }> | null = null;
+        const inv = await supabase
           .from("log_items")
           .select("product_id")
-          .in("product_id", missingCountIds);
-        if (logErr) {
-          console.warn("[AppContext] log_items fallback count error:", logErr.message);
-        } else if (logItems) {
-          for (const item of logItems as Array<{ product_id?: string }>) {
+          .in("product_id", missingCountIds)
+          .eq("is_delivered", false);
+        if (!inv.error && inv.data) {
+          logItems = inv.data as Array<{ product_id?: string }>;
+        } else {
+          const legacy = await supabase
+            .from("logs_data")
+            .select("product_id")
+            .in("product_id", missingCountIds)
+            .eq("is_delivered", false);
+          if (!legacy.error && legacy.data) {
+            logItems = legacy.data as Array<{ product_id?: string }>;
+          } else if (inv.error) {
+            console.warn("[AppContext] log_items / logs_data fallback count error:", inv.error.message);
+          }
+        }
+        if (logItems) {
+          for (const item of logItems) {
             const pid = String(item.product_id ?? "");
             if (!pid) continue;
             fallbackCounts[pid] = (fallbackCounts[pid] ?? 0) + 1;
@@ -451,27 +465,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     };
 
-    supabase
+    const { data, error } = await supabase
       .from("products")
       .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (!error && data && data.length > 0) { void applyRows(data); return; }
+      .order("created_at", { ascending: false });
 
-        if (error) {
-          console.warn("[AppContext] Products fetch (ordered) error:", error.message, "— retrying without order.");
-        }
+    if (!error && data && data.length > 0) {
+      await applyRows(data);
+      return;
+    }
 
-        // Retry without ordering — handles tables where created_at doesn't exist yet
-        supabase!
-          .from("products")
-          .select("*")
-          .then(({ data: d2, error: e2 }) => {
-            if (e2) { console.warn("[AppContext] Products fetch error:", e2.message); return; }
-            if (d2 && d2.length > 0) void applyRows(d2);
-          });
-      });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (error) {
+      console.warn("[AppContext] Products fetch (ordered) error:", error.message, "— retrying without order.");
+    }
+
+    const { data: d2, error: e2 } = await supabase.from("products").select("*");
+    if (e2) {
+      console.warn("[AppContext] Products fetch error:", e2.message);
+      return;
+    }
+    if (d2 && d2.length > 0) await applyRows(d2);
+  }, []);
+
+  // ── Fetch live products from Supabase ─────────────────────────────────────
+  useEffect(() => {
+    void refreshProducts();
+  }, [refreshProducts]);
 
   // Live wallet/role sync for navbar and dashboard stats.
   useEffect(() => {
@@ -663,6 +682,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         adjustWallet,
         topUpWallet,
         refreshProfile,
+        refreshProducts,
       }}
     >
       {children}
