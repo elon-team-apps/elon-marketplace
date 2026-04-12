@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Pencil,
@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  List,
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -31,7 +32,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { PostgrestError } from "@supabase/supabase-js";
 
+const BTN_NAVY = "#0f172a";
+const BTN_DELETE = "#dc2626";
 const CATEGORIES = ["Social Media", "Streaming", "VPN"];
+
+type LogRow = {
+  id: string;
+  credentials: string;
+  is_delivered: boolean;
+  created_at: string;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,8 +52,22 @@ function parseLines(text: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-function countLines(text: string) {
-  return parseLines(text).length;
+/** Each line Email:Password:Recovery → normalized single credential string for log_items.credentials */
+function parseCredentialLines(raw: string): string[] {
+  return parseLines(raw).map((line) => {
+    const parts = line.split(":");
+    if (parts.length >= 3) {
+      const email = parts[0]?.trim() ?? "";
+      const password = parts[1]?.trim() ?? "";
+      const recovery = parts.slice(2).join(":").trim();
+      return `${email}:${password}:${recovery}`;
+    }
+    return line;
+  });
+}
+
+function countParsedLogs(raw: string) {
+  return parseCredentialLines(raw).length;
 }
 
 function formatPostgrestError(err: PostgrestError | null | undefined): string {
@@ -69,7 +93,6 @@ function formatRpcFailure(
   return parts.length > 0 ? parts.join("\n\n") : "Upload failed.";
 }
 
-/** Remove inventory rows before deleting a product (log_items after migration 009, else logs_data). */
 async function deleteInventoryForProduct(productId: string) {
   if (!supabase) return { error: null as PostgrestError | null };
   const primary = await supabase.from("log_items").delete().eq("product_id", productId);
@@ -81,31 +104,33 @@ async function deleteInventoryForProduct(productId: string) {
   return primary;
 }
 
-// ─── Product form state (Add Product only) ───────────────────────────────────
-
-type FormState = {
-  title: string;
-  category: string;
-  price: string;
-  description: string;
-  logsText: string;
-  platform: string;
-  login: string;
-  password: string;
-  recoveryInfo: string;
-};
-
-const emptyForm: FormState = {
-  title: "",
-  category: "Social Media",
-  price: "",
-  description: "",
-  logsText: "",
-  platform: "",
-  login: "",
-  password: "",
-  recoveryInfo: "",
-};
+/** Recompute products.stock from undelivered inventory rows */
+async function syncProductStockFromLogs(productId: string) {
+  if (!supabase) return;
+  let count = 0;
+  const a = await supabase
+    .from("log_items")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("is_delivered", false);
+  if (!a.error && typeof a.count === "number") {
+    count = a.count;
+  } else {
+    const b = await supabase
+      .from("logs_data")
+      .select("id", { count: "exact", head: true })
+      .eq("product_id", productId)
+      .eq("is_delivered", false);
+    if (!b.error && typeof b.count === "number") count = b.count;
+  }
+  await supabase
+    .from("products")
+    .update({
+      stock: count,
+      status: count > 0 ? "available" : "sold_out",
+    })
+    .eq("id", productId);
+}
 
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
 
@@ -136,7 +161,7 @@ function BulkUploadModal({
     }
   }, [initialProductId, products]);
 
-  const lines = parseLines(logsText);
+  const lines = parseCredentialLines(logsText);
   const lineCount = lines.length;
   const selectedProduct = products.find((p) => p.id === selectedId);
 
@@ -147,7 +172,7 @@ function BulkUploadModal({
       return;
     }
     if (lineCount === 0) {
-      setErrorMsg("Paste at least one log line before uploading.");
+      setErrorMsg("Paste at least one line (Email:Password:Recovery).");
       setStatus("error");
       return;
     }
@@ -194,153 +219,114 @@ function BulkUploadModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.65)" }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="relative w-full max-w-xl bg-[hsl(var(--sidebar-background))] border border-sidebar-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-sidebar-border shrink-0">
+      <div className="relative w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900 flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-accent/15 border border-accent/25 flex items-center justify-center shrink-0">
-              <PackagePlus className="h-4.5 w-4.5 text-accent" />
+            <div
+              className="h-9 w-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0"
+              style={{ background: BTN_NAVY }}
+            >
+              <PackagePlus className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="font-heading font-bold text-sidebar-foreground">Bulk Log Upload</h2>
-              <p className="text-xs text-sidebar-foreground/50 mt-0.5">
-                Inserts into <span className="font-mono">log_items</span> for the selected product
-              </p>
+              <h2 className="font-heading font-bold text-slate-900 dark:text-white">Bulk log upload</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">One account per line · Email:Password:Recovery</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
-          >
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1">
           {status === "success" && result && (
-            <div className="rounded-xl bg-accent/10 border border-accent/25 px-5 py-4 flex items-start gap-4">
-              <CheckCircle2 className="h-5 w-5 text-accent shrink-0 mt-0.5" />
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex gap-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-accent text-sm">Upload Successful</p>
-                <p className="text-xs text-sidebar-foreground/60 mt-1">
-                  <span className="font-bold text-sidebar-foreground">{result.inserted}</span> logs added to{" "}
-                  <span className="font-bold text-sidebar-foreground">{selectedProduct?.title}</span>. New stock:{" "}
-                  <span className="font-bold text-accent">{result.newStock}</span>.
+                <p className="font-semibold text-emerald-800 text-sm dark:text-emerald-300">Upload successful</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  {result.inserted} logs added · New stock <span className="font-bold">{result.newStock}</span>
                 </p>
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className="mt-3 text-xs font-semibold text-accent hover:underline"
-                >
-                  Upload more logs →
+                <button type="button" onClick={handleReset} className="mt-2 text-xs font-semibold text-emerald-700 underline dark:text-emerald-400">
+                  Upload more
                 </button>
               </div>
             </div>
           )}
 
           {status === "error" && errorMsg && (
-            <div className="rounded-xl bg-destructive/10 border border-destructive/25 px-5 py-4 flex items-start gap-4">
-              <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-destructive text-sm">Upload Failed</p>
-                <pre className="text-xs text-sidebar-foreground/80 mt-2 whitespace-pre-wrap break-words font-mono">
-                  {errorMsg}
-                </pre>
-              </div>
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3 dark:border-red-900/40 dark:bg-red-950/20">
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+              <pre className="text-xs text-red-900 dark:text-red-200 whitespace-pre-wrap break-words font-mono flex-1 min-w-0">
+                {errorMsg}
+              </pre>
             </div>
           )}
 
           {status !== "success" && (
             <>
               <div>
-                <Label className="text-sidebar-foreground/70 text-xs uppercase tracking-wider font-semibold">
-                  Select Product
-                </Label>
-                <div className="relative mt-2">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Product</Label>
+                <div className="relative mt-1.5">
                   <select
                     value={selectedId}
                     onChange={(e) => setSelectedId(e.target.value)}
                     disabled={status === "uploading"}
-                    className="w-full h-11 rounded-xl border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground px-4 pr-10 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                    className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm dark:border-white/10 dark:bg-white/5 dark:text-white appearance-none"
                   >
-                    {products.length === 0 && <option value="">No products available</option>}
+                    {products.length === 0 && <option value="">No products</option>}
                     {products.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-[hsl(222,60%,12%)]">
-                        {p.title} — {p.category} ({p.stock_count ?? p.stock ?? 0} in stock)
+                      <option key={p.id} value={p.id}>
+                        {p.title} ({p.stock_count ?? p.stock ?? 0} in stock)
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sidebar-foreground/40 pointer-events-none" />
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                 </div>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Label className="text-sidebar-foreground/70 text-xs uppercase tracking-wider font-semibold">
-                    Paste Logs (one per line)
-                  </Label>
-                  <span
-                    className={`text-xs font-bold px-2.5 py-1 rounded-full transition-colors ${
-                      lineCount > 0
-                        ? "bg-accent/15 text-accent border border-accent/25"
-                        : "bg-sidebar-accent/50 text-sidebar-foreground/40 border border-sidebar-border"
-                    }`}
-                  >
-                    {lineCount === 0 ? "0 lines" : `${lineCount} log${lineCount === 1 ? "" : "s"} → Stock +${lineCount}`}
-                  </span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Paste logs</Label>
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{lineCount} line{lineCount === 1 ? "" : "s"}</span>
                 </div>
                 <textarea
                   rows={10}
                   disabled={status === "uploading"}
-                  className="w-full rounded-xl border border-sidebar-border bg-sidebar-accent/30 text-sidebar-foreground/90 px-4 py-3 text-xs font-mono resize-none focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50 placeholder:text-sidebar-foreground/25"
-                  placeholder={
-                    "Paste credentials here, one account per line:\nuser@email.com:Password123:CookieTokenABC..."
-                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
+                  placeholder={"email@domain.com:YourPassword:recovery@backup.com\nuser2@mail.com:Pass456:2FA-seed-or-note"}
                   value={logsText}
                   onChange={(e) => {
                     setLogsText(e.target.value);
                     if (status === "error") setStatus("idle");
                   }}
                 />
-                <p className="text-xs text-sidebar-foreground/35 mt-2">
-                  Each non-empty line becomes one row in <span className="font-mono">log_items</span> with the
-                  selected <span className="font-mono">product_id</span>. Stock is recalculated by the server.
-                </p>
               </div>
             </>
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-sidebar-border flex items-center gap-3 shrink-0">
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-white/10 flex gap-2 shrink-0">
           {status !== "success" ? (
             <>
               <button
                 type="button"
                 onClick={handleUpload}
                 disabled={status === "uploading" || lineCount === 0 || !selectedId}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+                style={{ background: BTN_NAVY }}
               >
-                {status === "uploading" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Uploading…
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-4 w-4" />
-                    Upload {lineCount > 0 ? `${lineCount} Logs` : "Logs"}
-                  </>
-                )}
+                {status === "uploading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Upload
               </button>
               <button
                 type="button"
                 onClick={onClose}
                 disabled={status === "uploading"}
-                className="px-4 py-2.5 rounded-xl text-sm font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 disabled:opacity-40 transition-all duration-150"
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
               >
                 Cancel
               </button>
@@ -349,7 +335,8 @@ function BulkUploadModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-sidebar-accent/60 text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-150"
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
+              style={{ background: BTN_NAVY }}
             >
               Done
             </button>
@@ -360,7 +347,224 @@ function BulkUploadModal({
   );
 }
 
-// ─── Quick edit modal (title, price, description) ───────────────────────────
+// ─── Create Product Modal ─────────────────────────────────────────────────────
+
+type CreateForm = {
+  title: string;
+  category: string;
+  price: string;
+  description: string;
+  logsText: string;
+};
+
+const emptyCreateForm: CreateForm = {
+  title: "",
+  category: "Social Media",
+  price: "",
+  description: "",
+  logsText: "",
+};
+
+function CreateProductModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const { addProduct, refreshProducts } = useApp();
+  const [form, setForm] = useState<CreateForm>(emptyCreateForm);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm(emptyCreateForm);
+  }, [open]);
+
+  if (!open) return null;
+
+  const parsedLogs = parseCredentialLines(form.logsText);
+  const logCount = parsedLogs.length;
+
+  const handleSubmit = async () => {
+    if (!form.title.trim()) {
+      toast({ title: "Add a product title", variant: "destructive" });
+      return;
+    }
+    const price = parseFloat(form.price);
+    if (isNaN(price) || price <= 0) {
+      toast({ title: "Enter a valid price", variant: "destructive" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const autoLogoUrl = resolveLogoUrlFromTitle(form.title.trim());
+      const stock = logCount;
+
+      if (supabase) {
+        const { data: row, error: insErr } = await supabase
+          .from("products")
+          .insert({
+            title: form.title.trim(),
+            category: form.category,
+            price: Math.trunc(price),
+            description: form.description.trim(),
+            stock,
+            status: stock > 0 ? "available" : "sold_out",
+          })
+          .select("id")
+          .maybeSingle();
+
+        if (insErr) {
+          toast({
+            title: "We couldn't save that",
+            description: formatPostgrestError(insErr),
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const newId = row?.id as string | undefined;
+        if (newId && logCount > 0) {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc("bulk_upload_logs", {
+            p_product_id: newId,
+            p_credentials: parsedLogs,
+          });
+          const payload = rpcData as Record<string, unknown> | null | undefined;
+          if (rpcErr || !payload?.success) {
+            toast({
+              title: "We couldn't save that",
+              description: formatRpcFailure(rpcErr, payload),
+              variant: "destructive",
+            });
+            await refreshProducts();
+            onClose();
+            onCreated();
+            return;
+          }
+        }
+
+        await refreshProducts();
+        toast({
+          title: "You're all set",
+          description:
+            logCount > 0
+              ? `“${form.title.trim()}” is live with ${logCount} account${logCount === 1 ? "" : "s"}.`
+              : `“${form.title.trim()}” is live. Add logs anytime from inventory.`,
+        });
+        onClose();
+        onCreated();
+        return;
+      }
+
+      addProduct({
+        title: form.title.trim(),
+        category: form.category,
+        price,
+        description: form.description.trim(),
+        logs: parsedLogs,
+        stock_count: stock,
+        stock,
+        logo_url: autoLogoUrl,
+      });
+      toast({
+        title: "You're all set",
+        description: `“${form.title.trim()}” added with ${logCount} log line(s).`,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && !saving && onClose()}>
+      <div
+        className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white dark:border-white/10 dark:bg-slate-900">
+          <h2 className="font-heading font-bold text-lg text-slate-900 dark:text-white">Create product</h2>
+          <button type="button" disabled={saving} onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Title</Label>
+            <Input className="mt-1.5" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} disabled={saving} placeholder="Product name" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Category</Label>
+              <select
+                className="mt-1.5 w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white"
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                disabled={saving}
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Price (₦)</Label>
+              <Input type="number" min={1} className="mt-1.5" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} disabled={saving} />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Description</Label>
+            <textarea
+              rows={2}
+              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white"
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Accounts (paste list)</Label>
+              <span className="text-xs font-semibold text-slate-500">{logCount} parsed</span>
+            </div>
+            <textarea
+              rows={8}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
+              placeholder={"email@domain.com:Password123:recovery@email.com\nEach line: Email:Password:Recovery"}
+              value={form.logsText}
+              onChange={(e) => setForm((f) => ({ ...f, logsText: e.target.value }))}
+              disabled={saving}
+            />
+            <p className="text-xs text-slate-500 mt-1.5">Lines are saved into log_items as credential rows (colon-separated).</p>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 flex gap-2 px-6 py-4 border-t border-slate-100 bg-white dark:border-white/10 dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            className="inline-flex flex-1 items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+            style={{ background: BTN_NAVY }}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Create product
+          </button>
+          <button type="button" onClick={onClose} disabled={saving} className="px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit product modal ───────────────────────────────────────────────────────
 
 function EditProductModal({
   product,
@@ -387,7 +591,7 @@ function EditProductModal({
 
   const handleSave = async () => {
     if (!title.trim()) {
-      toast({ title: "Title required", variant: "destructive" });
+      toast({ title: "Name required", variant: "destructive" });
       return;
     }
     const n = parseFloat(price);
@@ -410,7 +614,7 @@ function EditProductModal({
 
         if (error) {
           toast({
-            title: "Update failed",
+            title: "We couldn't update that",
             description: formatPostgrestError(error),
             variant: "destructive",
           });
@@ -425,7 +629,7 @@ function EditProductModal({
       }
 
       onSaved();
-      toast({ title: "Product updated" });
+      toast({ title: "You're all set", description: "Product details saved." });
       onClose();
     } finally {
       setSaving(false);
@@ -433,58 +637,33 @@ function EditProductModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.65)" }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        className="relative w-full max-w-md bg-[hsl(var(--sidebar-background))] border border-sidebar-border rounded-2xl shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-sidebar-border">
-          <h2 className="font-heading font-bold text-sidebar-foreground">Edit Product</h2>
-          <button type="button" onClick={onClose} className="text-sidebar-foreground/40 hover:text-sidebar-foreground">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-white/10">
+          <h2 className="font-heading font-bold text-slate-900 dark:text-white">Edit product</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="px-5 py-4 space-y-4">
           <div>
-            <Label className="text-sidebar-foreground/70 text-xs uppercase font-semibold">Name</Label>
-            <Input
-              className="mt-1.5 bg-sidebar-accent/30 border-sidebar-border"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              disabled={saving}
-            />
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Name</Label>
+            <Input className="mt-1.5" value={title} onChange={(e) => setTitle(e.target.value)} disabled={saving} />
           </div>
           <div>
-            <Label className="text-sidebar-foreground/70 text-xs uppercase font-semibold">Price (₦)</Label>
-            <Input
-              type="number"
-              min={1}
-              className="mt-1.5 bg-sidebar-accent/30 border-sidebar-border"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              disabled={saving}
-            />
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Price (₦)</Label>
+            <Input type="number" min={1} className="mt-1.5" value={price} onChange={(e) => setPrice(e.target.value)} disabled={saving} />
           </div>
           <div>
-            <Label className="text-sidebar-foreground/70 text-xs uppercase font-semibold">Description</Label>
-            <textarea
-              rows={3}
-              className="mt-1.5 w-full rounded-md border border-sidebar-border bg-sidebar-accent/30 px-3 py-2 text-sm text-sidebar-foreground resize-none focus:outline-none focus:ring-2 focus:ring-accent/50"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={saving}
-            />
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Description</Label>
+            <textarea rows={3} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
           </div>
         </div>
-        <div className="px-5 py-4 border-t border-sidebar-border flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+        <div className="px-5 py-4 border-t border-slate-100 dark:border-white/10 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving} className="gap-2">
+          <Button type="button" onClick={handleSave} disabled={saving} className="gap-2 text-white font-semibold border-0" style={{ background: BTN_NAVY }}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Save
           </Button>
@@ -494,122 +673,205 @@ function EditProductModal({
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────────
+// ─── Manage logs modal ─────────────────────────────────────────────────────────
+
+function ManageLogsModal({
+  product,
+  onClose,
+  onChanged,
+}: {
+  product: Product;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<LogRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [inventoryTable, setInventoryTable] = useState<"log_items" | "logs_data">("log_items");
+
+  const load = useCallback(async () => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const q = await supabase
+      .from("log_items")
+      .select("id, credentials, is_delivered, created_at")
+      .eq("product_id", product.id)
+      .order("created_at", { ascending: true });
+
+    let data = q.data as LogRow[] | null;
+    let table: "log_items" | "logs_data" = "log_items";
+    if (q.error) {
+      const q2 = await supabase
+        .from("logs_data")
+        .select("id, credentials, is_delivered, created_at")
+        .eq("product_id", product.id)
+        .order("created_at", { ascending: true });
+      data = q2.data as LogRow[] | null;
+      table = "logs_data";
+    }
+    setInventoryTable(table);
+
+    const list = (data ?? []).map((r) => ({
+      id: r.id,
+      credentials: String(r.credentials ?? ""),
+      is_delivered: Boolean(r.is_delivered),
+      created_at: r.created_at,
+    }));
+    setRows(list);
+    const e: Record<string, string> = {};
+    for (const r of list) e[r.id] = r.credentials;
+    setEdits(e);
+    setLoading(false);
+  }, [product.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const saveRow = async (id: string) => {
+    if (!supabase) return;
+    const cred = edits[id] ?? "";
+    setSavingId(id);
+    const { error } = await supabase.from(inventoryTable).update({ credentials: cred }).eq("id", id);
+    setSavingId(null);
+    if (error) {
+      toast({ title: "Couldn't save line", description: formatPostgrestError(error), variant: "destructive" });
+      return;
+    }
+    await syncProductStockFromLogs(product.id);
+    toast({ title: "You're all set", description: "Log line updated." });
+    await load();
+    onChanged();
+  };
+
+  const deleteRow = async (id: string) => {
+    if (!supabase) return;
+    setDeletingId(id);
+    const { error } = await supabase.from(inventoryTable).delete().eq("id", id);
+    setDeletingId(null);
+    if (error) {
+      toast({ title: "Couldn't delete line", description: formatPostgrestError(error), variant: "destructive" });
+      return;
+    }
+    await syncProductStockFromLogs(product.id);
+    toast({ title: "You're all set", description: "Log line removed." });
+    await load();
+    onChanged();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10 shrink-0">
+          <div>
+            <h2 className="font-heading font-bold text-slate-900 dark:text-white">Manage logs</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-md">{product.title}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto px-6 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-2 text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading…
+            </div>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-12">No log rows for this product yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-white/5 border-b border-slate-200 dark:border-white/10">
+                    <th className="px-3 py-2.5 text-left font-semibold text-slate-600 dark:text-slate-300 w-10">#</th>
+                    <th className="px-3 py-2.5 text-left font-semibold text-slate-600 dark:text-slate-300">Credentials (raw)</th>
+                    <th className="px-3 py-2.5 text-center font-semibold text-slate-600 dark:text-slate-300 w-28">Status</th>
+                    <th className="px-3 py-2.5 text-right font-semibold text-slate-600 dark:text-slate-300 w-44">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/10">
+                  {rows.map((r, i) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-white/5">
+                      <td className="px-3 py-2 text-slate-500 align-top">{i + 1}</td>
+                      <td className="px-3 py-2 align-top">
+                        <textarea
+                          className="w-full min-h-[3rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
+                          value={edits[r.id] ?? ""}
+                          onChange={(e) => setEdits((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                          disabled={r.is_delivered}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center align-top">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            r.is_delivered ? "bg-slate-200 text-slate-700 dark:bg-white/10 dark:text-slate-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                          }`}
+                        >
+                          {r.is_delivered ? "Delivered" : "In stock"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right align-top space-x-1.5 whitespace-nowrap">
+                        <button
+                          type="button"
+                          disabled={r.is_delivered || savingId === r.id}
+                          onClick={() => void saveRow(r.id)}
+                          className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold text-white disabled:opacity-40"
+                          style={{ background: BTN_NAVY }}
+                        >
+                          {savingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={r.is_delivered || deletingId === r.id}
+                          onClick={() => void deleteRow(r.id)}
+                          className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold text-white disabled:opacity-40"
+                          style={{ background: BTN_DELETE }}
+                        >
+                          {deletingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-3 border-t border-slate-100 dark:border-white/10 shrink-0 flex justify-end">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: BTN_NAVY }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AdminProducts() {
-  const { products, addProduct, updateProduct, deleteProduct, refreshProducts } = useApp();
+  const { products, updateProduct, deleteProduct, refreshProducts } = useApp();
   const { toast } = useToast();
 
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [showCreate, setShowCreate] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [bulkUploadInitialId, setBulkUploadInitialId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Product | null>(null);
+  const [manageTarget, setManageTarget] = useState<Product | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  const lineCount = countLines(form.logsText);
-
-  const handleCancelAdd = () => {
-    setForm(emptyForm);
-    setShowAddForm(false);
-  };
-
-  const handleSubmitAdd = async () => {
-    if (!form.title.trim()) {
-      toast({ title: "Title required", variant: "destructive" });
-      return;
-    }
-    const price = parseFloat(form.price);
-    if (isNaN(price) || price <= 0) {
-      toast({ title: "Valid price required", variant: "destructive" });
-      return;
-    }
-    const logs = parseLines(form.logsText);
-    const autoLogoUrl = resolveLogoUrlFromTitle(form.title.trim());
-    const stock = logs.length;
-
-    if (supabase) {
-      const { data: row, error: insErr } = await supabase
-        .from("products")
-        .insert({
-          title: form.title.trim(),
-          category: form.category,
-          price: Math.trunc(price),
-          description: form.description.trim(),
-          stock,
-          status: stock > 0 ? "available" : "sold_out",
-        })
-        .select("id")
-        .maybeSingle();
-
-      if (insErr) {
-        toast({
-          title: "Could not create product",
-          description: formatPostgrestError(insErr),
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const newId = row?.id as string | undefined;
-      if (newId && logs.length > 0) {
-        const { data: rpcData, error: rpcErr } = await supabase.rpc("bulk_upload_logs", {
-          p_product_id: newId,
-          p_credentials: logs,
-        });
-        const payload = rpcData as Record<string, unknown> | null | undefined;
-        if (rpcErr || !payload?.success) {
-          toast({
-            title: "Product created but log upload failed",
-            description: formatRpcFailure(rpcErr, payload),
-            variant: "destructive",
-          });
-          await refreshProducts();
-          handleCancelAdd();
-          return;
-        }
-      }
-
-      await refreshProducts();
-      toast({ title: "Product added", description: stock > 0 ? `${stock} logs uploaded.` : "No logs yet." });
-      handleCancelAdd();
-      return;
-    }
-
-    addProduct({
-      title: form.title.trim(),
-      category: form.category,
-      price,
-      description: form.description.trim(),
-      logs,
-      stock_count: stock,
-      stock,
-      logo_url: autoLogoUrl,
-    });
-    toast({ title: "Product added", description: `${stock} logs in inventory.` });
-    handleCancelAdd();
-  };
-
-  const addAccountLine = () => {
-    if (!form.platform.trim() || !form.login.trim() || !form.password.trim()) {
-      toast({ title: "Platform, login, and password are required.", variant: "destructive" });
-      return;
-    }
-    const entry = [
-      `Platform=${form.platform.trim()}`,
-      `Login=${form.login.trim()}`,
-      `Password=${form.password.trim()}`,
-      `Recovery=${form.recoveryInfo.trim() || "N/A"}`,
-    ].join(" | ");
-    setForm((f) => ({
-      ...f,
-      logsText: f.logsText ? `${f.logsText}\n${entry}` : entry,
-      login: "",
-      password: "",
-      recoveryInfo: "",
-    }));
-  };
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
@@ -620,7 +882,7 @@ export default function AdminProducts() {
         const invDel = await deleteInventoryForProduct(id);
         if (invDel.error) {
           toast({
-            title: "Could not delete inventory",
+            title: "We couldn't delete that",
             description: formatPostgrestError(invDel.error),
             variant: "destructive",
           });
@@ -630,19 +892,23 @@ export default function AdminProducts() {
         const { error: prodErr } = await supabase.from("products").delete().eq("id", id);
         if (prodErr) {
           toast({
-            title: "Could not delete product",
+            title: "We couldn't delete that",
             description: formatPostgrestError(prodErr),
             variant: "destructive",
           });
           return;
         }
 
+        deleteProduct(id);
         await refreshProducts();
       } else {
         deleteProduct(id);
       }
 
-      toast({ title: "Product deleted", description: `"${deleteTarget.title}" and its logs were removed.` });
+      toast({
+        title: "You're all set",
+        description: `“${deleteTarget.title}” and its logs were removed.`,
+      });
       setDeleteTarget(null);
     } finally {
       setDeleting(false);
@@ -652,282 +918,128 @@ export default function AdminProducts() {
   const handleBulkSuccess = async (_productId: string, inserted: number) => {
     await refreshProducts();
     toast({
-      title: "Bulk upload complete",
-      description: `${inserted} log row(s) inserted.`,
+      title: "You're all set",
+      description: inserted > 0 ? `${inserted} new log line(s) added.` : "Inventory refreshed.",
     });
-  };
-
-  const handleEditSaved = async () => {
-    await refreshProducts();
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm dark:border-white/10 dark:bg-slate-900/60 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Product Manager</h1>
-          <p className="text-sm text-muted-foreground mt-1">Add, edit, and manage products with log inventory</p>
+          <h1 className="font-heading text-2xl font-bold text-slate-900 dark:text-white">Product manager</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create products, paste accounts, manage inventory</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
             onClick={() => {
               setBulkUploadInitialId(null);
               setShowBulkUpload(true);
             }}
-            variant="outline"
-            className="gap-2 border-accent/30 text-accent hover:bg-accent/10 hover:border-accent/50"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm"
+            style={{ background: BTN_NAVY }}
           >
             <Upload className="h-4 w-4" />
-            Bulk Upload
-          </Button>
-          {!showAddForm && (
-            <Button onClick={() => setShowAddForm(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Add Product
-            </Button>
-          )}
+            Bulk upload
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+          >
+            <Plus className="h-4 w-4" />
+            Create product
+          </button>
         </div>
       </div>
 
-      {showAddForm && (
-        <div className="glass-card p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="font-heading font-semibold text-lg">New Product</h2>
-            <button type="button" onClick={handleCancelAdd} className="text-muted-foreground hover:text-foreground">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-5">
-            <div className="md:col-span-2">
-              <Label htmlFor="prod-title">Product Title</Label>
-              <Input
-                id="prod-title"
-                className="mt-1.5"
-                placeholder="e.g. PURE Random Country FACEBOOK | 2007–2024"
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="prod-category">Category</Label>
-              <div className="relative mt-1.5">
-                <select
-                  id="prod-category"
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 pr-8 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="prod-price">Price (₦)</Label>
-              <Input
-                id="prod-price"
-                type="number"
-                min={1}
-                className="mt-1.5"
-                placeholder="e.g. 1500"
-                value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <Label htmlFor="prod-desc">Description</Label>
-              <textarea
-                id="prod-desc"
-                rows={2}
-                className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Brief description shown to users..."
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <div className="flex items-center justify-between mb-1.5">
-                <Label htmlFor="prod-logs">
-                  <span className="flex items-center gap-2">
-                    <Upload className="h-3.5 w-3.5" />
-                    Initial Account Upload
-                  </span>
-                </Label>
-                <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    lineCount > 0 ? "bg-accent/15 text-accent" : "bg-white/8 text-slate-400"
-                  }`}
-                >
-                  {lineCount} {lineCount === 1 ? "log" : "logs"} → Stock: {lineCount}
-                </span>
-              </div>
-              <textarea
-                id="prod-logs"
-                rows={8}
-                className="w-full rounded-md border border-input bg-white/3 px-3 py-2.5 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={
-                  "Paste account logs here, one per line:\nPlatform=Instagram | Login=user@email.com | Password=Secret123 | Recovery=backup@mail.com"
-                }
-                value={form.logsText}
-                onChange={(e) => setForm((f) => ({ ...f, logsText: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground mt-1.5">
-                You can add more logs later with Bulk Upload. Initial lines are stored in{" "}
-                <span className="font-mono">log_items</span> when using Supabase.
-              </p>
-            </div>
-            <div className="md:col-span-2 grid md:grid-cols-2 gap-3 rounded-lg border border-input p-3">
-              <div>
-                <Label htmlFor="acc-platform">Platform</Label>
-                <Input
-                  id="acc-platform"
-                  className="mt-1.5"
-                  value={form.platform}
-                  onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))}
-                  placeholder="e.g. Facebook"
-                />
-              </div>
-              <div>
-                <Label htmlFor="acc-login">Login (Email/Username)</Label>
-                <Input
-                  id="acc-login"
-                  className="mt-1.5"
-                  value={form.login}
-                  onChange={(e) => setForm((f) => ({ ...f, login: e.target.value }))}
-                  placeholder="e.g. user@example.com"
-                />
-              </div>
-              <div>
-                <Label htmlFor="acc-password">Password</Label>
-                <Input
-                  id="acc-password"
-                  className="mt-1.5"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="e.g. StrongPass123!"
-                />
-              </div>
-              <div>
-                <Label htmlFor="acc-recovery">Recovery Info</Label>
-                <Input
-                  id="acc-recovery"
-                  className="mt-1.5"
-                  value={form.recoveryInfo}
-                  onChange={(e) => setForm((f) => ({ ...f, recoveryInfo: e.target.value }))}
-                  placeholder="backup email / recovery note"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <Button type="button" variant="outline" className="mt-1.5" onClick={addAccountLine}>
-                  Add Account Log Line
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 mt-6 pt-5 border-t">
-            <Button onClick={handleSubmitAdd} className="gap-2">
-              <Save className="h-4 w-4" />
-              Create Product
-            </Button>
-            <Button variant="ghost" onClick={handleCancelAdd}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div className="glass-card overflow-hidden">
-        <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h2 className="font-heading font-semibold">
-            Inventory ({products.length} {products.length === 1 ? "product" : "products"})
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-white/10 dark:bg-slate-900/60">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-white/10 bg-slate-50/80 dark:bg-white/5">
+          <h2 className="font-heading font-semibold text-slate-900 dark:text-white">
+            Inventory · {products.length} {products.length === 1 ? "product" : "products"}
           </h2>
         </div>
         {products.length === 0 ? (
-          <div className="py-14 text-center text-sm text-muted-foreground">
-            No products yet. Click &quot;Add Product&quot; to get started.
-          </div>
+          <div className="py-16 text-center text-sm text-slate-500">No products yet. Create one to get started.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-white/3">
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground">Product</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">Cat.</th>
-                  <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground">Price</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">Stock</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">Actions</th>
+                <tr className="border-b border-slate-100 dark:border-white/10 text-left">
+                  <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400">Product</th>
+                  <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400 text-center">Category</th>
+                  <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400 text-right">Price</th>
+                  <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400 text-center">Stock</th>
+                  <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-slate-100 dark:divide-white/10">
                 {products.map((product) => (
-                  <tr key={product.id} className="hover:bg-white/3 transition-colors">
+                  <tr key={product.id} className="hover:bg-slate-50/60 dark:hover:bg-white/5">
                     <td className="px-5 py-4 max-w-[280px]">
-                      <p className="font-medium truncate">{product.title}</p>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{product.description}</p>
+                      <p className="font-medium text-slate-900 dark:text-white truncate">{product.title}</p>
+                      <p className="text-xs text-slate-500 truncate mt-0.5">{product.description}</p>
                     </td>
                     <td className="px-5 py-4 text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-info/10 text-info text-xs font-bold">
+                      <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold dark:bg-white/10 dark:text-slate-200">
                         {product.category}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-right font-bold text-accent">
-                      ₦{product.price.toLocaleString()}
-                    </td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-white">₦{product.price.toLocaleString()}</td>
                     <td className="px-5 py-4 text-center">
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                           (product.stock_count ?? product.stock ?? 0) > 5
-                            ? "bg-accent/15 text-accent"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                             : (product.stock_count ?? product.stock ?? 0) > 0
-                              ? "bg-warning/15 text-warning"
-                              : "bg-destructive/15 text-destructive"
+                              ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                              : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
                         }`}
                       >
                         {product.stock_count ?? product.stock ?? 0}
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          title="Bulk upload logs for this product"
+                      <div className="flex flex-wrap items-center justify-center gap-1.5">
+                        <button
+                          type="button"
+                          title="Manage logs"
+                          onClick={() => setManageTarget(product)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white"
+                          style={{ background: BTN_NAVY }}
+                        >
+                          <List className="h-3.5 w-3.5" />
+                          Manage logs
+                        </button>
+                        <button
+                          type="button"
+                          title="Bulk upload"
                           onClick={() => {
                             setBulkUploadInitialId(product.id);
                             setShowBulkUpload(true);
                           }}
-                          className="h-7 px-2 text-xs text-accent hover:text-accent hover:bg-accent/10"
+                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
                         >
                           <Upload className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          title="Edit name, price, description"
+                        </button>
+                        <button
+                          type="button"
+                          title="Edit"
                           onClick={() => setEditTarget(product)}
-                          className="h-7 px-2 text-xs"
+                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
                         >
                           <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
+                        </button>
+                        <button
+                          type="button"
                           title="Delete product"
                           onClick={() => setDeleteTarget(product)}
-                          className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-white"
+                          style={{ background: BTN_DELETE }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -939,14 +1051,12 @@ export default function AdminProducts() {
       </div>
 
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete product?</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete this product and all its logs? This cannot be undone.
-              {deleteTarget && (
-                <span className="block mt-2 font-medium text-foreground">&quot;{deleteTarget.title}&quot;</span>
-              )}
+              {deleteTarget && <span className="block mt-2 font-medium text-foreground">“{deleteTarget.title}”</span>}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -957,13 +1067,16 @@ export default function AdminProducts() {
                 void handleConfirmDelete();
               }}
               disabled={deleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="text-white border-0"
+              style={{ background: BTN_DELETE }}
             >
               {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CreateProductModal open={showCreate} onClose={() => setShowCreate(false)} />
 
       {showBulkUpload && (
         <BulkUploadModal
@@ -981,8 +1094,16 @@ export default function AdminProducts() {
         <EditProductModal
           product={editTarget}
           onClose={() => setEditTarget(null)}
-          onSaved={handleEditSaved}
+          onSaved={() => void refreshProducts()}
           patchProductLocal={updateProduct}
+        />
+      )}
+
+      {manageTarget && (
+        <ManageLogsModal
+          product={manageTarget}
+          onClose={() => setManageTarget(null)}
+          onChanged={() => void refreshProducts()}
         />
       )}
     </div>
