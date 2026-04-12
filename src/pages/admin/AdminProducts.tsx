@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { PostgrestError } from "@supabase/supabase-js";
-import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
+import { formatPostgrestRpcFailure, formatSupabasePostgrestError } from "@/lib/supabaseErrors";
 
 const BTN_NAVY = "#0f172a";
 const BTN_DELETE = "#dc2626";
@@ -55,7 +55,10 @@ function parseLines(text: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-/** Each line Email:Password:Recovery → normalized single credential string for log_items.credentials */
+/**
+ * Each line: `email:password:recovery` → one `log_items.credentials` string (DB stores one TEXT column).
+ * email = part 1, password = part 2, recovery = part 3+ (so recovery may contain `:`).
+ */
 function parseCredentialLines(raw: string): string[] {
   return parseLines(raw).map((line) => {
     const parts = line.split(":");
@@ -69,6 +72,40 @@ function parseCredentialLines(raw: string): string[] {
   });
 }
 
+/** Reject lines that cannot map to email + password + recovery (need at least two colons; email & password non-empty). */
+function validateCredentialPaste(raw: string): { ok: true; lines: string[] } | { ok: false; message: string } {
+  const rawLines = parseLines(raw);
+  const badShape: number[] = [];
+  const badEmpty: number[] = [];
+  rawLines.forEach((line, idx) => {
+    const n = idx + 1;
+    const parts = line.split(":");
+    if (parts.length < 3) {
+      badShape.push(n);
+      return;
+    }
+    const email = (parts[0] ?? "").trim();
+    const password = (parts[1] ?? "").trim();
+    if (!email || !password) badEmpty.push(n);
+  });
+  if (badShape.length > 0) {
+    return {
+      ok: false,
+      message:
+        `Lines ${badShape.slice(0, 12).join(", ")}${badShape.length > 12 ? "…" : ""} must use Email:Password:Recovery ` +
+        "(three segments separated by colons; recovery can include more colons).",
+    };
+  }
+  if (badEmpty.length > 0) {
+    return {
+      ok: false,
+      message:
+        `Lines ${badEmpty.slice(0, 12).join(", ")}${badEmpty.length > 12 ? "…" : ""} need a non-empty email and password (first and second fields).`,
+    };
+  }
+  return { ok: true, lines: parseCredentialLines(raw) };
+}
+
 function countParsedLogs(raw: string) {
   return parseCredentialLines(raw).length;
 }
@@ -77,20 +114,7 @@ function formatRpcFailure(
   error: PostgrestError | null,
   data: Record<string, unknown> | null | undefined,
 ): string {
-  const parts: string[] = [];
-  const pe = formatSupabasePostgrestError(error);
-  if (pe) parts.push(`bulk_upload_logs (PostgREST):\n${pe}`);
-  if (data && data.success === false) {
-    if (typeof data.message === "string" && data.message) parts.push(`message: ${data.message}`);
-    if (typeof data.code === "string" && data.code) parts.push(`code: ${data.code}`);
-    if (typeof data.sqlstate === "string") parts.push(`SQLSTATE ${data.sqlstate}`);
-    try {
-      parts.push(`response (full): ${JSON.stringify(data)}`);
-    } catch {
-      /* ignore */
-    }
-  }
-  return parts.length > 0 ? parts.join("\n\n") : "Upload failed.";
+  return formatPostgrestRpcFailure(error, data ?? null);
 }
 
 /** Ensures the shared anon client has a JWT so RLS and SECURITY DEFINER RPCs see `auth.uid()`. */
@@ -175,7 +199,7 @@ function BulkUploadModal({
   products: Product[];
   initialProductId: string | null;
   onClose: () => void;
-  onSuccess: (productId: string, inserted: number) => void;
+  onSuccess: (productId: string, inserted: number, newStock: number) => void;
 }) {
   const [selectedId, setSelectedId] = useState(() => initialProductId ?? products[0]?.id ?? "");
   const [logsText, setLogsText] = useState("");
@@ -191,8 +215,8 @@ function BulkUploadModal({
     }
   }, [initialProductId, products]);
 
-  const lines = parseCredentialLines(logsText);
-  const lineCount = lines.length;
+  const pasteValidation = validateCredentialPaste(logsText);
+  const lineCount = pasteValidation.ok ? pasteValidation.lines.length : parseLines(logsText).length;
   const selectedProduct = products.find((p) => p.id === selectedId);
 
   const handleUpload = async () => {
@@ -201,8 +225,15 @@ function BulkUploadModal({
       setStatus("error");
       return;
     }
-    if (lineCount === 0) {
-      setErrorMsg("Paste at least one line (Email:Password:Recovery).");
+    const validated = validateCredentialPaste(logsText);
+    if (!validated.ok) {
+      setErrorMsg(validated.message);
+      setStatus("error");
+      return;
+    }
+    const lines = validated.lines;
+    if (lines.length === 0) {
+      setErrorMsg("Paste at least one non-empty line.");
       setStatus("error");
       return;
     }
@@ -225,6 +256,7 @@ function BulkUploadModal({
 
       const payload = (data ?? undefined) as Record<string, unknown> | undefined;
       if (error || !payload?.success) {
+        console.error("[bulk_upload_logs] failed", { productId: selectedId, lineCount: lines.length, error, data });
         setErrorMsg(formatRpcFailure(error, payload));
         setStatus("error");
         return;
@@ -237,17 +269,19 @@ function BulkUploadModal({
       sonnerToast.success("Upload complete", {
         description: `${inserted} log line(s) added · Stock now ${newStock}`,
       });
-      onSuccess(selectedId, inserted);
+      onSuccess(selectedId, inserted, newStock);
       return;
     }
 
-    onSuccess(selectedId, lineCount);
+    const prevStock = selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0;
+    const newStockOffline = prevStock + lines.length;
+    onSuccess(selectedId, lines.length, newStockOffline);
     setResult({
-      inserted: lineCount,
-      newStock: (selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0) + lineCount,
+      inserted: lines.length,
+      newStock: newStockOffline,
     });
     setStatus("success");
-    sonnerToast.success("Upload complete", { description: `${lineCount} line(s) recorded (offline).` });
+    sonnerToast.success("Upload complete", { description: `${lines.length} line(s) recorded (offline).` });
   };
 
   const handleReset = () => {
@@ -273,7 +307,14 @@ function BulkUploadModal({
             </div>
             <div>
               <h2 className="font-heading font-bold text-slate-900 dark:text-white">Bulk log upload</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">One account per line · Email:Password:Recovery</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                One account per line · <span className="font-semibold text-slate-600 dark:text-slate-300">email</span>
+                {" : "}
+                <span className="font-semibold text-slate-600 dark:text-slate-300">password</span>
+                {" : "}
+                <span className="font-semibold text-slate-600 dark:text-slate-300">recovery</span>
+                {" → saved to log_items for the product you select (product_id)."}
+              </p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
@@ -329,9 +370,17 @@ function BulkUploadModal({
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1.5 gap-2">
                   <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Paste logs</Label>
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{lineCount} line{lineCount === 1 ? "" : "s"}</span>
+                  <span
+                    className={`text-xs font-semibold shrink-0 ${
+                      pasteValidation.ok ? "text-slate-600 dark:text-slate-300" : "text-amber-700 dark:text-amber-400"
+                    }`}
+                  >
+                    {pasteValidation.ok
+                      ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}`
+                      : `${parseLines(logsText).length} line(s) — need Email:Password:Recovery each`}
+                  </span>
                 </div>
                 <textarea
                   rows={10}
@@ -355,7 +404,9 @@ function BulkUploadModal({
               <button
                 type="button"
                 onClick={handleUpload}
-                disabled={status === "uploading" || lineCount === 0 || !selectedId}
+                disabled={
+                  status === "uploading" || !pasteValidation.ok || lineCount === 0 || !selectedId
+                }
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
                 style={{ background: BTN_NAVY }}
               >
@@ -990,7 +1041,10 @@ export default function AdminProducts() {
     }
   };
 
-  const handleBulkSuccess = async (_productId: string, inserted: number) => {
+  const handleBulkSuccess = async (productId: string, inserted: number, newStock: number) => {
+    if (inserted > 0 && Number.isFinite(newStock) && newStock >= 0) {
+      updateProduct(productId, { stock_count: newStock, stock: newStock });
+    }
     await refreshProducts();
     const desc = inserted > 0 ? `${inserted} new log line(s) added.` : "Inventory refreshed.";
     sonnerToast.success("Upload complete", { description: desc });
