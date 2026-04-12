@@ -4,53 +4,32 @@ import {
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
+import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
+import { PRODUCT_CATEGORIES } from "@/constants/productCategories";
 
-const CATEGORIES = ["Social Media", "Streaming", "VPN"] as const;
+const CATEGORIES = PRODUCT_CATEGORIES;
 /** Client: all Purchase / primary actions */
 const BTN_NAVY = "#0f172a";
 /** Titles & prices — solid black */
 const TEXT_BLACK = "#000000";
-/** Official Facebook blue (SimpleIcons) — FB Dating + Facebook */
-const FB_LOGO_SIMPLE = "https://cdn.simpleicons.org/facebook/1877f2";
-
-/** FB Dating / compact spellings — logo must be SimpleIcons Facebook blue */
+/** FB Dating / compact spellings — platform chip + accent */
 const FB_DATING_TITLE_RE = /\bfb[\s._-]*dating\b|fbdating/i;
 
-const BRAND_LOGOS: Array<{ test: RegExp; url: string }> = [
-  { test: /netflix/i, url: "https://cdn.simpleicons.org/netflix/e50914" },
-  { test: /\b(hma|hidemyass)\b/i, url: "https://cdn.simpleicons.org/hidemyass/ffcc00" },
-  { test: /nord|nordvpn/i, url: "https://cdn.simpleicons.org/nordvpn/0055ff" },
-  { test: /express|expressvpn/i, url: "https://cdn.simpleicons.org/expressvpn/ff122d" },
-  { test: FB_DATING_TITLE_RE, url: FB_LOGO_SIMPLE },
-  { test: /facebook/i, url: FB_LOGO_SIMPLE },
-  { test: /\big\b|\binstagram\b/i, url: "https://cdn.simpleicons.org/instagram/e4405f" },
-  { test: /talkatone/i, url: "https://cdn.simpleicons.org/viber/7360f2" },
-  { test: /telegram/i, url: "https://cdn.simpleicons.org/telegram/26a69a" },
-  { test: /tiktok/i, url: "https://cdn.simpleicons.org/tiktok/000000" },
-  { test: /twitter|\bx\b/i, url: "https://cdn.simpleicons.org/x/000000" },
-];
+const KNOWN_CATEGORY = new Set<string>(PRODUCT_CATEGORIES);
 
-function getMappedLogoFromTitle(title: string) {
-  const normalized = (title || "").trim();
-  return BRAND_LOGOS.find((entry) => entry.test.test(normalized))?.url ?? null;
-}
-
-function resolveProductCardLogo(product: Product): string | null {
-  const t = (product.title || "").trim();
-  if (FB_DATING_TITLE_RE.test(t)) return FB_LOGO_SIMPLE;
-  const mapped = getMappedLogoFromTitle(product.title);
-  if (mapped) return mapped;
-  if (product.logo_url) return product.logo_url;
-  return null;
-}
-
-function normalizeCategory(raw: string, title: string) {
+function normalizeCategory(raw: string, title: string): string {
+  const trimmed = (raw || "").trim();
+  if (KNOWN_CATEGORY.has(trimmed)) return trimmed;
   const category = (raw || "").toLowerCase();
   const lowerTitle = (title || "").toLowerCase();
+  if (lowerTitle.includes("netflix")) return "Netflix";
+  if (category.includes("netflix")) return "Netflix";
   if (category.includes("social") || ["fb", "ig", "li", "tw", "tk", "yt", "telegram"].includes(category)) return "Social Media";
-  if (category.includes("stream") || lowerTitle.includes("netflix")) return "Streaming";
+  if (category.includes("stream")) return "Streaming";
   if (category.includes("vpn") || lowerTitle.includes("hma") || lowerTitle.includes("hidemyass")) return "VPN";
-  return "Social Media";
+  if (category.includes("messag") || lowerTitle.includes("whatsapp")) return "Messaging";
+  if (category.includes("game")) return "Gaming";
+  return "Other";
 }
 
 export function inferPlatformKey(title: string) {
@@ -196,34 +175,14 @@ export function PlatformLogo({
   platform: (typeof PLATFORMS)[number] | undefined;
   size?: number;
 }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const dim = `${size}px`;
-  const src = resolveProductCardLogo(product);
-
   return (
-    <div
-      className="rounded-lg overflow-hidden flex items-center justify-center shrink-0"
-      style={{
-        width: dim,
-        height: dim,
-        background: "#f8f9fa",
-        border: `1px solid ${platform?.color ?? "#ccc"}30`,
-        padding: 3,
-      }}
-    >
-      {src && !imgFailed ? (
-        <img
-          src={src}
-          alt={platform?.label ?? product.category}
-          className="w-full h-full object-contain"
-          onError={() => setImgFailed(true)}
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <Package className="h-5 w-5 shrink-0" style={{ color: TEXT_BLACK }} aria-hidden />
-        </div>
-      )}
-    </div>
+    <ProductBrandAvatar
+      title={product.title}
+      category={product.category}
+      logo_url={product.logo_url}
+      size={size}
+      accentColor={platform?.color ?? "#ccc"}
+    />
   );
 }
 

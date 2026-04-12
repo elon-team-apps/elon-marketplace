@@ -16,6 +16,8 @@ import {
 import { useApp, Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
 import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
+import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
+import { DEFAULT_PRODUCT_CATEGORY, PRODUCT_CATEGORIES } from "@/constants/productCategories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,7 +37,6 @@ import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
 
 const BTN_NAVY = "#0f172a";
 const BTN_DELETE = "#dc2626";
-const CATEGORIES = ["Social Media", "Streaming", "VPN"];
 
 type LogRow = {
   id: string;
@@ -393,7 +394,7 @@ type CreateForm = {
 
 const emptyCreateForm: CreateForm = {
   title: "",
-  category: "Social Media",
+  category: DEFAULT_PRODUCT_CATEGORY,
   price: "",
   description: "",
   logsText: "",
@@ -433,7 +434,7 @@ function CreateProductModal({
 
     setSaving(true);
     try {
-      const autoLogoUrl = resolveLogoUrlFromTitle(form.title.trim());
+      const autoLogoUrl = resolveLogoUrlFromTitle(form.title.trim(), form.category);
       const stock = logCount;
 
       if (supabase) {
@@ -446,7 +447,7 @@ function CreateProductModal({
           });
           return;
         }
-        const { data: row, error: insErr } = await supabase
+        const { data: inserted, error: insErr } = await supabase
           .from("products")
           .insert({
             title: form.title.trim(),
@@ -455,8 +456,9 @@ function CreateProductModal({
             description: form.description.trim(),
             stock,
             status: stock > 0 ? "available" : "sold_out",
+            logo_url: autoLogoUrl ?? null,
           })
-          .select("id")
+          .select("*")
           .maybeSingle();
 
         if (insErr) {
@@ -468,7 +470,11 @@ function CreateProductModal({
           return;
         }
 
-        const newId = row?.id as string | undefined;
+        if (inserted && typeof inserted === "object") {
+          mergeProductRowFromDb(inserted as Record<string, unknown>);
+        }
+
+        const newId = (inserted as { id?: string } | null)?.id;
         if (newId && logCount > 0) {
           const { data: rpcData, error: rpcErr } = await supabase.rpc("bulk_upload_logs", {
             p_product_id: newId,
@@ -483,7 +489,6 @@ function CreateProductModal({
             });
             await refreshProducts();
             onClose();
-            onCreated();
             return;
           }
         }
@@ -497,7 +502,6 @@ function CreateProductModal({
               : `“${form.title.trim()}” is live. Add logs anytime from inventory.`,
         });
         onClose();
-        onCreated();
         return;
       }
 
@@ -539,6 +543,20 @@ function CreateProductModal({
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Title</Label>
             <Input className="mt-1.5" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} disabled={saving} placeholder="Product name" />
           </div>
+          <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950/40">
+            <ProductBrandAvatar
+              title={form.title.trim() || "Your product"}
+              category={form.category}
+              size={52}
+              accentColor={BTN_NAVY}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Logo preview</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                Matches keywords in the title and category (e.g. Netflix, VPN, WhatsApp). Saves automatically when you create the product.
+              </p>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Category</Label>
@@ -548,7 +566,7 @@ function CreateProductModal({
                 onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
                 disabled={saving}
               >
-                {CATEGORIES.map((c) => (
+                {PRODUCT_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -1014,12 +1032,28 @@ export default function AdminProducts() {
           </h2>
         </div>
         {products.length === 0 ? (
-          <div className="py-16 text-center text-sm text-slate-500">No products yet. Create one to get started.</div>
+          <div className="px-6 py-20 flex flex-col items-center justify-center text-center">
+            <PackagePlus className="h-14 w-14 text-slate-300 dark:text-slate-600 mb-4" aria-hidden />
+            <p className="text-lg font-semibold text-slate-900 dark:text-white">No products found</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-md leading-relaxed">
+              Start by creating your first product. You can paste accounts in bulk after it exists.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="mt-8 inline-flex items-center justify-center gap-2 px-10 py-4 rounded-2xl text-base font-bold text-white shadow-lg hover:opacity-95 transition-opacity"
+              style={{ background: BTN_NAVY }}
+            >
+              <Plus className="h-6 w-6 shrink-0" />
+              Add product
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-white/10 text-left">
+                  <th className="px-3 py-3 w-14 font-semibold text-slate-600 dark:text-slate-400 text-center" aria-label="Logo" />
                   <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400">Product</th>
                   <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400 text-center">Category</th>
                   <th className="px-5 py-3 font-semibold text-slate-600 dark:text-slate-400 text-right">Price</th>
@@ -1030,6 +1064,17 @@ export default function AdminProducts() {
               <tbody className="divide-y divide-slate-100 dark:divide-white/10">
                 {products.map((product) => (
                   <tr key={product.id} className="hover:bg-slate-50/60 dark:hover:bg-white/5">
+                    <td className="px-3 py-3 align-middle">
+                      <div className="flex justify-center">
+                        <ProductBrandAvatar
+                          title={product.title}
+                          category={product.category}
+                          logo_url={product.logo_url}
+                          size={40}
+                          accentColor={BTN_NAVY}
+                        />
+                      </div>
+                    </td>
                     <td className="px-5 py-4 max-w-[280px]">
                       <p className="font-medium text-slate-900 dark:text-white truncate">{product.title}</p>
                       <p className="text-xs text-slate-500 truncate mt-0.5">{product.description}</p>

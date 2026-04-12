@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -542,12 +543,18 @@ export default function AdminDashboard() {
           <div className="divide-y divide-slate-100 dark:divide-white/5">
             {products.map((p) => (
               <div key={p.id} className="px-5 py-3.5 flex items-center gap-4">
-                <div className="h-8 w-8 rounded-md bg-sky-400/10 border border-sky-400/15 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-bold text-sky-500 dark:text-sky-400">{p.category}</span>
-                </div>
+                <ProductBrandAvatar
+                  title={p.title}
+                  category={p.category}
+                  logo_url={p.logo_url}
+                  size={36}
+                  accentColor="#0ea5e9"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{p.title}</p>
-                  <p className="text-xs text-muted-foreground">₦{p.price.toLocaleString()} per unit</p>
+                  <p className="text-xs text-muted-foreground">
+                    ₦{p.price.toLocaleString()} per unit · {p.category}
+                  </p>
                 </div>
                 <div className="shrink-0">
                   <span

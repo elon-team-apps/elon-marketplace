@@ -57,6 +57,8 @@ interface AppContextType {
   topUpWallet: (amount: number) => Promise<void>;
   refreshProfile: () => Promise<void>;
   refreshProducts: () => Promise<void>;
+  /** Merge one `products` row from Supabase into local state (e.g. right after admin insert). */
+  mergeProductRowFromDb: (row: Record<string, unknown>) => void;
 }
 
 const STORAGE_KEY = "elon_marketplace_v2";
@@ -404,7 +406,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         logs:        Array.isArray(row.logs) ? (row.logs as string[]) : [],
         createdAt:   String(row.created_at ?? ""),
         image_url:   String(row.image_url ?? ""),
-        logo_url:    String(row.logo_url ?? ""),
+        logo_url:    (() => {
+          const s = String(row.logo_url ?? "").trim();
+          return s || resolveLogoUrlFromTitle(String(row.title ?? ""), String(row.category ?? "")) || "";
+        })(),
       }));
 
       const missingCountIds = baseRows
@@ -549,7 +554,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addProduct = (product: Omit<Product, "id" | "createdAt">) => {
     const newProd: Product = {
       ...product,
-      logo_url: product.logo_url || resolveLogoUrlFromTitle(product.title),
+      logo_url: product.logo_url || resolveLogoUrlFromTitle(product.title, product.category),
       id: `prod-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
@@ -563,6 +568,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteProduct = (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
   };
+
+  const mergeProductRowFromDb = useCallback((row: Record<string, unknown>) => {
+    const id = String(row.id ?? "");
+    if (!id) return;
+    const title = String(row.title ?? "");
+    const category = String(row.category ?? "");
+    const storedLogo = String(row.logo_url ?? "").trim();
+    const inferred = resolveLogoUrlFromTitle(title, category);
+    const logo_url = storedLogo || inferred || undefined;
+    const resolvedStock = Math.max(0, Number(row.stock_count ?? row.stock ?? 0));
+    const next: Product = {
+      id,
+      title,
+      category,
+      price: Number(row.price ?? 0),
+      description: String(row.description ?? ""),
+      stock_count: resolvedStock,
+      stock: resolvedStock,
+      logs: [],
+      createdAt: String(row.created_at ?? new Date().toISOString()),
+      image_url: String(row.image_url ?? ""),
+      logo_url,
+    };
+    setProducts((prev) => [next, ...prev.filter((p) => p.id !== id)]);
+  }, []);
 
   const purchaseProduct = async (productId: string): Promise<{ success: boolean; deliveredLog?: string; message: string }> => {
     // ── Supabase path: atomic purchase via SECURITY DEFINER function ──────────
@@ -693,6 +723,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         topUpWallet,
         refreshProfile,
         refreshProducts,
+        mergeProductRowFromDb,
       }}
     >
       {children}
