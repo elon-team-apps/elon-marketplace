@@ -93,15 +93,24 @@ function formatRpcFailure(
   return parts.length > 0 ? parts.join("\n\n") : "Upload failed.";
 }
 
-async function deleteInventoryForProduct(productId: string) {
-  if (!supabase) return { error: null as PostgrestError | null };
-  const primary = await supabase.from("log_items").delete().eq("product_id", productId);
-  if (!primary.error) return primary;
-  const msg = primary.error.message ?? "";
-  if (/log_items|schema cache|does not exist|not find/i.test(msg)) {
-    return supabase.from("logs_data").delete().eq("product_id", productId);
+function isIgnorableInventoryDeleteError(err: PostgrestError | null): boolean {
+  if (!err) return true;
+  return /does not exist|not find|schema cache|PGRST205|Could not find the table/i.test(err.message ?? "");
+}
+
+/** Remove all inventory rows for this product (both table names) before deleting the product row — avoids FK issues. */
+async function deleteInventoryForProduct(productId: string): Promise<{ error: PostgrestError | null }> {
+  if (!supabase) return { error: null };
+
+  const logItemsRes = await supabase.from("log_items").delete().eq("product_id", productId);
+  const logsDataRes = await supabase.from("logs_data").delete().eq("product_id", productId);
+
+  if (isIgnorableInventoryDeleteError(logItemsRes.error) && isIgnorableInventoryDeleteError(logsDataRes.error)) {
+    return { error: null };
   }
-  return primary;
+  if (!isIgnorableInventoryDeleteError(logItemsRes.error)) return { error: logItemsRes.error };
+  if (!isIgnorableInventoryDeleteError(logsDataRes.error)) return { error: logsDataRes.error };
+  return { error: null };
 }
 
 /** Recompute products.stock from undelivered inventory rows */
@@ -876,6 +885,7 @@ export default function AdminProducts() {
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     const id = deleteTarget.id;
+    const title = deleteTarget.title;
     setDeleting(true);
     try {
       if (supabase) {
@@ -899,15 +909,21 @@ export default function AdminProducts() {
           return;
         }
 
+        // Immediate UI update (same as setProducts(prev => prev.filter(...)))
         deleteProduct(id);
+        if (manageTarget?.id === id) setManageTarget(null);
+        if (editTarget?.id === id) setEditTarget(null);
+
         await refreshProducts();
       } else {
         deleteProduct(id);
+        if (manageTarget?.id === id) setManageTarget(null);
+        if (editTarget?.id === id) setEditTarget(null);
       }
 
       toast({
-        title: "You're all set",
-        description: `“${deleteTarget.title}” and its logs were removed.`,
+        title: "Product permanently removed",
+        description: `“${title}” and all associated logs were deleted from the database.`,
       });
       setDeleteTarget(null);
     } finally {

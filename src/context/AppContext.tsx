@@ -470,7 +470,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (!error && data && data.length > 0) {
+    if (!error && data != null) {
+      if (data.length === 0) {
+        setProducts([]);
+        return;
+      }
       await applyRows(data);
       return;
     }
@@ -484,7 +488,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.warn("[AppContext] Products fetch error:", e2.message);
       return;
     }
-    if (d2 && d2.length > 0) await applyRows(d2);
+    if (d2 != null) {
+      if (d2.length === 0) {
+        setProducts([]);
+        return;
+      }
+      await applyRows(d2);
+    }
   }, []);
 
   // ── Fetch live products from Supabase ─────────────────────────────────────
