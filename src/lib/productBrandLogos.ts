@@ -1,6 +1,9 @@
 /**
  * Global keyword → brand image (SimpleIcons CDN) or built-in visual kinds.
- * Checks title and category so "Netflix" in either field resolves correctly.
+ * Checks **title and category** so e.g. "Netflix" in either field resolves correctly.
+ *
+ * Storefront priorities include: **Netflix, VPN** (word or VPN category), **WhatsApp**,
+ * **Twitter / X**, **Telegram**, **Facebook**, plus other common brands (Instagram, TikTok, …).
  */
 
 export type BrandVisual =

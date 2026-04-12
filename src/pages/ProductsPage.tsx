@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, Package,
+  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid,
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -407,6 +407,11 @@ function ProductGrid({
   );
 }
 
+/**
+ * Storefront card. Logo is resolved from `title` + `category` (e.g. Netflix, VPN, WhatsApp,
+ * Twitter/X, Telegram, Facebook) via `ProductBrandAvatar` / `resolveProductBrandVisual`, then
+ * stored `logo_url` if present, else VPN shield or generic box.
+ */
 function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Product) => void }) {
   const availableStock = getAvailableStock(p);
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
@@ -418,9 +423,15 @@ function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Produ
       <div className="h-[2px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
 
       <div className="flex flex-col flex-1 p-3.5 gap-1.5">
-        {/* Branded logo + title */}
+        {/* Smart brand logo (title keywords) + title */}
         <div className="flex items-center gap-2.5">
-          <PlatformLogo product={p} platform={platform} size={30} />
+          <ProductBrandAvatar
+            title={p.title}
+            category={p.category}
+            logo_url={p.logo_url}
+            size={32}
+            accentColor={platform?.color ?? "#1877F2"}
+          />
           <h3 className="font-extrabold text-[12px] leading-tight flex-1 min-w-0 line-clamp-2 text-black">
             {p.title}
           </h3>

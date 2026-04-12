@@ -408,7 +408,7 @@ function CreateProductModal({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const { addProduct, refreshProducts } = useApp();
+  const { addProduct, refreshProducts, mergeProductRowFromDb } = useApp();
   const [form, setForm] = useState<CreateForm>(emptyCreateForm);
   const [saving, setSaving] = useState(false);
 
@@ -447,6 +447,9 @@ function CreateProductModal({
           });
           return;
         }
+        // Refresh JWT so PostgREST evaluates `is_admin()` with up-to-date `profiles.role`.
+        await supabase.auth.refreshSession();
+
         const { data: inserted, error: insErr } = await supabase
           .from("products")
           .insert({
@@ -472,6 +475,8 @@ function CreateProductModal({
 
         if (inserted && typeof inserted === "object") {
           mergeProductRowFromDb(inserted as Record<string, unknown>);
+        } else if (!insErr) {
+          console.warn("[CreateProduct] Insert succeeded but no row returned; relying on refetch.");
         }
 
         const newId = (inserted as { id?: string } | null)?.id;
