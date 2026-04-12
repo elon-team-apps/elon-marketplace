@@ -3,6 +3,7 @@ import {
   X, Eye, AlertCircle, Loader2, Minus, Plus, Wallet,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import type { PostgrestError } from "@supabase/supabase-js";
 import { useApp, type Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
 import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
@@ -16,6 +17,54 @@ import {
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Full Supabase / PostgREST error text for the red error box */
+function formatPostgrestLines(err: PostgrestError | null): string {
+  if (!err) return "";
+  const lines: string[] = [];
+  if (err.message) lines.push(err.message);
+  if (err.details) lines.push(`details: ${err.details}`);
+  if (err.hint) lines.push(`hint: ${err.hint}`);
+  if (err.code) lines.push(`code: ${err.code}`);
+  return lines.join("\n");
+}
+
+function formatRpcResultPayload(payload: Record<string, unknown> | null): string {
+  if (!payload || payload.success !== false) return "";
+  const lines: string[] = [];
+  if (typeof payload.message === "string" && payload.message) lines.push(payload.message);
+  if (typeof payload.code === "string" && payload.code) lines.push(`code: ${payload.code}`);
+  if (typeof payload.sqlstate === "string" && payload.sqlstate) lines.push(`SQLSTATE ${payload.sqlstate}`);
+  return lines.join("\n");
+}
+
+/** Combines reserve RPC + direct insert failures so you see RLS / missing table / duplicate ref, etc. */
+function formatReserveFailure(
+  rpcErr: PostgrestError | null,
+  rpcPayload: Record<string, unknown> | null,
+  insertErr: PostgrestError | null,
+): string {
+  const blocks: string[] = [];
+  const rpcHttp = formatPostgrestLines(rpcErr);
+  if (rpcHttp) blocks.push(`reserve_purchase_transaction (RPC):\n${rpcHttp}`);
+  const rpcBody = formatRpcResultPayload(rpcPayload);
+  if (rpcBody) blocks.push(`reserve_purchase_transaction (response):\n${rpcBody}`);
+  const ins = formatPostgrestLines(insertErr);
+  if (ins) blocks.push(`transactions.insert (RLS / client):\n${ins}`);
+  return blocks.length > 0
+    ? blocks.join("\n\n— — —\n\n")
+    : "Could not save a pending purchase row to public.transactions.";
+}
+
+function parseInvokeErrorPayload(payload: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (typeof payload.error === "string" && payload.error) parts.push(payload.error);
+  if (typeof payload.detail === "string" && payload.detail) parts.push(`detail: ${payload.detail}`);
+  if (typeof payload.message === "string" && payload.message && !parts.includes(payload.message)) {
+    parts.push(payload.message);
+  }
+  return parts.join("\n\n") || "Unable to start payment.";
+}
 
 type PurchaseState =
   | { phase: "idle" }
@@ -85,10 +134,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             if (text) {
               try {
                 const parsed = JSON.parse(text) as Record<string, unknown>;
-                detailed =
-                  (typeof parsed.error === "string" && parsed.error) ||
-                  (typeof parsed.message === "string" && parsed.message) ||
-                  text;
+                detailed = parseInvokeErrorPayload(parsed);
               } catch {
                 detailed = text;
               }
@@ -105,10 +151,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       const payload = (data ?? {}) as Record<string, unknown>;
       const payUrl = extractPaystackRedirectUrl(payload);
       if (!payUrl) {
-        const msg =
-          (typeof payload.error === "string" && payload.error) ||
-          (typeof payload.message === "string" && payload.message) ||
-          "Unable to start payment right now.";
+        const msg = parseInvokeErrorPayload(payload);
         setPurchaseState({ phase: "error", message: msg });
         setPurchasing(false);
         return;
@@ -140,23 +183,38 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       const naira = Math.trunc(totalPrice);
-      const { error: txError } = await supabase.from("transactions").insert({
-        user_id: currentUser.id,
-        amount: naira,
-        type: "purchase",
-        status: "pending",
-        reference,
-        product_id: product.id,
-        quantity: qty,
+
+      // Pending row in public.transactions (Paystack webhook completes → status completed).
+      // Prefer SECURITY DEFINER RPC so reservation works even when direct INSERT is blocked by RLS.
+      const { data: reserveData, error: reserveRpcErr } = await supabase.rpc("reserve_purchase_transaction", {
+        p_reference: reference,
+        p_amount: naira,
+        p_product_id: product.id,
+        p_quantity: qty,
       });
 
-      if (txError) {
-        setPurchaseState({
-          phase: "error",
-          message: `Could not record purchase: ${txError.message}`,
+      const reservePayload = (reserveData ?? null) as Record<string, unknown> | null;
+      const rpcOk = !reserveRpcErr && reservePayload?.success === true;
+
+      if (!rpcOk) {
+        const { error: txError } = await supabase.from("transactions").insert({
+          user_id: currentUser.id,
+          amount: naira,
+          type: "purchase",
+          status: "pending",
+          reference,
+          product_id: product.id,
+          quantity: qty,
         });
-        setPurchasing(false);
-        return;
+
+        if (txError) {
+          setPurchaseState({
+            phase: "error",
+            message: formatReserveFailure(reserveRpcErr, reservePayload, txError),
+          });
+          setPurchasing(false);
+          return;
+        }
       }
 
       window.location.replace(payUrl.trim());
@@ -272,7 +330,9 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             {purchaseState.phase === "error" && (
               <div className="flex items-start gap-2.5 rounded-xl px-4 py-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
                 <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                <p className="text-sm text-red-600 dark:text-red-400">{purchaseState.message}</p>
+                <pre className="text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap break-words font-mono flex-1 min-w-0 leading-relaxed">
+                  {purchaseState.message}
+                </pre>
               </div>
             )}
             {purchaseState.phase === "processing" && (
@@ -305,16 +365,25 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               type="button"
               onClick={handlePurchase}
               disabled={!canAttemptPurchase || purchasing || !canAfford || !canStartPayment}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: BTN_NAVY,
+                color: TEXT_BLACK,
                 boxShadow: (!purchasing && canAfford) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
               }}
             >
               {purchasing ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting to Payment...</>
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" style={{ color: TEXT_BLACK }} />
+                  <span style={{ color: TEXT_BLACK }}>Redirecting to Payment...</span>
+                </>
               ) : (
-                <><Eye className="h-4 w-4" /> Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{totalPrice.toLocaleString()}</>
+                <>
+                  <Eye className="h-4 w-4" style={{ color: TEXT_BLACK }} />
+                  <span style={{ color: TEXT_BLACK }}>
+                    Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{totalPrice.toLocaleString()}
+                  </span>
+                </>
               )}
             </button>
           </div>
