@@ -3,9 +3,13 @@ import {
   X, Eye, AlertCircle, Loader2, Minus, Plus, Wallet,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { PostgrestError } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { useApp, type Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  formatSupabasePostgrestError,
+  isLikelySchemaOrMissingColumnError,
+} from "@/lib/supabaseErrors";
 import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
 import {
   PlatformLogo,
@@ -18,24 +22,45 @@ const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Full Supabase / PostgREST error text for the red error box */
-function formatPostgrestLines(err: PostgrestError | null): string {
-  if (!err) return "";
-  const lines: string[] = [];
-  if (err.message) lines.push(err.message);
-  if (err.details) lines.push(`details: ${err.details}`);
-  if (err.hint) lines.push(`hint: ${err.hint}`);
-  if (err.code) lines.push(`code: ${err.code}`);
-  return lines.join("\n");
-}
-
 function formatRpcResultPayload(payload: Record<string, unknown> | null): string {
   if (!payload || payload.success !== false) return "";
   const lines: string[] = [];
-  if (typeof payload.message === "string" && payload.message) lines.push(payload.message);
+  if (typeof payload.message === "string" && payload.message) lines.push(`message: ${payload.message}`);
   if (typeof payload.code === "string" && payload.code) lines.push(`code: ${payload.code}`);
   if (typeof payload.sqlstate === "string" && payload.sqlstate) lines.push(`SQLSTATE ${payload.sqlstate}`);
+  try {
+    lines.push(`response (full): ${JSON.stringify(payload)}`);
+  } catch {
+    /* ignore */
+  }
   return lines.join("\n");
+}
+
+function formatAuthSessionError(err: { message?: string; name?: string } | null): string {
+  if (!err?.message) return "No active session. Sign in again.";
+  const parts = [`message: ${err.message}`];
+  if (err.name) parts.push(`name: ${err.name}`);
+  return parts.join("\n");
+}
+
+/** When PostgREST complains about columns/schema, log what the API exposes for `transactions`. */
+async function logTransactionsInsertDebug(
+  client: SupabaseClient,
+  insertPayload: Record<string, unknown>,
+  insertError: PostgrestError,
+) {
+  console.error("[PurchaseModal] transactions.insert failed", { insertPayload, insertError });
+  if (!isLikelySchemaOrMissingColumnError(insertError)) return;
+  const probe = await client.from("transactions").select("*").limit(1);
+  console.error(
+    "[PurchaseModal] public.transactions PostgREST probe (keys from first row, or select error):",
+    {
+      selectError: probe.error ? formatSupabasePostgrestError(probe.error) : null,
+      sampleRowColumnKeys:
+        Array.isArray(probe.data) && probe.data[0] ? Object.keys(probe.data[0] as object) : [],
+      rowCount: probe.data?.length ?? 0,
+    },
+  );
 }
 
 /** Combines reserve RPC + direct insert failures so you see RLS / missing table / duplicate ref, etc. */
@@ -45,11 +70,11 @@ function formatReserveFailure(
   insertErr: PostgrestError | null,
 ): string {
   const blocks: string[] = [];
-  const rpcHttp = formatPostgrestLines(rpcErr);
+  const rpcHttp = formatSupabasePostgrestError(rpcErr);
   if (rpcHttp) blocks.push(`reserve_purchase_transaction (RPC):\n${rpcHttp}`);
   const rpcBody = formatRpcResultPayload(rpcPayload);
   if (rpcBody) blocks.push(`reserve_purchase_transaction (response):\n${rpcBody}`);
-  const ins = formatPostgrestLines(insertErr);
+  const ins = formatSupabasePostgrestError(insertErr);
   if (ins) blocks.push(`transactions.insert (RLS / client):\n${ins}`);
   return blocks.length > 0
     ? blocks.join("\n\n— — —\n\n")
@@ -58,12 +83,16 @@ function formatReserveFailure(
 
 function parseInvokeErrorPayload(payload: Record<string, unknown>): string {
   const parts: string[] = [];
-  if (typeof payload.error === "string" && payload.error) parts.push(payload.error);
+  if (typeof payload.code === "string" && payload.code) parts.push(`code: ${payload.code}`);
+  if (typeof payload.error === "string" && payload.error) parts.push(`error: ${payload.error}`);
   if (typeof payload.detail === "string" && payload.detail) parts.push(`detail: ${payload.detail}`);
-  if (typeof payload.message === "string" && payload.message && !parts.includes(payload.message)) {
-    parts.push(payload.message);
+  if (typeof payload.message === "string" && payload.message) parts.push(`message: ${payload.message}`);
+  try {
+    parts.push(`response (full): ${JSON.stringify(payload)}`);
+  } catch {
+    /* ignore */
   }
-  return parts.join("\n\n") || "Unable to start payment.";
+  return parts.filter(Boolean).join("\n") || "Unable to start payment.";
 }
 
 type PurchaseState =
@@ -116,7 +145,19 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (sessionError || !accessToken) {
+        setPurchaseState({
+          phase: "error",
+          message: formatAuthSessionError(sessionError ?? null),
+        });
+        setPurchasing(false);
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke("pocketfi-init", {
+        headers: { Authorization: `Bearer ${accessToken}` },
         body: {
           amount: totalPrice,
           email: currentUser.email,
@@ -197,17 +238,19 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       const rpcOk = !reserveRpcErr && reservePayload?.success === true;
 
       if (!rpcOk) {
-        const { error: txError } = await supabase.from("transactions").insert({
+        const txInsertPayload = {
           user_id: currentUser.id,
           amount: naira,
-          type: "purchase",
-          status: "pending",
+          type: "purchase" as const,
+          status: "pending" as const,
           reference,
           product_id: product.id,
           quantity: qty,
-        });
+        };
+        const { error: txError } = await supabase.from("transactions").insert(txInsertPayload);
 
         if (txError) {
+          await logTransactionsInsertDebug(supabase, txInsertPayload, txError);
           setPurchaseState({
             phase: "error",
             message: formatReserveFailure(reserveRpcErr, reservePayload, txError),
@@ -219,7 +262,18 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
 
       window.location.replace(payUrl.trim());
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unable to start payment.";
+      let msg = "Unable to start payment.";
+      if (e instanceof Error) {
+        msg = `message: ${e.message}`;
+        const any = e as Error & { code?: string };
+        if (any.code) msg = `code: ${any.code}\n${msg}`;
+      } else if (e && typeof e === "object") {
+        try {
+          msg = `message: ${JSON.stringify(e)}`;
+        } catch {
+          msg = String(e);
+        }
+      }
       setPurchaseState({ phase: "error", message: msg });
       setPurchasing(false);
     }

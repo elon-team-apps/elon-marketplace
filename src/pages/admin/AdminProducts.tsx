@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { PostgrestError } from "@supabase/supabase-js";
+import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
 
 const BTN_NAVY = "#0f172a";
 const BTN_DELETE = "#dc2626";
@@ -70,27 +71,45 @@ function countParsedLogs(raw: string) {
   return parseCredentialLines(raw).length;
 }
 
-function formatPostgrestError(err: PostgrestError | null | undefined): string {
-  if (!err) return "";
-  return [err.message, err.details, err.hint, err.code ? `code: ${err.code}` : ""]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function formatRpcFailure(
   error: PostgrestError | null,
   data: Record<string, unknown> | null | undefined,
 ): string {
   const parts: string[] = [];
-  const pe = formatPostgrestError(error);
-  if (pe) parts.push(pe);
-  if (data && data.success === false && typeof data.message === "string") {
-    parts.push(data.message);
-  }
-  if (data && typeof data.sqlstate === "string") {
-    parts.push(`SQLSTATE ${data.sqlstate}`);
+  const pe = formatSupabasePostgrestError(error);
+  if (pe) parts.push(`bulk_upload_logs (PostgREST):\n${pe}`);
+  if (data && data.success === false) {
+    if (typeof data.message === "string" && data.message) parts.push(`message: ${data.message}`);
+    if (typeof data.code === "string" && data.code) parts.push(`code: ${data.code}`);
+    if (typeof data.sqlstate === "string") parts.push(`SQLSTATE ${data.sqlstate}`);
+    try {
+      parts.push(`response (full): ${JSON.stringify(data)}`);
+    } catch {
+      /* ignore */
+    }
   }
   return parts.length > 0 ? parts.join("\n\n") : "Upload failed.";
+}
+
+/** Ensures the shared anon client has a JWT so RLS and SECURITY DEFINER RPCs see `auth.uid()`. */
+async function requireSupabaseUserSession(): Promise<
+  { ok: true } | { ok: false; message: string }
+> {
+  if (!supabase) return { ok: false, message: "Supabase is not configured." };
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    return {
+      ok: false,
+      message: `message: ${error.message}${error.name ? `\nname: ${error.name}` : ""}`,
+    };
+  }
+  if (!data.session?.access_token) {
+    return {
+      ok: false,
+      message: "No active session. Sign in again, then retry this action.",
+    };
+  }
+  return { ok: true };
 }
 
 function isIgnorableInventoryDeleteError(err: PostgrestError | null): boolean {
@@ -191,6 +210,12 @@ function BulkUploadModal({
     setResult(null);
 
     if (supabase) {
+      const sess = await requireSupabaseUserSession();
+      if (!sess.ok) {
+        setErrorMsg(sess.message);
+        setStatus("error");
+        return;
+      }
       const { data, error } = await supabase.rpc("bulk_upload_logs", {
         p_product_id: selectedId,
         p_credentials: lines,
@@ -412,6 +437,15 @@ function CreateProductModal({
       const stock = logCount;
 
       if (supabase) {
+        const sess = await requireSupabaseUserSession();
+        if (!sess.ok) {
+          toast({
+            title: "Not signed in",
+            description: sess.message,
+            variant: "destructive",
+          });
+          return;
+        }
         const { data: row, error: insErr } = await supabase
           .from("products")
           .insert({
@@ -428,7 +462,7 @@ function CreateProductModal({
         if (insErr) {
           toast({
             title: "We couldn't save that",
-            description: formatPostgrestError(insErr),
+            description: formatSupabasePostgrestError(insErr),
             variant: "destructive",
           });
           return;
@@ -624,7 +658,7 @@ function EditProductModal({
         if (error) {
           toast({
             title: "We couldn't update that",
-            description: formatPostgrestError(error),
+            description: formatSupabasePostgrestError(error),
             variant: "destructive",
           });
           return;
@@ -750,7 +784,7 @@ function ManageLogsModal({
     const { error } = await supabase.from(inventoryTable).update({ credentials: cred }).eq("id", id);
     setSavingId(null);
     if (error) {
-      toast({ title: "Couldn't save line", description: formatPostgrestError(error), variant: "destructive" });
+      toast({ title: "Couldn't save line", description: formatSupabasePostgrestError(error), variant: "destructive" });
       return;
     }
     await syncProductStockFromLogs(product.id);
@@ -765,7 +799,7 @@ function ManageLogsModal({
     const { error } = await supabase.from(inventoryTable).delete().eq("id", id);
     setDeletingId(null);
     if (error) {
-      toast({ title: "Couldn't delete line", description: formatPostgrestError(error), variant: "destructive" });
+      toast({ title: "Couldn't delete line", description: formatSupabasePostgrestError(error), variant: "destructive" });
       return;
     }
     await syncProductStockFromLogs(product.id);
@@ -893,7 +927,7 @@ export default function AdminProducts() {
         if (invDel.error) {
           toast({
             title: "We couldn't delete that",
-            description: formatPostgrestError(invDel.error),
+            description: formatSupabasePostgrestError(invDel.error),
             variant: "destructive",
           });
           return;
@@ -903,7 +937,7 @@ export default function AdminProducts() {
         if (prodErr) {
           toast({
             title: "We couldn't delete that",
-            description: formatPostgrestError(prodErr),
+            description: formatSupabasePostgrestError(prodErr),
             variant: "destructive",
           });
           return;
