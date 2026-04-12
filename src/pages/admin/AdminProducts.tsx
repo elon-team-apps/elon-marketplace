@@ -909,12 +909,15 @@ export default function AdminProducts() {
           return;
         }
 
-        // Immediate UI update (same as setProducts(prev => prev.filter(...)))
+        // Immediate UI update — same as setProducts(prev => prev.filter(p => p.id !== id))
         deleteProduct(id);
         if (manageTarget?.id === id) setManageTarget(null);
         if (editTarget?.id === id) setEditTarget(null);
 
+        // Re-fetch from Supabase (Vite SPA: no router.refresh(); this is the source of truth).
         await refreshProducts();
+        // If the catalog response was briefly stale, evict the id again so the row cannot reappear.
+        deleteProduct(id);
       } else {
         deleteProduct(id);
         if (manageTarget?.id === id) setManageTarget(null);
