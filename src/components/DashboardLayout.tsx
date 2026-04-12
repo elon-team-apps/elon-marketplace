@@ -156,7 +156,7 @@ const DashboardLayout = () => {
             <NavItem key={item.path} {...item} onClick={close} />
           ))}
 
-          {/* ── Admin Panel — only visible when role === "admin" ─────── */}
+          {/* ── Admin Panel — only when profile.is_admin (or legacy role admin) via useApp().isAdmin ─────── */}
           {isAdmin && (
             <div className="pt-4 mt-2 border-t border-slate-200 dark:border-white/5">
               {/* Section header */}

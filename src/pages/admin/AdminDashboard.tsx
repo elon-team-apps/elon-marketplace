@@ -17,8 +17,13 @@ type Profile = {
   email: string;
   wallet_balance: number;
   role: string;
+  is_admin?: boolean;
   created_at: string;
 };
+
+function profileIsAdmin(p: Pick<Profile, "role" | "is_admin">): boolean {
+  return p.is_admin === true || (p.role ?? "").toLowerCase() === "admin";
+}
 
 type PaymentMethodSettings = {
   pocketfi_enabled: boolean;
@@ -41,7 +46,7 @@ function UsersTable() {
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, wallet_balance, role, created_at")
+      .select("id, email, wallet_balance, role, is_admin, created_at")
       .order("created_at", { ascending: false });
     if (error) {
       toast({ title: "Failed to load users", description: error.message, variant: "destructive" });
@@ -177,7 +182,7 @@ function UsersTable() {
                         <div>
                           <p className="font-medium text-slate-700 dark:text-slate-200 flex items-center gap-1.5 leading-tight text-xs">
                             {profile.email}
-                            {profile.role === "admin" && (
+                            {profileIsAdmin(profile) && (
                               <Crown className="h-3 w-3 text-amber-500 dark:text-amber-400 shrink-0" />
                             )}
                           </p>
@@ -194,12 +199,12 @@ function UsersTable() {
                     <td className="px-4 py-3.5 text-center">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
-                          profile.role === "admin"
+                          profileIsAdmin(profile)
                             ? "bg-amber-500/15 border border-amber-500/25 text-amber-600 dark:text-amber-400"
                             : "bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/8 text-slate-500"
                         }`}
                       >
-                        {profile.role || "user"}
+                        {profileIsAdmin(profile) ? "admin" : (profile.role || "user")}
                       </span>
                     </td>
 

@@ -11,6 +11,7 @@ import {
   isLikelySchemaOrMissingColumnError,
 } from "@/lib/supabaseErrors";
 import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
+import { toast as sonnerToast } from "sonner";
 import {
   PlatformLogo,
   PLATFORM_MAP,
@@ -260,7 +261,13 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         }
       }
 
-      window.location.replace(payUrl.trim());
+      setPurchaseState({ phase: "idle" });
+      sonnerToast.success("Success", {
+        description: `Opening secure checkout for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
+      });
+      window.setTimeout(() => {
+        window.location.replace(payUrl.trim());
+      }, 150);
     } catch (e) {
       let msg = "Unable to start payment.";
       if (e instanceof Error) {

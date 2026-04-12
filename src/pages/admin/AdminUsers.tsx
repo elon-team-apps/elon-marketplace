@@ -14,8 +14,13 @@ type Profile = {
   email:          string;
   wallet_balance: number;
   role:           string;
+  is_admin?:      boolean;
   created_at:     string;
 };
+
+function profileIsAdmin(p: Pick<Profile, "role" | "is_admin">): boolean {
+  return p.is_admin === true || (p.role ?? "").toLowerCase() === "admin";
+}
 
 // ── Top-up Dialog ─────────────────────────────────────────────────────────────
 function TopUpDialog({
@@ -176,7 +181,7 @@ export default function AdminUsers() {
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, wallet_balance, role, created_at")
+      .select("id, email, wallet_balance, role, is_admin, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -276,7 +281,7 @@ export default function AdminUsers() {
                           </div>
                           <p className="font-medium text-xs flex items-center gap-1.5 leading-tight">
                             {profile.email}
-                            {profile.role === "admin" && (
+                            {profileIsAdmin(profile) && (
                               <Crown className="h-3 w-3 text-amber-500 shrink-0" />
                             )}
                           </p>
@@ -286,11 +291,11 @@ export default function AdminUsers() {
                       {/* Role */}
                       <td className="px-5 py-4 text-center">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold border ${
-                          profile.role === "admin"
+                          profileIsAdmin(profile)
                             ? "bg-amber-500/15 border-amber-500/25 text-amber-600 dark:text-amber-400"
                             : "bg-slate-100 dark:bg-white/8 border-transparent text-slate-500 dark:text-slate-400"
                         }`}>
-                          {profile.role || "user"}
+                          {profileIsAdmin(profile) ? "admin" : (profile.role || "user")}
                         </span>
                       </td>
 

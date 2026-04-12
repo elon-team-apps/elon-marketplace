@@ -48,6 +48,8 @@ export interface Profile {
   email: string;
   wallet_balance: number;
   role: UserRole;
+  /** When true, user has admin privileges (RLS `is_admin()` matches this or legacy `role`). */
+  is_admin?: boolean;
   created_at: string;
 }
 
@@ -81,5 +83,6 @@ export interface Transaction {
   product_id: string | null;
   log_id: string | null;
   reference: string | null;     // Paystack reference — used for idempotency
+  quantity?: number;
   created_at: string;
 }

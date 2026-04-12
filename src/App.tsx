@@ -89,6 +89,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Admin pages — allowed when `profiles.is_admin` is true (or legacy `role = 'admin'`). */
 function AdminRoute({ children }: { children: ReactNode }) {
   const { profileLoaded, isAdmin } = useApp();
   if (!profileLoaded) return <RouteLoading />;

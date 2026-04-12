@@ -23,8 +23,9 @@ export interface User {
   name: string;
   email: string;
   wallet_balance: number;
-  role: "admin" | "user" | "";  // exact values from profiles.role; "" while loading
-  is_admin: boolean;            // derived: role === "admin" — kept for backward compat
+  role: "admin" | "user" | "";  // mirrors profiles.role; "" while loading
+  /** True when profiles.is_admin is true or role is admin (legacy). */
+  is_admin: boolean;
   createdAt: string;
 }
 
@@ -65,8 +66,7 @@ const STORAGE_KEY = "elon_marketplace_v2";
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Neutral placeholder shown while the Supabase profile fetch is in-flight.
-// is_admin is always false here — it is ONLY set to true after syncProfile()
-// confirms role === 'admin' from the database.
+// is_admin stays false until syncProfile() loads `profiles.is_admin` / `role` from the database.
 const loadingUser: User = {
   id: "",
   name: "",
@@ -210,9 +210,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [isAdminView, setIsAdminView] = useState(false);
 
-  // Single source of truth for admin status — derived from currentUser.role.
-  // Components should use this instead of checking is_admin or role directly.
-  const isAdmin = currentUser.is_admin === true && currentUser.role === "admin";
+  // Single source of truth for admin — profiles.is_admin (preferred) or legacy role = admin.
+  const isAdmin = currentUser.is_admin === true;
   const [products, setProducts] = useState<Product[]>(stored?.products ?? seedProducts);
   const [users, setUsers] = useState<User[]>(stored?.users ?? seedUsers);
   const [orders, setOrders] = useState<Order[]>(stored?.orders ?? seedOrders);
@@ -296,8 +295,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const resolvedRole  = ((profile.role as string) ?? "user").toLowerCase() as "admin" | "user";
-      const resolvedAdmin = resolvedRole === "admin";
+      const roleRaw = ((profile.role as string) ?? "user").toLowerCase();
+      const roleFromDb = roleRaw === "admin" ? "admin" : "user";
+      const flagRaw = profile.is_admin;
+      const fromColumn = flagRaw === true || flagRaw === "true" || flagRaw === "t";
+      const resolvedAdmin = fromColumn || roleFromDb === "admin";
+      const resolvedRole: "admin" | "user" = resolvedAdmin ? "admin" : "user";
       setCurrentUser({
         id:             profile.id as string,
         name:           fallbackName,
@@ -317,7 +320,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Never downgrade an already-loaded admin session (e.g. from a background re-sync).
     const existing = currentUserRef.current;
-    if (existing.id === authUser.id && existing.role !== "") {
+    if (existing.id === authUser.id && (existing.role !== "" || existing.is_admin)) {
       console.log("[AppContext] Keeping existing loaded profile to avoid downgrade.");
       setProfileLoaded(true);
       return;
@@ -516,14 +519,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${currentUser.id}` },
         (payload) => {
-          const next = payload.new as { wallet_balance?: number; role?: string; email?: string };
-          setCurrentUser((prev) => ({
-            ...prev,
-            wallet_balance: typeof next.wallet_balance === "number" ? next.wallet_balance : prev.wallet_balance,
-            role: (next.role as "admin" | "user" | undefined) ?? prev.role,
-            is_admin: (next.role ?? prev.role) === "admin",
-            email: next.email ?? prev.email,
-          }));
+          const next = payload.new as {
+            wallet_balance?: number;
+            role?: string;
+            email?: string;
+            is_admin?: boolean | string;
+          };
+          setCurrentUser((prev) => {
+            const r = (next.role ?? prev.role) as string;
+            const roleNorm = r === "admin" ? "admin" : "user";
+            const col = next.is_admin;
+            const adminFlag =
+              col === true || col === "true" || col === "t" || roleNorm === "admin";
+            return {
+              ...prev,
+              wallet_balance: typeof next.wallet_balance === "number" ? next.wallet_balance : prev.wallet_balance,
+              role: adminFlag ? "admin" : "user",
+              is_admin: adminFlag,
+              email: next.email ?? prev.email,
+            };
+          });
         }
       )
       .subscribe();

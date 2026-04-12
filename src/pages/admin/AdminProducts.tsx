@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -233,6 +234,9 @@ function BulkUploadModal({
       const newStock = Number(payload.new_stock ?? 0);
       setResult({ inserted, newStock });
       setStatus("success");
+      sonnerToast.success("Upload complete", {
+        description: `${inserted} log line(s) added · Stock now ${newStock}`,
+      });
       onSuccess(selectedId, inserted);
       return;
     }
@@ -243,6 +247,7 @@ function BulkUploadModal({
       newStock: (selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0) + lineCount,
     });
     setStatus("success");
+    sonnerToast.success("Upload complete", { description: `${lineCount} line(s) recorded (offline).` });
   };
 
   const handleReset = () => {
@@ -447,7 +452,7 @@ function CreateProductModal({
           });
           return;
         }
-        // Refresh JWT so PostgREST evaluates `is_admin()` with up-to-date `profiles.role`.
+        // Refresh JWT so PostgREST evaluates `is_admin()` with up-to-date `profiles.is_admin` / `role`.
         await supabase.auth.refreshSession();
 
         const { data: inserted, error: insErr } = await supabase
@@ -499,13 +504,11 @@ function CreateProductModal({
         }
 
         await refreshProducts();
-        toast({
-          title: "You're all set",
-          description:
-            logCount > 0
-              ? `“${form.title.trim()}” is live with ${logCount} account${logCount === 1 ? "" : "s"}.`
-              : `“${form.title.trim()}” is live. Add logs anytime from inventory.`,
-        });
+        const desc =
+          logCount > 0
+            ? `“${form.title.trim()}” is live with ${logCount} account${logCount === 1 ? "" : "s"}.`
+            : `“${form.title.trim()}” is live. Add logs anytime from inventory.`;
+        sonnerToast.success("Product saved", { description: desc });
         onClose();
         return;
       }
@@ -520,10 +523,8 @@ function CreateProductModal({
         stock,
         logo_url: autoLogoUrl,
       });
-      toast({
-        title: "You're all set",
-        description: `“${form.title.trim()}” added with ${logCount} log line(s).`,
-      });
+      const offDesc = `“${form.title.trim()}” added with ${logCount} log line(s).`;
+      sonnerToast.success("Product saved", { description: offDesc });
       onClose();
     } finally {
       setSaving(false);
@@ -981,10 +982,8 @@ export default function AdminProducts() {
         if (editTarget?.id === id) setEditTarget(null);
       }
 
-      toast({
-        title: "Product permanently removed",
-        description: `“${title}” and all associated logs were deleted from the database.`,
-      });
+      const delDesc = `“${title}” and all associated logs were deleted from the database.`;
+      sonnerToast.success("Product removed", { description: delDesc });
       setDeleteTarget(null);
     } finally {
       setDeleting(false);
@@ -993,10 +992,8 @@ export default function AdminProducts() {
 
   const handleBulkSuccess = async (_productId: string, inserted: number) => {
     await refreshProducts();
-    toast({
-      title: "You're all set",
-      description: inserted > 0 ? `${inserted} new log line(s) added.` : "Inventory refreshed.",
-    });
+    const desc = inserted > 0 ? `${inserted} new log line(s) added.` : "Inventory refreshed.";
+    sonnerToast.success("Upload complete", { description: desc });
   };
 
   return (
