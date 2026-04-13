@@ -57,7 +57,13 @@ type ParsedCredentials = {
 function parseLines(text: string): string[] {
   return text
     .split("\n")
-    .map((l) => l.trim())
+    .map((l) =>
+      l
+        // Strip zero-width / BOM / non-printing chars that often come from copied files.
+        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+        .replace(/[\u0000-\u001F\u007F]/g, " ")
+        .trim(),
+    )
     .filter((l) => l.length > 0);
 }
 
@@ -69,14 +75,18 @@ function parseCredentialLines(raw: string): ParsedCredentials {
   const parsed: string[] = [];
   let skipped = 0;
   for (const line of parseLines(raw)) {
-    const parts = line.split(":");
+    const parts = line
+      .split(/[:|]/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
     const email = (parts[0] ?? "").trim();
     const password = (parts[1] ?? "").trim();
     if (!email || !password) {
       skipped += 1;
       continue;
     }
-    const recoveryRaw = parts.length >= 3 ? parts.slice(2).join(":").trim() : "";
+    // Robust mapping: consume first 3 parts and ignore extras.
+    const recoveryRaw = (parts[2] ?? "").trim();
     const recovery = recoveryRaw || "-";
     parsed.push(`${email}:${password}:${recovery}`);
   }
@@ -352,7 +362,7 @@ function BulkUploadModal({
                 <span className="font-semibold text-slate-600 dark:text-slate-300">password</span>
                 {" : "}
                 <span className="font-semibold text-slate-600 dark:text-slate-300">recovery</span>
-                {" → saved to log_items for the product you select (product_id)."}
+                {" (or use | as separator) → saved to log_items for the product you select (product_id)."}
               </p>
             </div>
           </div>
@@ -418,14 +428,14 @@ function BulkUploadModal({
                   >
                     {pasteValidation.ok
                       ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ""}`
-                      : `${parseLines(logsText).length} line(s) — need Email:Password:Recovery each`}
+                      : `${parseLines(logsText).length} line(s) — need Email:Password[:Recovery]`}
                   </span>
                 </div>
                 <textarea
                   rows={10}
                   disabled={status === "uploading"}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-                  placeholder={"email@domain.com:YourPassword:recovery@backup.com\nuser2@mail.com:Pass456:2FA-seed-or-note"}
+                  placeholder={"email@domain.com:YourPassword:recovery@backup.com\nor\nemail@domain.com|YourPassword|recovery@backup.com"}
                   value={logsText}
                   onChange={(e) => {
                     setLogsText(e.target.value);
@@ -509,9 +519,13 @@ function CreateProductModal({
   const { addProduct, refreshProducts, mergeProductRowFromDb, updateProduct } = useApp();
   const [form, setForm] = useState<CreateForm>(emptyCreateForm);
   const [saving, setSaving] = useState(false);
+  const [createErrorMsg, setCreateErrorMsg] = useState("");
 
   useEffect(() => {
-    if (open) setForm(emptyCreateForm);
+    if (open) {
+      setForm(emptyCreateForm);
+      setCreateErrorMsg("");
+    }
   }, [open]);
 
   if (!open) return null;
@@ -523,16 +537,20 @@ function CreateProductModal({
   const logCount = uploadLines.length;
 
   const handleSubmit = async () => {
+    setCreateErrorMsg("");
     if (!form.title.trim()) {
+      setCreateErrorMsg("Add a product title.");
       toast({ title: "Add a product title", variant: "destructive" });
       return;
     }
     const price = parseFloat(form.price);
     if (isNaN(price) || price <= 0) {
+      setCreateErrorMsg("Enter a valid price greater than 0.");
       toast({ title: "Enter a valid price", variant: "destructive" });
       return;
     }
     if (rawLogLines.length > 0 && !pasteRes.ok) {
+      setCreateErrorMsg(pasteRes.message);
       toast({
         title: "Fix account lines",
         description: pasteRes.message,
@@ -547,6 +565,7 @@ function CreateProductModal({
       if (supabase) {
         const sess = await requireSupabaseUserSession();
         if (!sess.ok) {
+          setCreateErrorMsg(sess.message);
           toast({
             title: "Not signed in",
             description: sess.message,
@@ -574,9 +593,11 @@ function CreateProductModal({
           .single();
 
         if (insErr || !inserted) {
+          const details = insErr ? formatSupabasePostgrestError(insErr) : "Insert returned no row (check RLS / SELECT policy).";
+          setCreateErrorMsg(details);
           toast({
             title: "We couldn't save that",
-            description: insErr ? formatSupabasePostgrestError(insErr) : "Insert returned no row (check RLS / SELECT policy).",
+            description: details,
             variant: "destructive",
           });
           return;
@@ -584,6 +605,7 @@ function CreateProductModal({
 
         const newId = String((inserted as { id?: string }).id ?? "");
         if (!UUID_REGEX.test(newId)) {
+          setCreateErrorMsg("Database did not return a valid UUID for the new product.");
           toast({
             title: "Invalid product id",
             description: "Database did not return a UUID for the new product. Try again or check Supabase.",
@@ -601,6 +623,8 @@ function CreateProductModal({
         });
         const payload = rpcData as Record<string, unknown> | null | undefined;
         if (rpcErr || !payload?.success) {
+          const details = formatRpcFailure(rpcErr, payload);
+          setCreateErrorMsg(details);
           console.error("[CreateProduct] bulk_upload_logs failed after product insert", {
             productId: newId,
             lineCount: uploadLines.length,
@@ -609,7 +633,7 @@ function CreateProductModal({
           });
           toast({
             title: "Product created but log upload failed",
-            description: formatRpcFailure(rpcErr, payload),
+            description: details,
             variant: "destructive",
           });
           await refreshProducts();
@@ -667,9 +691,17 @@ function CreateProductModal({
         </div>
 
         <div className="px-6 py-5 space-y-4">
+          {createErrorMsg && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3 dark:border-red-900/40 dark:bg-red-950/20">
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+              <pre className="text-xs text-red-900 dark:text-red-200 whitespace-pre-wrap break-words font-mono flex-1 min-w-0">
+                {createErrorMsg}
+              </pre>
+            </div>
+          )}
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Title</Label>
-            <Input className="mt-1.5" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} disabled={saving} placeholder="Product name" />
+            <Input className="mt-1.5" value={form.title} onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, title: e.target.value })); }} disabled={saving} placeholder="Product name" />
           </div>
           <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950/40">
             <ProductBrandAvatar
@@ -691,7 +723,7 @@ function CreateProductModal({
               <select
                 className="mt-1.5 w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white"
                 value={form.category}
-                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, category: e.target.value })); }}
                 disabled={saving}
               >
                 {PRODUCT_CATEGORIES.map((c) => (
@@ -703,7 +735,7 @@ function CreateProductModal({
             </div>
             <div>
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Price (₦)</Label>
-              <Input type="number" min={1} className="mt-1.5" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} disabled={saving} />
+              <Input type="number" min={1} className="mt-1.5" value={form.price} onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, price: e.target.value })); }} disabled={saving} />
             </div>
           </div>
           <div>
@@ -712,7 +744,7 @@ function CreateProductModal({
               rows={2}
               className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white"
               value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, description: e.target.value })); }}
               disabled={saving}
             />
           </div>
@@ -726,21 +758,24 @@ function CreateProductModal({
               >
                 {pasteRes.ok
                   ? `${logCount} valid line${logCount === 1 ? "" : "s"}${skippedLogs > 0 ? ` · ${skippedLogs} skipped` : ""}`
-                  : `${rawLogLines.length} line(s) — need Email:Password:Recovery each`}
+                  : `${rawLogLines.length} line(s) — need Email:Password[:Recovery]`}
               </span>
             </div>
             <textarea
               rows={8}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-              placeholder={"email@domain.com:Password123:recovery@email.com\nEach line: Email:Password:Recovery"}
+              placeholder={"email@domain.com:Password123:recovery@email.com\nor\nemail@domain.com|Password123|recovery@email.com"}
               value={form.logsText}
-              onChange={(e) => setForm((f) => ({ ...f, logsText: e.target.value }))}
+              onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, logsText: e.target.value })); }}
               disabled={saving}
             />
             <p className="text-xs text-slate-500 mt-1.5">
               Each line maps to <span className="font-semibold">email</span>, <span className="font-semibold">password</span>, and{" "}
-              <span className="font-semibold">recovery</span> (saved to <code className="text-[11px]">log_items</code> with your new product&apos;s id).
+              <span className="font-semibold">recovery</span> (supports <code className="text-[11px]">:</code> or <code className="text-[11px]">|</code>; extra segments are ignored).
             </p>
+            {!pasteRes.ok && rawLogLines.length > 0 && (
+              <p className="text-xs text-red-700 dark:text-red-400 mt-1">{pasteRes.message}</p>
+            )}
           </div>
         </div>
 
@@ -753,7 +788,7 @@ function CreateProductModal({
             style={{ background: BTN_NAVY }}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Create product
+            {saving ? "Creating..." : "Create product"}
           </button>
           <button type="button" onClick={onClose} disabled={saving} className="px-4 py-3 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10">
             Cancel
