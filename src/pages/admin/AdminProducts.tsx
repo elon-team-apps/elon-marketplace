@@ -146,9 +146,9 @@ async function deleteInventoryForProduct(productId: string): Promise<{ error: Po
   return { error: null };
 }
 
-/** Recompute products.stock from undelivered inventory rows */
-async function syncProductStockFromLogs(productId: string) {
-  if (!supabase) return;
+/** Recompute products.stock from undelivered inventory rows and return the count. */
+async function syncProductStockFromLogs(productId: string): Promise<number> {
+  if (!supabase) return 0;
   let count = 0;
   const a = await supabase
     .from("log_items")
@@ -172,6 +172,56 @@ async function syncProductStockFromLogs(productId: string) {
       status: count > 0 ? "available" : "sold_out",
     })
     .eq("id", productId);
+  return count;
+}
+
+/** Dynamic stock counts from inventory rows (prefers status='available' when that column exists). */
+async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  if (!supabase || productIds.length === 0) return counts;
+
+  const statusQ = await supabase
+    .from("log_items")
+    .select("product_id, status")
+    .in("product_id", productIds);
+
+  if (!statusQ.error && statusQ.data) {
+    for (const row of statusQ.data as Array<{ product_id?: string; status?: string | null }>) {
+      const pid = String(row.product_id ?? "");
+      const status = String(row.status ?? "").toLowerCase();
+      if (!pid || status !== "available") continue;
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  const active = await supabase
+    .from("log_items")
+    .select("product_id")
+    .in("product_id", productIds)
+    .eq("is_delivered", false);
+  if (!active.error && active.data) {
+    for (const row of active.data as Array<{ product_id?: string }>) {
+      const pid = String(row.product_id ?? "");
+      if (!pid) continue;
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  const legacy = await supabase
+    .from("logs_data")
+    .select("product_id")
+    .in("product_id", productIds)
+    .eq("is_delivered", false);
+  if (!legacy.error && legacy.data) {
+    for (const row of legacy.data as Array<{ product_id?: string }>) {
+      const pid = String(row.product_id ?? "");
+      if (!pid) continue;
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+  }
+  return counts;
 }
 
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
@@ -731,12 +781,14 @@ function EditProductModal({
   const [price, setPrice] = useState(product.price.toString());
   const [description, setDescription] = useState(product.description);
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
 
   useEffect(() => {
     setTitle(product.title);
     setPrice(product.price.toString());
     setDescription(product.description);
+    setErrorMsg("");
   }, [product.id, product.title, product.price, product.description]);
 
   const handleSave = async () => {
@@ -751,11 +803,12 @@ function EditProductModal({
     }
 
     setSaving(true);
+    setErrorMsg("");
     try {
       const nextTitle = title.trim();
       const autoLogoUrl = resolveLogoUrlFromTitle(nextTitle, product.category);
       if (supabase) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("products")
           .update({
             title: nextTitle,
@@ -763,12 +816,18 @@ function EditProductModal({
             description: description.trim(),
             logo_url: autoLogoUrl ?? null,
           })
-          .eq("id", product.id);
+          .eq("id", product.id)
+          .select("*")
+          .single();
 
-        if (error) {
+        if (error || !data) {
+          const details = error
+            ? formatSupabasePostgrestError(error)
+            : "Update returned no row. Check SELECT policy for products.";
+          setErrorMsg(details);
           toast({
             title: "We couldn't update that",
-            description: formatSupabasePostgrestError(error),
+            description: details,
             variant: "destructive",
           });
           return;
@@ -782,6 +841,7 @@ function EditProductModal({
         });
       }
 
+      // Vite SPA equivalent of router.refresh(): re-fetch source-of-truth list.
       await onSaved();
       toast({ title: "You're all set", description: "Product details saved." });
       onClose();
@@ -800,6 +860,14 @@ function EditProductModal({
           </button>
         </div>
         <div className="px-5 py-4 space-y-4">
+          {errorMsg && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3 dark:border-red-900/40 dark:bg-red-950/20">
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+              <pre className="text-xs text-red-900 dark:text-red-200 whitespace-pre-wrap break-words font-mono flex-1 min-w-0">
+                {errorMsg}
+              </pre>
+            </div>
+          )}
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Name</Label>
             <Input className="mt-1.5" value={title} onChange={(e) => setTitle(e.target.value)} disabled={saving} />
@@ -836,7 +904,7 @@ function ManageLogsModal({
 }: {
   product: Product;
   onClose: () => void;
-  onChanged: () => void;
+  onChanged: (productId: string, newStock: number) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [rows, setRows] = useState<LogRow[]>([]);
@@ -845,6 +913,7 @@ function ManageLogsModal({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [inventoryTable, setInventoryTable] = useState<"log_items" | "logs_data">("log_items");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const load = useCallback(async () => {
     if (!supabase) {
@@ -852,6 +921,7 @@ function ManageLogsModal({
       return;
     }
     setLoading(true);
+    setErrorMsg("");
     const q = await supabase
       .from("log_items")
       .select("id, credentials, is_delivered, created_at")
@@ -866,6 +936,9 @@ function ManageLogsModal({
         .select("id, credentials, is_delivered, created_at")
         .eq("product_id", product.id)
         .order("created_at", { ascending: true });
+      if (q2.error) {
+        setErrorMsg(formatSupabasePostgrestError(q2.error));
+      }
       data = q2.data as LogRow[] | null;
       table = "logs_data";
     }
@@ -890,33 +963,39 @@ function ManageLogsModal({
 
   const saveRow = async (id: string) => {
     if (!supabase) return;
+    setErrorMsg("");
     const cred = edits[id] ?? "";
     setSavingId(id);
     const { error } = await supabase.from(inventoryTable).update({ credentials: cred }).eq("id", id);
     setSavingId(null);
     if (error) {
-      toast({ title: "Couldn't save line", description: formatSupabasePostgrestError(error), variant: "destructive" });
+      const details = formatSupabasePostgrestError(error);
+      setErrorMsg(details);
+      toast({ title: "Couldn't save line", description: details, variant: "destructive" });
       return;
     }
-    await syncProductStockFromLogs(product.id);
+    const nextStock = await syncProductStockFromLogs(product.id);
     toast({ title: "You're all set", description: "Log line updated." });
     await load();
-    onChanged();
+    await onChanged(product.id, nextStock);
   };
 
   const deleteRow = async (id: string) => {
     if (!supabase) return;
+    setErrorMsg("");
     setDeletingId(id);
     const { error } = await supabase.from(inventoryTable).delete().eq("id", id);
     setDeletingId(null);
     if (error) {
-      toast({ title: "Couldn't delete line", description: formatSupabasePostgrestError(error), variant: "destructive" });
+      const details = formatSupabasePostgrestError(error);
+      setErrorMsg(details);
+      toast({ title: "Couldn't delete line", description: details, variant: "destructive" });
       return;
     }
-    await syncProductStockFromLogs(product.id);
+    const nextStock = await syncProductStockFromLogs(product.id);
     toast({ title: "You're all set", description: "Log line removed." });
     await load();
-    onChanged();
+    await onChanged(product.id, nextStock);
   };
 
   return (
@@ -936,6 +1015,14 @@ function ManageLogsModal({
         </div>
 
         <div className="flex-1 overflow-auto px-6 py-4">
+          {errorMsg && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3 dark:border-red-900/40 dark:bg-red-950/20">
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+              <pre className="text-xs text-red-900 dark:text-red-200 whitespace-pre-wrap break-words font-mono flex-1 min-w-0">
+                {errorMsg}
+              </pre>
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-16 gap-2 text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -1026,12 +1113,27 @@ export default function AdminProducts() {
   const [manageTarget, setManageTarget] = useState<Product | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [liveStockById, setLiveStockById] = useState<Record<string, number>>({});
 
   const openBulkUploadModal = async (initialId: string | null) => {
     await refreshProducts();
     setBulkUploadInitialId(initialId);
     setShowBulkUpload(true);
   };
+
+  const refreshLiveStocks = useCallback(async () => {
+    const ids = products.map((p) => p.id).filter(Boolean);
+    if (ids.length === 0) {
+      setLiveStockById({});
+      return;
+    }
+    const counts = await fetchLiveStockByProductIds(ids);
+    setLiveStockById(counts);
+  }, [products]);
+
+  useEffect(() => {
+    void refreshLiveStocks();
+  }, [refreshLiveStocks]);
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
@@ -1088,6 +1190,7 @@ export default function AdminProducts() {
       updateProduct(productId, { stock_count: newStock, stock: newStock });
     }
     await refreshProducts();
+    await refreshLiveStocks();
     const desc = inserted > 0 ? `${inserted} new log line(s) added.` : "Inventory refreshed.";
     sonnerToast.success("Upload complete", { description: desc });
   };
@@ -1157,7 +1260,9 @@ export default function AdminProducts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/10">
-                {products.map((product) => (
+                {products.map((product) => {
+                  const stock = liveStockById[product.id] ?? (product.stock_count ?? product.stock ?? 0);
+                  return (
                   <tr key={product.id} className="hover:bg-slate-50/60 dark:hover:bg-white/5">
                     <td className="px-3 py-3 align-middle">
                       <div className="flex justify-center">
@@ -1183,14 +1288,14 @@ export default function AdminProducts() {
                     <td className="px-5 py-4 text-center">
                       <span
                         className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          (product.stock_count ?? product.stock ?? 0) > 5
+                          stock > 5
                             ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                            : (product.stock_count ?? product.stock ?? 0) > 0
+                            : stock > 0
                               ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
                               : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
                         }`}
                       >
-                        {product.stock_count ?? product.stock ?? 0}
+                        {stock}
                       </span>
                     </td>
                     <td className="px-5 py-4">
@@ -1233,7 +1338,8 @@ export default function AdminProducts() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1290,6 +1396,7 @@ export default function AdminProducts() {
           onClose={() => setEditTarget(null)}
           onSaved={async () => {
             await refreshProducts();
+            await refreshLiveStocks();
           }}
           patchProductLocal={updateProduct}
         />
@@ -1299,7 +1406,11 @@ export default function AdminProducts() {
         <ManageLogsModal
           product={manageTarget}
           onClose={() => setManageTarget(null)}
-          onChanged={() => void refreshProducts()}
+          onChanged={async (productId, newStock) => {
+            updateProduct(productId, { stock_count: newStock, stock: newStock });
+            await refreshProducts();
+            await refreshLiveStocks();
+          }}
         />
       )}
     </div>
