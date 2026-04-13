@@ -47,6 +47,11 @@ type LogRow = {
   created_at: string;
 };
 
+type ParsedCredentials = {
+  lines: string[];
+  skipped: number;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseLines(text: string): string[] {
@@ -60,55 +65,37 @@ function parseLines(text: string): string[] {
  * Each line: `email:password:recovery` → one `log_items.credentials` string (DB stores one TEXT column).
  * email = part 1, password = part 2, recovery = part 3+ (so recovery may contain `:`).
  */
-function parseCredentialLines(raw: string): string[] {
-  return parseLines(raw).map((line) => {
+function parseCredentialLines(raw: string): ParsedCredentials {
+  const parsed: string[] = [];
+  let skipped = 0;
+  for (const line of parseLines(raw)) {
     const parts = line.split(":");
-    if (parts.length >= 3) {
-      const email = parts[0]?.trim() ?? "";
-      const password = parts[1]?.trim() ?? "";
-      const recovery = parts.slice(2).join(":").trim();
-      return `${email}:${password}:${recovery}`;
-    }
-    return line;
-  });
-}
-
-/** Reject lines that cannot map to email + password + recovery (need at least two colons; email & password non-empty). */
-function validateCredentialPaste(raw: string): { ok: true; lines: string[] } | { ok: false; message: string } {
-  const rawLines = parseLines(raw);
-  const badShape: number[] = [];
-  const badEmpty: number[] = [];
-  rawLines.forEach((line, idx) => {
-    const n = idx + 1;
-    const parts = line.split(":");
-    if (parts.length < 3) {
-      badShape.push(n);
-      return;
-    }
     const email = (parts[0] ?? "").trim();
     const password = (parts[1] ?? "").trim();
-    if (!email || !password) badEmpty.push(n);
-  });
-  if (badShape.length > 0) {
+    if (!email || !password) {
+      skipped += 1;
+      continue;
+    }
+    const recoveryRaw = parts.length >= 3 ? parts.slice(2).join(":").trim() : "";
+    const recovery = recoveryRaw || "-";
+    parsed.push(`${email}:${password}:${recovery}`);
+  }
+  return { lines: parsed, skipped };
+}
+
+function validateCredentialPaste(raw: string): { ok: true; lines: string[]; skipped: number } | { ok: false; message: string } {
+  const parsed = parseCredentialLines(raw);
+  if (parseLines(raw).length > 0 && parsed.lines.length === 0) {
     return {
       ok: false,
-      message:
-        `Lines ${badShape.slice(0, 12).join(", ")}${badShape.length > 12 ? "…" : ""} must use Email:Password:Recovery ` +
-        "(three segments separated by colons; recovery can include more colons).",
+      message: "No valid lines found. Each line needs at least email and password. Recovery is optional.",
     };
   }
-  if (badEmpty.length > 0) {
-    return {
-      ok: false,
-      message:
-        `Lines ${badEmpty.slice(0, 12).join(", ")}${badEmpty.length > 12 ? "…" : ""} need a non-empty email and password (first and second fields).`,
-    };
-  }
-  return { ok: true, lines: parseCredentialLines(raw) };
+  return { ok: true, lines: parsed.lines, skipped: parsed.skipped };
 }
 
 function countParsedLogs(raw: string) {
-  return parseCredentialLines(raw).length;
+  return parseCredentialLines(raw).lines.length;
 }
 
 function formatRpcFailure(
@@ -218,6 +205,7 @@ function BulkUploadModal({
 
   const pasteValidation = validateCredentialPaste(logsText);
   const lineCount = pasteValidation.ok ? pasteValidation.lines.length : parseLines(logsText).length;
+  const skippedCount = pasteValidation.ok ? pasteValidation.skipped : 0;
   const selectedProduct = products.find((p) => p.id === selectedId);
 
   const handleUpload = async () => {
@@ -379,7 +367,7 @@ function BulkUploadModal({
                     }`}
                   >
                     {pasteValidation.ok
-                      ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}`
+                      ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ""}`
                       : `${parseLines(logsText).length} line(s) — need Email:Password:Recovery each`}
                   </span>
                 </div>
@@ -481,6 +469,7 @@ function CreateProductModal({
   const rawLogLines = parseLines(form.logsText);
   const pasteRes = validateCredentialPaste(form.logsText);
   const uploadLines = pasteRes.ok ? pasteRes.lines : [];
+  const skippedLogs = pasteRes.ok ? pasteRes.skipped : 0;
   const logCount = uploadLines.length;
 
   const handleSubmit = async () => {
@@ -505,8 +494,6 @@ function CreateProductModal({
     setSaving(true);
     try {
       const autoLogoUrl = resolveLogoUrlFromTitle(form.title.trim(), form.category);
-      const hasLogs = uploadLines.length > 0;
-
       if (supabase) {
         const sess = await requireSupabaseUserSession();
         if (!sess.ok) {
@@ -520,7 +507,7 @@ function CreateProductModal({
         // Refresh JWT so PostgREST evaluates `is_admin()` with up-to-date `profiles.is_admin` / `role`.
         await supabase.auth.refreshSession();
 
-        // 1) Create product first — stock starts at 0 when we will bulk-insert logs (RPC sets real stock).
+        // 1) Create product first — stock starts at 0 and RPC sets real stock next.
         const { data: inserted, error: insErr } = await supabase
           .from("products")
           .insert({
@@ -557,45 +544,42 @@ function CreateProductModal({
 
         mergeProductRowFromDb(inserted as Record<string, unknown>);
 
-        // 2) Upload logs with the new product id (sequential — never RPC before insert completes).
-        if (hasLogs) {
-          const { data: rpcData, error: rpcErr } = await supabase.rpc("bulk_upload_logs", {
-            p_product_id: newId,
-            p_credentials: uploadLines,
+        // 2) Unified upload path: always call master RPC after insert (even with zero parsed lines).
+        const { data: rpcData, error: rpcErr } = await supabase.rpc("bulk_upload_logs", {
+          p_product_id: newId,
+          p_credentials: uploadLines,
+        });
+        const payload = rpcData as Record<string, unknown> | null | undefined;
+        if (rpcErr || !payload?.success) {
+          console.error("[CreateProduct] bulk_upload_logs failed after product insert", {
+            productId: newId,
+            lineCount: uploadLines.length,
+            rpcErr,
+            payload,
           });
-          const payload = rpcData as Record<string, unknown> | null | undefined;
-          if (rpcErr || !payload?.success) {
-            console.error("[CreateProduct] bulk_upload_logs failed after product insert", {
-              productId: newId,
-              lineCount: uploadLines.length,
-              rpcErr,
-              payload,
-            });
-            toast({
-              title: "Product created but logs failed",
-              description: formatRpcFailure(rpcErr, payload),
-              variant: "destructive",
-            });
-            await refreshProducts();
-            await onAfterSave?.();
-            onClose();
-            return;
-          }
-          const newStock = Number(payload.new_stock ?? 0);
-          updateProduct(newId, { stock_count: newStock, stock: newStock });
-          mergeProductRowFromDb({
-            ...(inserted as Record<string, unknown>),
-            stock: newStock,
-            stock_count: newStock,
+          toast({
+            title: "Product created but log upload failed",
+            description: formatRpcFailure(rpcErr, payload),
+            variant: "destructive",
           });
+          await refreshProducts();
+          await onAfterSave?.();
+          onClose();
+          return;
         }
+        const newStock = Number(payload.new_stock ?? 0);
+        updateProduct(newId, { stock_count: newStock, stock: newStock });
+        mergeProductRowFromDb({
+          ...(inserted as Record<string, unknown>),
+          stock: newStock,
+          stock_count: newStock,
+        });
 
         await refreshProducts();
         await onAfterSave?.();
-        const desc =
-          hasLogs
-            ? `“${form.title.trim()}” is live with ${uploadLines.length} account${uploadLines.length === 1 ? "" : "s"}.`
-            : `“${form.title.trim()}” is live. Add logs anytime from inventory.`;
+        const desc = uploadLines.length > 0
+          ? `“${form.title.trim()}” is live with ${uploadLines.length} account${uploadLines.length === 1 ? "" : "s"}${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`
+          : `“${form.title.trim()}” is live. Add logs anytime from inventory.`;
         sonnerToast.success("Product saved", { description: desc });
         onClose();
         return;
@@ -611,7 +595,7 @@ function CreateProductModal({
         stock: uploadLines.length,
         logo_url: autoLogoUrl,
       });
-      const offDesc = `“${form.title.trim()}” added with ${uploadLines.length} log line(s).`;
+      const offDesc = `“${form.title.trim()}” added with ${uploadLines.length} log line(s)${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`;
       sonnerToast.success("Product saved", { description: offDesc });
       onClose();
     } finally {
@@ -691,7 +675,7 @@ function CreateProductModal({
                 }`}
               >
                 {pasteRes.ok
-                  ? `${logCount} valid line${logCount === 1 ? "" : "s"}`
+                  ? `${logCount} valid line${logCount === 1 ? "" : "s"}${skippedLogs > 0 ? ` · ${skippedLogs} skipped` : ""}`
                   : `${rawLogLines.length} line(s) — need Email:Password:Recovery each`}
               </span>
             </div>
@@ -740,7 +724,7 @@ function EditProductModal({
 }: {
   product: Product;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
   patchProductLocal: (id: string, updates: Partial<Omit<Product, "id" | "createdAt">>) => void;
 }) {
   const [title, setTitle] = useState(product.title);
@@ -768,13 +752,16 @@ function EditProductModal({
 
     setSaving(true);
     try {
+      const nextTitle = title.trim();
+      const autoLogoUrl = resolveLogoUrlFromTitle(nextTitle, product.category);
       if (supabase) {
         const { error } = await supabase
           .from("products")
           .update({
-            title: title.trim(),
+            title: nextTitle,
             price: Math.trunc(n),
             description: description.trim(),
+            logo_url: autoLogoUrl ?? null,
           })
           .eq("id", product.id);
 
@@ -788,13 +775,14 @@ function EditProductModal({
         }
       } else {
         patchProductLocal(product.id, {
-          title: title.trim(),
+          title: nextTitle,
           price: Math.trunc(n),
           description: description.trim(),
+          logo_url: autoLogoUrl,
         });
       }
 
-      onSaved();
+      await onSaved();
       toast({ title: "You're all set", description: "Product details saved." });
       onClose();
     } finally {
@@ -1039,6 +1027,12 @@ export default function AdminProducts() {
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  const openBulkUploadModal = async (initialId: string | null) => {
+    await refreshProducts();
+    setBulkUploadInitialId(initialId);
+    setShowBulkUpload(true);
+  };
+
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     const id = deleteTarget.id;
@@ -1108,10 +1102,7 @@ export default function AdminProducts() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => {
-              setBulkUploadInitialId(null);
-              setShowBulkUpload(true);
-            }}
+            onClick={() => void openBulkUploadModal(null)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm"
             style={{ background: BTN_NAVY }}
           >
@@ -1217,10 +1208,7 @@ export default function AdminProducts() {
                         <button
                           type="button"
                           title="Bulk upload"
-                          onClick={() => {
-                            setBulkUploadInitialId(product.id);
-                            setShowBulkUpload(true);
-                          }}
+                          onClick={() => void openBulkUploadModal(product.id)}
                           className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
                         >
                           <Upload className="h-3.5 w-3.5" />
@@ -1300,7 +1288,9 @@ export default function AdminProducts() {
         <EditProductModal
           product={editTarget}
           onClose={() => setEditTarget(null)}
-          onSaved={() => void refreshProducts()}
+          onSaved={async () => {
+            await refreshProducts();
+          }}
           patchProductLocal={updateProduct}
         />
       )}
