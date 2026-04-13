@@ -27,14 +27,24 @@ export function formatPostgrestRpcFailure(
 ): string {
   const blocks: string[] = [];
 
+  if (payload !== undefined && payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+    const p = payload as Record<string, unknown>;
+    if (p.success === false && typeof p.message === "string" && p.message) {
+      blocks.push(`Database (RPC SQLERRM / message):\n${p.message}`);
+    }
+    if (typeof p.sqlstate === "string" && p.sqlstate) {
+      blocks.push(`SQLSTATE: ${p.sqlstate}`);
+    }
+  }
+
   if (error) {
     const pe = formatSupabasePostgrestError(error);
-    if (pe) blocks.push(`PostgREST / HTTP:\n${pe}`);
+    if (pe) blocks.push(`PostgREST / transport:\n${pe}`);
     try {
       const serializable = { ...error } as Record<string, unknown>;
-      blocks.push(`error (raw JSON): ${JSON.stringify(serializable)}`);
+      blocks.push(`PostgREST error (raw JSON): ${JSON.stringify(serializable)}`);
     } catch {
-      blocks.push(`error (string): ${String(error)}`);
+      blocks.push(`PostgREST error (string): ${String(error)}`);
     }
   }
 
@@ -42,12 +52,10 @@ export function formatPostgrestRpcFailure(
     if (typeof payload === "object" && !Array.isArray(payload)) {
       const p = payload as Record<string, unknown>;
       if (p.success === false) {
-        if (typeof p.message === "string" && p.message) blocks.push(`RPC message: ${p.message}`);
         if (typeof p.code === "string" && p.code) blocks.push(`RPC code: ${p.code}`);
-        if (typeof p.sqlstate === "string" && p.sqlstate) blocks.push(`SQLSTATE: ${p.sqlstate}`);
       }
       try {
-        blocks.push(`RPC response (JSON): ${JSON.stringify(payload)}`);
+        blocks.push(`Full RPC response (JSON): ${JSON.stringify(payload)}`);
       } catch {
         blocks.push(`RPC response: ${String(payload)}`);
       }

@@ -34,7 +34,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { PostgrestError } from "@supabase/supabase-js";
-import { formatPostgrestRpcFailure, formatSupabasePostgrestError } from "@/lib/supabaseErrors";
+import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
+import { parseLogLines, validatePastedLogs } from "@/lib/logParser";
+import { rpcBulkUploadLogs } from "@/lib/bulkUploadLogs";
 
 const BTN_NAVY = "#0f172a";
 const BTN_DELETE = "#dc2626";
@@ -47,73 +49,7 @@ type LogRow = {
   created_at: string;
 };
 
-type ParsedCredentials = {
-  lines: string[];
-  skipped: number;
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function parseLines(text: string): string[] {
-  return text
-    .split("\n")
-    .map((l) =>
-      l
-        // Strip zero-width / BOM / non-printing chars that often come from copied files.
-        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
-        .replace(/[\u0000-\u001F\u007F]/g, " ")
-        .trim(),
-    )
-    .filter((l) => l.length > 0);
-}
-
-/**
- * Each line: `email:password:recovery` → one `log_items.credentials` string (DB stores one TEXT column).
- * email = part 1, password = part 2, recovery = part 3+ (so recovery may contain `:`).
- */
-function parseCredentialLines(raw: string): ParsedCredentials {
-  const parsed: string[] = [];
-  let skipped = 0;
-  for (const line of parseLines(raw)) {
-    const parts = line
-      .split(/[:|]/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-    const email = (parts[0] ?? "").trim();
-    const password = (parts[1] ?? "").trim();
-    if (!email || !password) {
-      skipped += 1;
-      continue;
-    }
-    // Robust mapping: consume first 3 parts and ignore extras.
-    const recoveryRaw = (parts[2] ?? "").trim();
-    const recovery = recoveryRaw || "-";
-    parsed.push(`${email}:${password}:${recovery}`);
-  }
-  return { lines: parsed, skipped };
-}
-
-function validateCredentialPaste(raw: string): { ok: true; lines: string[]; skipped: number } | { ok: false; message: string } {
-  const parsed = parseCredentialLines(raw);
-  if (parseLines(raw).length > 0 && parsed.lines.length === 0) {
-    return {
-      ok: false,
-      message: "No valid lines found. Each line needs at least email and password. Recovery is optional.",
-    };
-  }
-  return { ok: true, lines: parsed.lines, skipped: parsed.skipped };
-}
-
-function countParsedLogs(raw: string) {
-  return parseCredentialLines(raw).lines.length;
-}
-
-function formatRpcFailure(
-  error: PostgrestError | null,
-  data: Record<string, unknown> | null | undefined,
-): string {
-  return formatPostgrestRpcFailure(error, data ?? null);
-}
 
 /** Ensures the shared anon client has a JWT so RLS and SECURITY DEFINER RPCs see `auth.uid()`. */
 async function requireSupabaseUserSession(): Promise<
@@ -156,7 +92,7 @@ async function deleteInventoryForProduct(productId: string): Promise<{ error: Po
   return { error: null };
 }
 
-/** Recompute products.stock from undelivered inventory rows and return the count. */
+/** Recompute products.stock from log_items with status = 'available' (schema 015+). */
 async function syncProductStockFromLogs(productId: string): Promise<number> {
   if (!supabase) return 0;
   let count = 0;
@@ -164,12 +100,12 @@ async function syncProductStockFromLogs(productId: string): Promise<number> {
     .from("log_items")
     .select("id", { count: "exact", head: true })
     .eq("product_id", productId)
-    .eq("is_delivered", false);
+    .eq("status", "available");
   if (!a.error && typeof a.count === "number") {
     count = a.count;
   } else {
     const b = await supabase
-      .from("logs_data")
+      .from("log_items")
       .select("id", { count: "exact", head: true })
       .eq("product_id", productId)
       .eq("is_delivered", false);
@@ -185,33 +121,19 @@ async function syncProductStockFromLogs(productId: string): Promise<number> {
   return count;
 }
 
-/** Dynamic stock counts from inventory rows (prefers status='available' when that column exists). */
+/** Live stock = count of log_items per product where status = 'available' (not products.stock). */
 async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   if (!supabase || productIds.length === 0) return counts;
 
-  const statusQ = await supabase
-    .from("log_items")
-    .select("product_id, status")
-    .in("product_id", productIds);
-
-  if (!statusQ.error && statusQ.data) {
-    for (const row of statusQ.data as Array<{ product_id?: string; status?: string | null }>) {
-      const pid = String(row.product_id ?? "");
-      const status = String(row.status ?? "").toLowerCase();
-      if (!pid || status !== "available") continue;
-      counts[pid] = (counts[pid] ?? 0) + 1;
-    }
-    return counts;
-  }
-
-  const active = await supabase
+  const primary = await supabase
     .from("log_items")
     .select("product_id")
     .in("product_id", productIds)
-    .eq("is_delivered", false);
-  if (!active.error && active.data) {
-    for (const row of active.data as Array<{ product_id?: string }>) {
+    .eq("status", "available");
+
+  if (!primary.error && primary.data) {
+    for (const row of primary.data as Array<{ product_id?: string }>) {
       const pid = String(row.product_id ?? "");
       if (!pid) continue;
       counts[pid] = (counts[pid] ?? 0) + 1;
@@ -220,7 +142,7 @@ async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<
   }
 
   const legacy = await supabase
-    .from("logs_data")
+    .from("log_items")
     .select("product_id")
     .in("product_id", productIds)
     .eq("is_delivered", false);
@@ -240,11 +162,14 @@ type UploadStatus = "idle" | "uploading" | "success" | "error";
 
 function BulkUploadModal({
   products,
+  liveStockById,
   initialProductId,
   onClose,
   onSuccess,
 }: {
   products: Product[];
+  /** Live counts from log_items.status = 'available' (admin page); falls back to product row. */
+  liveStockById: Record<string, number>;
   initialProductId: string | null;
   onClose: () => void;
   onSuccess: (productId: string, inserted: number, newStock: number) => void;
@@ -263,8 +188,8 @@ function BulkUploadModal({
     }
   }, [initialProductId, products]);
 
-  const pasteValidation = validateCredentialPaste(logsText);
-  const lineCount = pasteValidation.ok ? pasteValidation.lines.length : parseLines(logsText).length;
+  const pasteValidation = validatePastedLogs(logsText);
+  const lineCount = pasteValidation.ok ? pasteValidation.entries.length : parseLogLines(logsText).length;
   const skippedCount = pasteValidation.ok ? pasteValidation.skipped : 0;
   const selectedProduct = products.find((p) => p.id === selectedId);
 
@@ -274,14 +199,14 @@ function BulkUploadModal({
       setStatus("error");
       return;
     }
-    const validated = validateCredentialPaste(logsText);
+    const validated = validatePastedLogs(logsText);
     if (!validated.ok) {
       setErrorMsg(validated.message);
       setStatus("error");
       return;
     }
-    const lines = validated.lines;
-    if (lines.length === 0) {
+    const entries = validated.entries;
+    if (entries.length === 0) {
       setErrorMsg("Paste at least one non-empty line.");
       setStatus("error");
       return;
@@ -298,21 +223,21 @@ function BulkUploadModal({
         setStatus("error");
         return;
       }
-      const { data, error } = await supabase.rpc("bulk_upload_logs", {
-        p_product_id: selectedId,
-        p_credentials: lines,
-      });
-
-      const payload = (data ?? undefined) as Record<string, unknown> | undefined;
-      if (error || !payload?.success) {
-        console.error("[bulk_upload_logs] failed", { productId: selectedId, lineCount: lines.length, error, data });
-        setErrorMsg(formatRpcFailure(error, payload));
+      const rpcRes = await rpcBulkUploadLogs(selectedId, entries);
+      if (!rpcRes.ok) {
+        console.error("[bulk_upload_logs] failed", {
+          productId: selectedId,
+          lineCount: entries.length,
+          error: rpcRes.error,
+          payload: rpcRes.payload,
+        });
+        setErrorMsg(rpcRes.details);
         setStatus("error");
         return;
       }
 
-      const inserted = Number(payload.inserted ?? 0);
-      const newStock = Number(payload.new_stock ?? 0);
+      const inserted = rpcRes.inserted;
+      const newStock = rpcRes.newStock;
       setResult({ inserted, newStock });
       setStatus("success");
       sonnerToast.success("Upload complete", {
@@ -323,14 +248,14 @@ function BulkUploadModal({
     }
 
     const prevStock = selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0;
-    const newStockOffline = prevStock + lines.length;
-    onSuccess(selectedId, lines.length, newStockOffline);
+    const newStockOffline = prevStock + entries.length;
+    onSuccess(selectedId, entries.length, newStockOffline);
     setResult({
-      inserted: lines.length,
+      inserted: entries.length,
       newStock: newStockOffline,
     });
     setStatus("success");
-    sonnerToast.success("Upload complete", { description: `${lines.length} line(s) recorded (offline).` });
+    sonnerToast.success("Upload complete", { description: `${entries.length} line(s) recorded (offline).` });
   };
 
   const handleReset = () => {
@@ -408,11 +333,14 @@ function BulkUploadModal({
                     className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm dark:border-white/10 dark:bg-white/5 dark:text-white appearance-none"
                   >
                     {products.length === 0 && <option value="">No products</option>}
-                    {products.map((p) => (
+                    {products.map((p) => {
+                      const optStock = liveStockById[p.id] ?? p.stock_count ?? p.stock ?? 0;
+                      return (
                       <option key={p.id} value={p.id}>
-                        {p.title} ({p.stock_count ?? p.stock ?? 0} in stock)
+                        {p.title} ({optStock} in stock)
                       </option>
-                    ))}
+                    );
+                    })}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                 </div>
@@ -428,7 +356,7 @@ function BulkUploadModal({
                   >
                     {pasteValidation.ok
                       ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ""}`
-                      : `${parseLines(logsText).length} line(s) — need Email:Password[:Recovery]`}
+                      : `${parseLogLines(logsText).length} line(s) — need Email:Password[:Recovery]`}
                   </span>
                 </div>
                 <textarea
@@ -530,11 +458,11 @@ function CreateProductModal({
 
   if (!open) return null;
 
-  const rawLogLines = parseLines(form.logsText);
-  const pasteRes = validateCredentialPaste(form.logsText);
-  const uploadLines = pasteRes.ok ? pasteRes.lines : [];
+  const rawLogLines = parseLogLines(form.logsText);
+  const pasteRes = validatePastedLogs(form.logsText);
+  const uploadEntries = pasteRes.ok ? pasteRes.entries : [];
   const skippedLogs = pasteRes.ok ? pasteRes.skipped : 0;
-  const logCount = uploadLines.length;
+  const logCount = uploadEntries.length;
 
   const handleSubmit = async () => {
     setCreateErrorMsg("");
@@ -616,20 +544,16 @@ function CreateProductModal({
 
         mergeProductRowFromDb(inserted as Record<string, unknown>);
 
-        // 2) Unified upload path: always call master RPC after insert (even with zero parsed lines).
-        const { data: rpcData, error: rpcErr } = await supabase.rpc("bulk_upload_logs", {
-          p_product_id: newId,
-          p_credentials: uploadLines,
-        });
-        const payload = rpcData as Record<string, unknown> | null | undefined;
-        if (rpcErr || !payload?.success) {
-          const details = formatRpcFailure(rpcErr, payload);
+        // 2) Unified upload: bulk_upload_logs(p_product_id, p_logs JSON array of {email,password,recovery})
+        const rpcRes = await rpcBulkUploadLogs(newId, uploadEntries);
+        if (!rpcRes.ok) {
+          const details = rpcRes.details;
           setCreateErrorMsg(details);
           console.error("[CreateProduct] bulk_upload_logs failed after product insert", {
             productId: newId,
-            lineCount: uploadLines.length,
-            rpcErr,
-            payload,
+            lineCount: uploadEntries.length,
+            error: rpcRes.error,
+            payload: rpcRes.payload,
           });
           toast({
             title: "Product created but log upload failed",
@@ -641,7 +565,7 @@ function CreateProductModal({
           onClose();
           return;
         }
-        const newStock = Number(payload.new_stock ?? 0);
+        const newStock = rpcRes.newStock;
         updateProduct(newId, { stock_count: newStock, stock: newStock });
         mergeProductRowFromDb({
           ...(inserted as Record<string, unknown>),
@@ -651,8 +575,8 @@ function CreateProductModal({
 
         await refreshProducts();
         await onAfterSave?.();
-        const desc = uploadLines.length > 0
-          ? `“${form.title.trim()}” is live with ${uploadLines.length} account${uploadLines.length === 1 ? "" : "s"}${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`
+        const desc = uploadEntries.length > 0
+          ? `“${form.title.trim()}” is live with ${uploadEntries.length} account${uploadEntries.length === 1 ? "" : "s"}${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`
           : `“${form.title.trim()}” is live. Add logs anytime from inventory.`;
         sonnerToast.success("Product saved", { description: desc });
         onClose();
@@ -664,12 +588,12 @@ function CreateProductModal({
         category: form.category,
         price,
         description: form.description.trim(),
-        logs: uploadLines,
-        stock_count: uploadLines.length,
-        stock: uploadLines.length,
+        logs: uploadEntries.map((e) => `${e.email}:${e.password}:${e.recovery}`),
+        stock_count: uploadEntries.length,
+        stock: uploadEntries.length,
         logo_url: autoLogoUrl,
       });
-      const offDesc = `“${form.title.trim()}” added with ${uploadLines.length} log line(s)${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`;
+      const offDesc = `“${form.title.trim()}” added with ${uploadEntries.length} log line(s)${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`;
       sonnerToast.success("Product saved", { description: offDesc });
       onClose();
     } finally {
@@ -812,7 +736,9 @@ function EditProductModal({
   onSaved: () => void | Promise<void>;
   patchProductLocal: (id: string, updates: Partial<Omit<Product, "id" | "createdAt">>) => void;
 }) {
+  const { mergeProductRowFromDb } = useApp();
   const [title, setTitle] = useState(product.title);
+  const [category, setCategory] = useState(product.category);
   const [price, setPrice] = useState(product.price.toString());
   const [description, setDescription] = useState(product.description);
   const [saving, setSaving] = useState(false);
@@ -821,10 +747,11 @@ function EditProductModal({
 
   useEffect(() => {
     setTitle(product.title);
+    setCategory(product.category);
     setPrice(product.price.toString());
     setDescription(product.description);
     setErrorMsg("");
-  }, [product.id, product.title, product.price, product.description]);
+  }, [product.id, product.title, product.category, product.price, product.description]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -841,12 +768,14 @@ function EditProductModal({
     setErrorMsg("");
     try {
       const nextTitle = title.trim();
-      const autoLogoUrl = resolveLogoUrlFromTitle(nextTitle, product.category);
+      const nextCategory = category.trim() || product.category;
+      const autoLogoUrl = resolveLogoUrlFromTitle(nextTitle, nextCategory);
       if (supabase) {
         const { data, error } = await supabase
           .from("products")
           .update({
             title: nextTitle,
+            category: nextCategory,
             price: Math.trunc(n),
             description: description.trim(),
             logo_url: autoLogoUrl ?? null,
@@ -867,9 +796,11 @@ function EditProductModal({
           });
           return;
         }
+        mergeProductRowFromDb(data as Record<string, unknown>);
       } else {
         patchProductLocal(product.id, {
           title: nextTitle,
+          category: nextCategory,
           price: Math.trunc(n),
           description: description.trim(),
           logo_url: autoLogoUrl,
@@ -906,6 +837,21 @@ function EditProductModal({
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Name</Label>
             <Input className="mt-1.5" value={title} onChange={(e) => setTitle(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Category</Label>
+            <select
+              className="mt-1.5 w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              disabled={saving}
+            >
+              {PRODUCT_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Price (₦)</Label>
@@ -1199,6 +1145,11 @@ export default function AdminProducts() {
 
         // Immediate UI update — same as setProducts(prev => prev.filter(p => p.id !== id))
         deleteProduct(id);
+        setLiveStockById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         if (manageTarget?.id === id) setManageTarget(null);
         if (editTarget?.id === id) setEditTarget(null);
 
@@ -1208,6 +1159,11 @@ export default function AdminProducts() {
         deleteProduct(id);
       } else {
         deleteProduct(id);
+        setLiveStockById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         if (manageTarget?.id === id) setManageTarget(null);
         if (editTarget?.id === id) setEditTarget(null);
       }
@@ -1296,7 +1252,10 @@ export default function AdminProducts() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/10">
                 {products.map((product) => {
-                  const stock = liveStockById[product.id] ?? (product.stock_count ?? product.stock ?? 0);
+                  const stock =
+                    product.id in liveStockById
+                      ? liveStockById[product.id]!
+                      : (product.stock_count ?? product.stock ?? 0);
                   return (
                   <tr key={product.id} className="hover:bg-slate-50/60 dark:hover:bg-white/5">
                     <td className="px-3 py-3 align-middle">
@@ -1416,6 +1375,7 @@ export default function AdminProducts() {
       {showBulkUpload && (
         <BulkUploadModal
           products={products}
+          liveStockById={liveStockById}
           initialProductId={bulkUploadInitialId}
           onClose={() => {
             setShowBulkUpload(false);

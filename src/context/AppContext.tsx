@@ -415,47 +415,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })(),
       }));
 
-      const missingCountIds = baseRows
-        .filter((r) => r.stock_count === null)
-        .map((r) => r.id)
-        .filter(Boolean);
-
-      const fallbackCounts: Record<string, number> = {};
-      if (missingCountIds.length > 0) {
-        let logItems: Array<{ product_id?: string }> | null = null;
-        const inv = await supabase
+      const allIds = baseRows.map((r) => r.id).filter((id) => UUID_REGEX.test(id));
+      let liveByProduct: Record<string, number> | null = null;
+      if (allIds.length > 0) {
+        const live = await supabase
           .from("log_items")
           .select("product_id")
-          .in("product_id", missingCountIds)
-          .eq("is_delivered", false);
-        if (!inv.error && inv.data) {
-          logItems = inv.data as Array<{ product_id?: string }>;
-        } else {
-          const legacy = await supabase
-            .from("logs_data")
-            .select("product_id")
-            .in("product_id", missingCountIds)
-            .eq("is_delivered", false);
-          if (!legacy.error && legacy.data) {
-            logItems = legacy.data as Array<{ product_id?: string }>;
-          } else if (inv.error) {
-            console.warn("[AppContext] log_items / logs_data fallback count error:", inv.error.message);
-          }
-        }
-        if (logItems) {
-          for (const item of logItems) {
-            const pid = String(item.product_id ?? "");
+          .in("product_id", allIds)
+          .eq("status", "available");
+        if (!live.error && live.data) {
+          liveByProduct = {};
+          for (const row of live.data as Array<{ product_id?: string }>) {
+            const pid = String(row.product_id ?? "");
             if (!pid) continue;
-            fallbackCounts[pid] = (fallbackCounts[pid] ?? 0) + 1;
+            liveByProduct[pid] = (liveByProduct[pid] ?? 0) + 1;
+          }
+        } else {
+          const fb = await supabase
+            .from("log_items")
+            .select("product_id")
+            .in("product_id", allIds)
+            .eq("is_delivered", false);
+          if (!fb.error && fb.data) {
+            liveByProduct = {};
+            for (const row of fb.data as Array<{ product_id?: string }>) {
+              const pid = String(row.product_id ?? "");
+              if (!pid) continue;
+              liveByProduct[pid] = (liveByProduct[pid] ?? 0) + 1;
+            }
+          } else if (live.error) {
+            console.warn("[AppContext] log_items live stock count error:", live.error.message);
           }
         }
       }
 
       setProducts(
         baseRows.map((r) => {
-          const resolvedStock = Math.max(0, Number(
-            r.stock_count ?? fallbackCounts[r.id] ?? r.legacy_stock ?? 0,
-          ));
+          const resolvedStock =
+            liveByProduct !== null
+              ? Math.max(0, liveByProduct[r.id] ?? 0)
+              : Math.max(0, Number(r.stock_count ?? r.legacy_stock ?? 0));
           return {
             id: r.id,
             title: r.title,
