@@ -111,10 +111,37 @@ const LandingPage = () => {
   const { currentUser, products } = useApp();
   const hasSession = Boolean(currentUser?.id);
   const walletBalance = Number(currentUser?.wallet_balance ?? 0);
+  const productTimes = products
+    .map((product) => {
+      const t = new Date(product.createdAt).getTime();
+      return Number.isFinite(t) ? t : 0;
+    })
+    .filter((t) => t > 0);
+  const newestTime = productTimes.length > 0 ? Math.max(...productTimes) : 0;
+  const oldestTime = productTimes.length > 0 ? Math.min(...productTimes) : 0;
+  const timeSpan = Math.max(1, newestTime - oldestTime);
+
   const liveFeaturedDeals = products
     .map((product) => {
       const stock = calculateStockBreakdown(product);
       const platformMeta = resolvePlatformMeta(product);
+      const createdTime = Number.isFinite(new Date(product.createdAt).getTime())
+        ? new Date(product.createdAt).getTime()
+        : 0;
+      const recencySignal = productTimes.length > 0
+        ? Math.max(0, Math.min(1, (createdTime - oldestTime) / timeSpan))
+        : 0;
+      // Availability weighting favors real live logs over manual-only inventory.
+      const availabilitySignal = stock.live > 0
+        ? Math.max(0.7, Math.min(1, stock.live / 10))
+        : stock.manual > 0
+          ? 0.35
+          : 0;
+      const featuredSignal = product.is_featured ? 1 : 0;
+      const sortingScore =
+        recencySignal * 40 +
+        availabilitySignal * 40 +
+        featuredSignal * 20;
       return {
         id: product.id,
         title: product.title,
@@ -124,14 +151,17 @@ const LandingPage = () => {
         icon: platformMeta.icon,
         color: platformMeta.color,
         platform: platformMeta.platform,
+        isFeatured: featuredSignal === 1,
+        sortingScore,
         liveStock: stock.live,
         manualStock: stock.manual,
         totalStock: stock.total,
       };
     })
     .sort((a, b) => {
-      if (b.totalStock !== a.totalStock) return b.totalStock - a.totalStock;
-      return b.year.localeCompare(a.year);
+      if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
+      if (b.sortingScore !== a.sortingScore) return b.sortingScore - a.sortingScore;
+      return b.totalStock - a.totalStock;
     })
     .slice(0, 4);
   const featuredDeals = liveFeaturedDeals.length > 0 ? liveFeaturedDeals : curatedHotDeals;

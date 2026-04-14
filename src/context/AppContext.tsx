@@ -10,6 +10,8 @@ export interface Product {
   category: string;
   price: number;
   description: string;
+  /** Optional DB pin flag for landing-page merchandising. */
+  is_featured?: boolean;
   /** Optional admin-entered fallback shown when no live log_items exist yet. */
   manual_stock?: number;
   stock_count: number;
@@ -520,6 +522,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         category:    String(row.category ?? ""),
         price:       Number(row.price ?? 0),
         description: String(row.description ?? ""),
+        is_featured: row.is_featured === true || row.is_featured === "true" || row.is_featured === "t",
         manual_stock: row.manual_stock === null || row.manual_stock === undefined
           ? null
           : Number(row.manual_stock),
@@ -582,6 +585,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             category: r.category,
             price: r.price,
             description: r.description,
+            is_featured: Boolean(r.is_featured),
             manual_stock: r.manual_stock === null ? undefined : Number(r.manual_stock),
             stock_count: resolvedStock,
             stock: resolvedStock,
@@ -721,6 +725,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       category,
       price: Number(row.price ?? 0),
       description: String(row.description ?? ""),
+      is_featured: row.is_featured === true || row.is_featured === "true" || row.is_featured === "t",
       manual_stock: row.manual_stock === null || row.manual_stock === undefined
         ? undefined
         : Math.max(0, Number(row.manual_stock ?? 0)),
