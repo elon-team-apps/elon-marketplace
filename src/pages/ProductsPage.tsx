@@ -505,7 +505,7 @@ function ProductCard({
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
             <span className="font-semibold text-black">
-              {availableStock} account{availableStock === 1 ? "" : "s"} available
+              Only {availableStock} account{availableStock === 1 ? "" : "s"} left
             </span>
           ) : (
             <span className="font-semibold text-black">In Stock</span>

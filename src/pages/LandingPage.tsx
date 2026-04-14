@@ -450,14 +450,9 @@ const LandingPage = () => {
                   </h3>
                   <p className="text-xs text-white/35 mb-4">Created {d.year} · Verified</p>
                   <div className="mb-4 flex flex-wrap gap-2">
-                    {totalStock > 0 && !manualOnly && (
+                    {totalStock > 0 && (
                       <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-400/30">
                         Ready for Delivery
-                      </span>
-                    )}
-                    {manualOnly && (
-                      <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300 border border-amber-400/30">
-                        Manual Stock ({d.manualStock})
                       </span>
                     )}
                   </div>

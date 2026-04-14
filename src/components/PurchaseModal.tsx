@@ -308,8 +308,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             <div className="flex items-center gap-3">
               <PlatformLogo product={product} platform={platform} size={35} />
               <div>
-                <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1 text-slate-900 dark:text-slate-100">{product.title}</h3>
-                <p className="text-[11px] mt-0.5 text-slate-700 dark:text-slate-200">
+                <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1 text-white">{product.title}</h3>
+                <p className="text-[11px] mt-0.5 text-gray-100">
                   {availableStock} available · {platform?.label ?? product.category}
                 </p>
               </div>
@@ -320,25 +320,25 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           </div>
           <div className="p-5 space-y-5">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest mb-3 text-slate-700 dark:text-slate-100">Select Quantity</p>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-3 text-white">Select Quantity</p>
               <div className="flex items-center gap-4">
                 <button
                   type="button"
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
                   disabled={qty <= 1}
-                  className="h-10 w-10 rounded-xl border border-slate-300 dark:border-white/25 bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-colors disabled:opacity-30"
+                  className="h-10 w-10 rounded-xl border border-slate-400 dark:border-slate-500 bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white flex items-center justify-center hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-30"
                 >
                   <Minus className="h-4 w-4" />
                 </button>
                 <div className="flex-1 text-center">
-                  <span className="font-bold text-3xl text-slate-900 dark:text-slate-100">{qty}</span>
-                  <span className="text-sm ml-2 text-slate-700 dark:text-slate-200">account{qty > 1 ? "s" : ""}</span>
+                  <span className="font-bold text-3xl text-white">{qty}</span>
+                  <span className="text-sm ml-2 text-gray-100">account{qty > 1 ? "s" : ""}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
                   disabled={qty >= maxQty}
-                  className="h-10 w-10 rounded-xl border border-slate-300 dark:border-white/25 bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-colors disabled:opacity-30"
+                  className="h-10 w-10 rounded-xl border border-slate-400 dark:border-slate-500 bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white flex items-center justify-center hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-30"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -430,22 +430,21 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               type="button"
               onClick={handlePurchase}
               disabled={!canAttemptPurchase || purchasing || !hasPurchaseFunds || !canStartPayment}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: BTN_NAVY,
-                color: TEXT_BLACK,
                 boxShadow: (!purchasing && hasPurchaseFunds) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
               }}
             >
               {purchasing ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" style={{ color: TEXT_BLACK }} />
-                  <span style={{ color: TEXT_BLACK }}>Redirecting to Payment...</span>
+                  <Loader2 className="h-4 w-4 animate-spin text-white" />
+                  <span className="text-white">Redirecting to Payment...</span>
                 </>
               ) : (
                 <>
-                  <Eye className="h-4 w-4" style={{ color: TEXT_BLACK }} />
-                  <span style={{ color: TEXT_BLACK }}>
+                  <Eye className="h-4 w-4 text-white" />
+                  <span className="text-white">
                     Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{totalPrice.toLocaleString()}
                   </span>
                 </>
