@@ -205,6 +205,14 @@ function saveState(data: object) {
   } catch {}
 }
 
+function buildProfileSyncWarning(errorMessage: string | null | undefined, errorCode?: string | null) {
+  const message = (errorMessage ?? "").toLowerCase();
+  if (message.includes("recursion")) {
+    return "Profile sync hit a recursion error. Basic account mode is active; admin access remains available for whitelisted email accounts.";
+  }
+  return `Could not load profile from Supabase. (${errorCode ?? "unknown"}) ${errorMessage ?? "No details"}`;
+}
+
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -233,6 +241,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
+    try {
+      sessionStorage.clear();
+    } catch {
+      /* ignore */
+    }
+    if (typeof window !== "undefined" && "caches" in window) {
+      try {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((cacheKey) => caches.delete(cacheKey)));
+      } catch (e) {
+        console.warn("[AppContext] CacheStorage clear during hard refresh:", e);
+      }
+    }
     if (supabase) {
       try {
         await supabase.auth.signOut();
@@ -240,7 +261,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn("[AppContext] signOut during hard refresh:", e);
       }
     }
-    window.location.assign(`${window.location.origin}/auth`);
+    const hardRefreshUrl = new URL(`${window.location.origin}/auth`);
+    hardRefreshUrl.searchParams.set("fresh", Date.now().toString());
+    window.location.replace(hardRefreshUrl.toString());
   }, []);
   const [products, setProducts] = useState<Product[]>(stored?.products ?? seedProducts);
   const [users, setUsers] = useState<User[]>(stored?.users ?? seedUsers);
@@ -349,9 +372,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       console.error("[AppContext] All profile fetch retries failed. Last error:", lastError);
-      const warn =
-        `Could not load profile from Supabase. ` +
-        `(${lastError?.code ?? "unknown"}) ${lastError?.message ?? "No details"}`;
+      const warn = buildProfileSyncWarning(lastError?.message, lastError?.code);
       setProfileSyncWarning(warn);
 
       const existing = currentUserRef.current;
@@ -386,7 +407,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error("[AppContext] syncProfile threw:", err);
       const msg = err instanceof Error ? err.message : String(err);
-      setProfileSyncWarning(`Profile sync crashed: ${msg}`);
+      setProfileSyncWarning(buildProfileSyncWarning(msg, "thrown"));
       if (isSuperAdminEmail(sessionEmail)) {
         setCurrentUser({
           id: authUser.id,

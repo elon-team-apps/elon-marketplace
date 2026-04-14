@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
+import { isSuperAdminEmail } from "@/lib/adminAccess";
 
 // ── Nav items ──────────────────────────────────────────────────────────────
 const userNav = [
@@ -96,6 +97,7 @@ const DashboardLayout = () => {
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+  const canAccessAdmin = isAdmin || isSuperAdminEmail(currentUser?.email);
 
   const close = () => setSidebarOpen(false);
 
@@ -166,7 +168,7 @@ const DashboardLayout = () => {
           ))}
 
           {/* ── Admin Panel — only when profile.is_admin (or legacy role admin) via useApp().isAdmin ─────── */}
-          {isAdmin && (
+          {canAccessAdmin && (
             <div className="pt-4 mt-2 border-t border-slate-200 dark:border-white/5">
               {/* Section header */}
               <div className="flex items-center gap-2 px-3 mb-2">
@@ -187,7 +189,7 @@ const DashboardLayout = () => {
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <div className="shrink-0 p-3 border-t border-slate-200 dark:border-white/5 space-y-1">
           {/* Admin view toggle — only visible to admins */}
-          {isAdmin && (
+          {canAccessAdmin && (
             <button
               onClick={() => {
                 toggleAdminView();
@@ -226,7 +228,7 @@ const DashboardLayout = () => {
             <div className="max-w-4xl mx-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <p className="text-xs sm:text-sm leading-snug min-w-0">
                 <span className="font-semibold">Account data warning.</span>{" "}
-                {profileSyncWarning} You can still use the app; admin tools appear if your account qualifies.
+                {profileSyncWarning} You can still use the app; admin tools stay enabled for approved admin email accounts.
               </p>
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
@@ -243,7 +245,7 @@ const DashboardLayout = () => {
                   onClick={() => void clearSessionAndHardRefresh()}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 dark:bg-amber-600 dark:hover:bg-amber-500"
                 >
-                  Clear session &amp; reload
+                  Hard refresh session
                 </button>
               </div>
             </div>
@@ -266,7 +268,7 @@ const DashboardLayout = () => {
           </Link>
 
           {/* Admin badge (desktop) */}
-          {isAdmin && (
+          {canAccessAdmin && (
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
               <ShieldCheck className="h-3 w-3 text-amber-500 dark:text-amber-400" />
               <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 tracking-wide">Admin</span>

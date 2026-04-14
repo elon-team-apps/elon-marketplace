@@ -1,4 +1,5 @@
 import { useApp } from "@/context/AppContext";
+import { isSuperAdminEmail } from "@/lib/adminAccess";
 
 /**
  * Thin auth facade for routes and layouts. Delegates to `AppContext`
@@ -16,10 +17,13 @@ export function useAuth() {
     toggleAdminView,
   } = useApp();
 
+  const emailAdminOverride = isSuperAdminEmail(currentUser?.email);
+  const resolvedIsAdmin = isAdmin || emailAdminOverride;
+
   return {
     user: currentUser,
     profileLoaded,
-    isAdmin,
+    isAdmin: resolvedIsAdmin,
     isAdminView,
     profileSyncWarning,
     clearSessionAndHardRefresh,
