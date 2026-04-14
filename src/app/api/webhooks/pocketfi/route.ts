@@ -18,6 +18,11 @@ type PocketFiPayload = {
   };
   [key: string]: unknown;
 };
+type EnvCheck = {
+  url: string | null;
+  serviceRoleKey: string | null;
+  missing: string[];
+};
 
 function json(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status });
@@ -62,13 +67,29 @@ function extractSignature(req: Request): string {
   );
 }
 
-function getAdminClient(): SupabaseClient {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+function resolveServiceEnv(): EnvCheck {
+  const urlFromNextPublic = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const urlFromServer = (process.env.SUPABASE_URL ?? "").trim();
+  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  const missing: string[] = [];
+  const url = urlFromNextPublic || urlFromServer || null;
+
+  if (!urlFromNextPublic && !urlFromServer) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL");
   }
-  return createClient(supabaseUrl, serviceRoleKey, {
+  if (!serviceRoleKey) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  return { url, serviceRoleKey: serviceRoleKey || null, missing };
+}
+
+function getAdminClient(): SupabaseClient {
+  const env = resolveServiceEnv();
+  if (!env.url || !env.serviceRoleKey) {
+    throw new Error(`Missing required env: ${env.missing.join(", ")}`);
+  }
+  return createClient(env.url, env.serviceRoleKey, {
     auth: { persistSession: false },
   });
 }
@@ -116,6 +137,12 @@ async function fulfillPurchaseFromReference(
   if (tx.status === "completed" || tx.status === "success") {
     return { ok: true, status: 200, data: { ok: true, message: "Already fulfilled.", idempotent: true } };
   }
+  const { data: buyerProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("email")
+    .eq("id", tx.user_id)
+    .maybeSingle();
+  const isAdminBuyer = normalize(buyerProfile?.email) === SUPERADMIN_EMAIL;
 
   const quantity = Math.max(1, asPositiveInt(tx.quantity, 1));
   const amountNaira = asPositiveInt(amountRaw, asPositiveInt(tx.amount, 0));
@@ -223,16 +250,13 @@ async function fulfillPurchaseFromReference(
     };
   }
 
-  const { data: profileRow } = await supabaseAdmin
-    .from("profiles")
-    .select("email")
-    .eq("id", tx.user_id)
-    .maybeSingle();
+  const profileRow = buyerProfile;
 
   if (fromLogs > 0) {
     console.log("[PocketFiWebhook] Fulfillment credentials prepared for customer email", {
       reference,
       email: profileRow?.email ?? null,
+      admin_buyer: isAdminBuyer,
       delivered_count: fromLogs,
       credentials_preview: deliveredCredentials,
     });
@@ -299,7 +323,14 @@ export async function POST(req: Request) {
   try {
     supabaseAdmin = getAdminClient();
   } catch (error) {
-    console.error("[PocketFiWebhook] Supabase admin client setup failed", { error });
+    const env = resolveServiceEnv();
+    console.error("[PocketFiWebhook] Supabase admin client setup failed", {
+      error,
+      missing_env: env.missing,
+      has_next_public_supabase_url: Boolean((process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim()),
+      has_supabase_url: Boolean((process.env.SUPABASE_URL ?? "").trim()),
+      has_service_role_key: Boolean((process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()),
+    });
     return json({ error: "Server misconfigured for fulfillment." }, 500);
   }
 
