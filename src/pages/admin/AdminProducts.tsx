@@ -164,6 +164,15 @@ function resolveTotalStock(product: Product, liveStockById?: Record<string, numb
   return live + manual;
 }
 
+function resolveStockBreakdown(product: Product, liveStockById?: Record<string, number>) {
+  const live = liveStockById && product.id in liveStockById
+    ? Math.max(0, Number(liveStockById[product.id] ?? 0))
+    : Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+  const manual = Math.max(0, Number(product.manual_stock ?? 0));
+  const total = live + manual;
+  return { total, live, manual };
+}
+
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
 
 type UploadStatus = "idle" | "uploading" | "success" | "error";
@@ -1336,7 +1345,8 @@ export default function AdminProducts() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/10">
                 {products.map((product) => {
-                  const stock = resolveTotalStock(product, liveStockById);
+                  const { total: stock, live: liveStock, manual: manualStock } = resolveStockBreakdown(product, liveStockById);
+                  const manualOnly = liveStock === 0 && manualStock > 0;
                   return (
                   <tr key={product.id} className="hover:bg-slate-50/60 dark:hover:bg-white/5">
                     <td className="px-3 py-3 align-middle">
@@ -1361,17 +1371,27 @@ export default function AdminProducts() {
                     </td>
                     <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-white">₦{product.price.toLocaleString()}</td>
                     <td className="px-5 py-4 text-center">
-                      <span
-                        className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          stock > 5
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                            : stock > 0
-                              ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-                              : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
-                        }`}
-                      >
-                        {stock}
-                      </span>
+                      <div className="inline-flex flex-col items-center">
+                        <span
+                          title={`Total stock ${stock} = live logs ${liveStock} + manual stock ${manualStock}`}
+                          className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            stock > 5
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                              : stock > 0
+                                ? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                                : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
+                          }`}
+                        >
+                          {stock}
+                        </span>
+                        <span className="mt-1 text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                          ({liveStock} +{" "}
+                          <span className={manualOnly ? "text-amber-600 dark:text-amber-400 font-semibold" : ""}>
+                            {manualStock}
+                          </span>
+                          )
+                        </span>
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -1483,6 +1503,7 @@ export default function AdminProducts() {
           product={manageTarget}
           onClose={() => setManageTarget(null)}
           onChanged={async (productId, newStock) => {
+            setLiveStockById((prev) => ({ ...prev, [productId]: Math.max(0, Number(newStock ?? 0)) }));
             updateProduct(productId, { stock_count: newStock, stock: newStock });
             await refreshProducts();
             await refreshLiveStocks();
