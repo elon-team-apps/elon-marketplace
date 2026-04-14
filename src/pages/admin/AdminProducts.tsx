@@ -546,6 +546,11 @@ function CreateProductModal({
 
         // 2) Unified upload: bulk_upload_logs(p_product_id, p_logs JSON array of {email,password,recovery})
         const rpcRes = await rpcBulkUploadLogs(newId, uploadEntries);
+        console.log("[CreateProduct] bulk_upload_logs response", {
+          productId: newId,
+          lineCount: uploadEntries.length,
+          response: rpcRes,
+        });
         if (!rpcRes.ok) {
           const details = rpcRes.details;
           setCreateErrorMsg(details);
@@ -560,6 +565,7 @@ function CreateProductModal({
             description: details,
             variant: "destructive",
           });
+          window.alert(`Log upload failed: ${details}`);
           await refreshProducts();
           await onAfterSave?.();
           onClose();
