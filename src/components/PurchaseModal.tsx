@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { useApp, type Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
+import { isSuperAdminEmail } from "@/lib/adminAccess";
 import {
   formatSupabasePostgrestError,
   isLikelySchemaOrMissingColumnError,
@@ -119,6 +120,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const totalPrice = qty * product.price;
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
+  const canBypassBalance = isSuperAdminEmail(currentUser?.email);
+  const hasPurchaseFunds = canAfford || canBypassBalance;
   const MIN_PAYSTACK_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYSTACK_NAIRA;
   const canStartPayment =
@@ -403,12 +406,17 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               </div>
             )}
 
-            {!canAfford && availableStock > 0 && (
+            {!hasPurchaseFunds && availableStock > 0 && (
               <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
                 Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
                 <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
                   Fund with Paystack →
                 </Link>
+              </p>
+            )}
+            {canBypassBalance && (
+              <p className="text-xs text-center text-amber-600">
+                Admin test mode: balance check bypass active.
               </p>
             )}
             {!currentUser?.email && (
@@ -425,12 +433,12 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             <button
               type="button"
               onClick={handlePurchase}
-              disabled={!canAttemptPurchase || purchasing || !canAfford || !canStartPayment}
+              disabled={!canAttemptPurchase || purchasing || !hasPurchaseFunds || !canStartPayment}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: BTN_NAVY,
                 color: TEXT_BLACK,
-                boxShadow: (!purchasing && canAfford) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
+                boxShadow: (!purchasing && hasPurchaseFunds) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
               }}
             >
               {purchasing ? (

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
+import { calculateStock } from "@/lib/stock";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -361,8 +362,7 @@ export default function AdminDashboard() {
     };
   }, [fetchAnalytics]);
 
-  const resolveTotalStock = (p: (typeof products)[number]) =>
-    Math.max(0, Number(p.stock_count ?? p.stock ?? 0)) + Math.max(0, Number(p.manual_stock ?? 0));
+  const resolveTotalStock = (p: (typeof products)[number]) => calculateStock(p);
 
   const activeStock = products.reduce((sum, p) => sum + resolveTotalStock(p), 0);
 

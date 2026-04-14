@@ -7,6 +7,7 @@ import { PurchaseModal } from "@/components/PurchaseModal";
 import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
 import { PRODUCT_CATEGORIES } from "@/constants/productCategories";
 import { supabase } from "@/lib/supabaseClient";
+import { calculateStock, calculateStockBreakdown } from "@/lib/stock";
 
 // Ensure fresh product/stock resolution on every visit.
 export const revalidate = 0;
@@ -52,9 +53,7 @@ export function inferPlatformKey(title: string) {
 }
 
 export function getAvailableStock(product: Product): number {
-  const live = Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
-  const manual = Math.max(0, Number(product.manual_stock ?? 0));
-  return live + manual;
+  return calculateStock(product);
 }
 
 // ─── Platform registry ────────────────────────────────────────────────────────
@@ -426,11 +425,10 @@ function ProductCard({
   onBuy: (p: Product) => void;
 }) {
   const [liveStock, setLiveStock] = useState<number | null>(null);
-  const manualFallbackStock = Math.max(0, Number(p.manual_stock ?? 0));
-  const availableStock =
-    liveStock === null
-      ? getAvailableStock(p)
-      : Math.max(0, liveStock) + manualFallbackStock;
+  const stockView = calculateStockBreakdown(p, {
+    liveLogCount: liveStock === null ? undefined : liveStock,
+  });
+  const availableStock = stockView.total;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
 
@@ -511,6 +509,18 @@ function ProductCard({
             <>In Stock: <span className="font-semibold text-black">{availableStock} qty.</span></>
           )}
         </p>
+        {availableStock > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+              Ready for Delivery
+            </span>
+            {stockView.isManualOnly && (
+              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                Manual Stock
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Price */}
         <p className="text-[11px] leading-tight text-black">

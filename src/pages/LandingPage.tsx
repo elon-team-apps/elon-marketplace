@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import logo from "@/assets/logo-transparent.png";
+import { useApp } from "@/context/AppContext";
+import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
 import {
   ArrowRight,
   Facebook,
@@ -79,10 +81,10 @@ const whyUs = [
 ];
 
 const hotDeals = [
-  { platform: "Facebook",   year: "2010", price: "₦12,000", icon: Facebook,  color: "#1877F2" },
-  { platform: "Instagram",  year: "2015", price: "₦8,500",  icon: Instagram, color: "#E1306C" },
-  { platform: "LinkedIn",   year: "2012", price: "₦15,000", icon: Linkedin,  color: "#0A66C2" },
-  { platform: "Twitter / X", year: "2013", price: "₦10,000", icon: Twitter,  color: "#1DA1F2" },
+  { platform: "Facebook", title: "Aged Facebook Profile", category: "Social Media", year: "2010", price: "₦12,000", icon: Facebook, color: "#1877F2", liveStock: 14, manualStock: 0 },
+  { platform: "Instagram", title: "Aged Instagram Profile", category: "Social Media", year: "2015", price: "₦8,500", icon: Instagram, color: "#E1306C", liveStock: 0, manualStock: 22 },
+  { platform: "LinkedIn", title: "Aged LinkedIn Profile", category: "Social Media", year: "2012", price: "₦15,000", icon: Linkedin, color: "#0A66C2", liveStock: 9, manualStock: 0 },
+  { platform: "Twitter / X", title: "Aged Twitter/X Profile", category: "Social Media", year: "2013", price: "₦10,000", icon: Twitter, color: "#1DA1F2", liveStock: 4, manualStock: 6 },
 ];
 
 const reviews = [
@@ -95,6 +97,10 @@ const reviews = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const LandingPage = () => {
+  const { currentUser } = useApp();
+  const hasSession = Boolean(currentUser?.id);
+  const walletBalance = Number(currentUser?.wallet_balance ?? 0);
+
   return (
     <div className="min-h-screen bg-[#080c14] text-white" style={{ fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif" }}>
 
@@ -120,6 +126,13 @@ const LandingPage = () => {
             />
           </Link>
           <div className="flex items-center gap-3 mr-1">
+            {hasSession && (
+              <Link to="/dashboard/wallet">
+                <button className="px-4 py-2.5 rounded-lg text-xs sm:text-sm font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/15 transition-all duration-200">
+                  My Wallet · ₦{walletBalance.toLocaleString()}
+                </button>
+              </Link>
+            )}
             <Link to="/auth">
               <button className="px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-100 bg-white/10 border border-white/20 hover:bg-white/15 hover:text-white transition-all duration-200">
                 Sign In
@@ -187,12 +200,12 @@ const LandingPage = () => {
               letterSpacing: "-0.02em",
             }}
           >
-            Buying Social Media Accounts{" "}
+            Premium Digital Assets,{" "}
             <span
               className="bg-clip-text text-transparent"
               style={{ backgroundImage: "linear-gradient(135deg, #34d399, #10b981, #6ee7b7)" }}
             >
-              Made Easy
+              Delivered Instantly.
             </span>
           </h1>
 
@@ -205,8 +218,8 @@ const LandingPage = () => {
               maxWidth: "560px",
             }}
           >
-            Get aged, verified social media accounts across Facebook, Instagram, LinkedIn, and more —
-            delivered instantly to your dashboard the moment you pay.
+            Reliable. Secure. Fast. Access premium verified digital assets and receive delivery
+            instantly in your dashboard after checkout.
           </p>
 
           {/* CTAs */}
@@ -337,28 +350,52 @@ const LandingPage = () => {
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {hotDeals.map((d) => {
               const Icon = d.icon;
+              const totalStock = d.liveStock + d.manualStock;
+              const manualOnly = d.liveStock === 0 && d.manualStock > 0;
               return (
                 <div
                   key={d.platform}
-                  className="card-lift rounded-2xl p-6 flex flex-col"
+                  className="card-lift rounded-2xl p-6 flex flex-col backdrop-blur-xl"
                   style={{
-                    background: "rgba(255,255,255,0.025)",
-                    border: "1px solid rgba(255,255,255,0.07)",
+                    background: "linear-gradient(160deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))",
+                    border: "1px solid rgba(255,255,255,0.15)",
                   }}
                 >
-                  <div
-                    className="h-10 w-10 rounded-xl flex items-center justify-center mb-4 shrink-0"
-                    style={{ background: `${d.color}18`, border: `1px solid ${d.color}30` }}
-                  >
-                    <Icon className="h-5 w-5" style={{ color: d.color }} />
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 bg-white/80">
+                      <ProductBrandAvatar
+                        title={d.title}
+                        category={d.category}
+                        size={34}
+                        accentColor={d.color}
+                      />
+                    </div>
+                    <div
+                      className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ background: `${d.color}18`, border: `1px solid ${d.color}30` }}
+                    >
+                      <Icon className="h-4 w-4" style={{ color: d.color }} />
+                    </div>
                   </div>
-                  <h3 className="font-bold text-white mb-1" style={{ fontSize: "1rem" }}>
-                    Aged {d.platform}
+                  <h3 className="font-bold text-white mb-1.5" style={{ fontSize: "1rem" }}>
+                    {d.title}
                   </h3>
                   <p className="text-xs text-white/35 mb-4">Created {d.year} · Verified</p>
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {totalStock > 0 && !manualOnly && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-400/30">
+                        Ready for Delivery
+                      </span>
+                    )}
+                    {manualOnly && (
+                      <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300 border border-amber-400/30">
+                        Manual Stock ({d.manualStock})
+                      </span>
+                    )}
+                  </div>
                   <p
                     className="font-bold text-emerald-400 mb-5 mt-auto"
                     style={{ fontSize: "1.5rem", letterSpacing: "-0.02em" }}

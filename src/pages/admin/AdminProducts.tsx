@@ -37,6 +37,7 @@ import type { PostgrestError } from "@supabase/supabase-js";
 import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
 import { parseLogLines, validatePastedLogs } from "@/lib/logParser";
 import { rpcBulkUploadLogs } from "@/lib/bulkUploadLogs";
+import { calculateStock, calculateStockBreakdown } from "@/lib/stock";
 
 const BTN_NAVY = "#0f172a";
 const BTN_DELETE = "#dc2626";
@@ -157,20 +158,15 @@ async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<
 }
 
 function resolveTotalStock(product: Product, liveStockById?: Record<string, number>): number {
-  const live = liveStockById && product.id in liveStockById
-    ? Math.max(0, Number(liveStockById[product.id] ?? 0))
-    : Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
-  const manual = Math.max(0, Number(product.manual_stock ?? 0));
-  return live + manual;
+  return calculateStock(product, {
+    liveLogCount: liveStockById && product.id in liveStockById ? Number(liveStockById[product.id] ?? 0) : undefined,
+  });
 }
 
 function resolveStockBreakdown(product: Product, liveStockById?: Record<string, number>) {
-  const live = liveStockById && product.id in liveStockById
-    ? Math.max(0, Number(liveStockById[product.id] ?? 0))
-    : Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
-  const manual = Math.max(0, Number(product.manual_stock ?? 0));
-  const total = live + manual;
-  return { total, live, manual };
+  return calculateStockBreakdown(product, {
+    liveLogCount: liveStockById && product.id in liveStockById ? Number(liveStockById[product.id] ?? 0) : undefined,
+  });
 }
 
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
@@ -835,6 +831,7 @@ function EditProductModal({
 
     setSaving(true);
     setErrorMsg("");
+    let didRemoteUpdate = false;
     try {
       const nextTitle = title.trim();
       const nextCategory = category.trim() || product.category;
@@ -875,6 +872,7 @@ function EditProductModal({
           return;
         }
         mergeProductRowFromDb(data as Record<string, unknown>);
+        didRemoteUpdate = true;
       } else {
         patchProductLocal(product.id, {
           title: nextTitle,
@@ -890,6 +888,9 @@ function EditProductModal({
       await refreshProducts();
       await onSaved();
       toast({ title: "You're all set", description: "Product details saved." });
+      if (didRemoteUpdate) {
+        window.location.reload();
+      }
       onClose();
     } finally {
       setSaving(false);

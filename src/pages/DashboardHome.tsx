@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
+import { calculateStock } from "@/lib/stock";
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
@@ -49,9 +50,6 @@ export default function DashboardHome() {
     return () => window.clearInterval(id);
   }, []);
 
-  const resolveTotalStock = (p: (typeof products)[number]) =>
-    Math.max(0, Number(p.stock_count ?? p.stock ?? 0)) + Math.max(0, Number(p.manual_stock ?? 0));
-
   const stats = [
     {
       label: "Wallet Balance",
@@ -79,7 +77,7 @@ export default function DashboardHome() {
     },
     {
       label: "In Stock",
-      value: products.filter((p) => resolveTotalStock(p) > 0).length.toString(),
+      value: products.filter((p) => calculateStock(p) > 0).length.toString(),
       icon: Package,
       color: "text-purple-400",
       bg: "bg-purple-400/10 border-purple-400/20",
