@@ -368,8 +368,8 @@ function BulkUploadModal({
                     }`}
                   >
                     {pasteValidation.ok
-                      ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}${skippedCount > 0 ? ` · ${skippedCount} skipped` : ""}`
-                      : `${parseLogLines(logsText).length} line(s) — need Email:Password[:Recovery]`}
+                      ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}${skippedCount > 0 ? ` · Skipped ${skippedCount} invalid line${skippedCount === 1 ? "" : "s"}` : ""}`
+                      : `${parseLogLines(logsText).length} line(s) — need email:password[:recovery[:extra]]`}
                   </span>
                 </div>
                 <textarea
@@ -608,7 +608,7 @@ function CreateProductModal({
         await refreshProducts();
         await onAfterSave?.();
         const desc = uploadEntries.length > 0
-          ? `“${form.title.trim()}” is live with ${uploadEntries.length} account${uploadEntries.length === 1 ? "" : "s"}${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`
+          ? `“${form.title.trim()}” is live with ${uploadEntries.length} account${uploadEntries.length === 1 ? "" : "s"}${skippedLogs > 0 ? ` (Skipped ${skippedLogs} invalid line${skippedLogs === 1 ? "" : "s"})` : ""}.`
           : `“${form.title.trim()}” is live. Add logs anytime from inventory.`;
         sonnerToast.success("Product saved", { description: desc });
         onClose();
@@ -626,7 +626,7 @@ function CreateProductModal({
         stock: uploadEntries.length,
         logo_url: autoLogoUrl,
       });
-      const offDesc = `“${form.title.trim()}” added with ${uploadEntries.length} log line(s)${skippedLogs > 0 ? ` (${skippedLogs} skipped)` : ""}.`;
+      const offDesc = `“${form.title.trim()}” added with ${uploadEntries.length} log line(s)${skippedLogs > 0 ? ` (Skipped ${skippedLogs} invalid line${skippedLogs === 1 ? "" : "s"})` : ""}.`;
       sonnerToast.success("Product saved", { description: offDesc });
       onClose();
     } finally {
@@ -733,7 +733,7 @@ function CreateProductModal({
                 }`}
               >
                 {pasteRes.ok
-                  ? `${logCount} valid line${logCount === 1 ? "" : "s"}${skippedLogs > 0 ? ` · ${skippedLogs} skipped` : ""}`
+                  ? `${logCount} valid line${logCount === 1 ? "" : "s"}${skippedLogs > 0 ? ` · Skipped ${skippedLogs} invalid line${skippedLogs === 1 ? "" : "s"}` : ""}`
                   : `${rawLogLines.length} line(s) — need Email:Password[:Recovery]`}
               </span>
             </div>
