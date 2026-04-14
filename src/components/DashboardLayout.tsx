@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate, Navigate } from "react-router-dom";
-import { useState } from "react";
+import { Component, ReactNode, useState } from "react";
 import logo from "@/assets/logo-transparent.png";
 import {
   LayoutDashboard,
@@ -78,6 +78,42 @@ function NavItem({
       {active && <ChevronRight className="h-3 w-3 opacity-40" />}
     </Link>
   );
+}
+
+class DashboardContentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; key: number }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, key: 0 };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  private retry = () => {
+    this.setState((prev) => ({ hasError: false, key: prev.key + 1 }));
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="glass-card p-6 text-center space-y-3">
+          <h2 className="text-base font-bold text-foreground">This section failed to render</h2>
+          <p className="text-xs text-muted-foreground">
+            A component crashed, but the dashboard shell is still running.
+          </p>
+          <button
+            type="button"
+            onClick={this.retry}
+            className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return <div key={this.state.key}>{this.props.children}</div>;
+  }
 }
 
 // ── DashboardLayout ────────────────────────────────────────────────────────
@@ -339,7 +375,9 @@ const DashboardLayout = () => {
         </header>
 
         <main className="flex-1 px-4 md:px-6 pt-7 md:pt-10 pb-6 overflow-auto">
-          <Outlet />
+          <DashboardContentErrorBoundary>
+            <Outlet />
+          </DashboardContentErrorBoundary>
         </main>
       </div>
     </div>

@@ -207,7 +207,7 @@ function saveState(data: object) {
 
 function buildProfileSyncWarning(errorMessage: string | null | undefined, errorCode?: string | null) {
   const message = (errorMessage ?? "").toLowerCase();
-  if (message.includes("recursion")) {
+  if ((errorCode ?? "").toUpperCase() === "42P17" || message.includes("recursion")) {
     return "Profile sync hit a recursion error. Basic account mode is active; admin access remains available for whitelisted email accounts.";
   }
   return `Could not load profile from Supabase. (${errorCode ?? "unknown"}) ${errorMessage ?? "No details"}`;
@@ -232,12 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const clearSessionAndHardRefresh = useCallback(async () => {
     try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-    try {
-      localStorage.removeItem("elon-auth-token");
+      localStorage.clear();
     } catch {
       /* ignore */
     }
@@ -336,6 +331,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         lastError = error as typeof lastError;
         console.warn(`[AppContext] Profile fetch attempt ${attempt} failed:`, error?.code, error?.message);
+
+        const code = String(error?.code ?? "").toUpperCase();
+        if (code === "42P17") {
+          const warn = buildProfileSyncWarning(error?.message, code);
+          setProfileSyncWarning(warn);
+          if (isSuperAdminEmail(sessionEmail)) {
+            setCurrentUser({
+              id: authUser.id,
+              email: sessionEmail,
+              name: fallbackName,
+              wallet_balance: 0,
+              role: "admin",
+              is_admin: true,
+              createdAt: "",
+            });
+          } else {
+            setCurrentUser({
+              ...loadingUser,
+              id: authUser.id,
+              email: sessionEmail,
+              name: fallbackName,
+            });
+          }
+          return;
+        }
       }
 
       if (profile) {

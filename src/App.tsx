@@ -1,6 +1,6 @@
 import { Component, ReactNode, Suspense, lazy, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useSearchParams } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -73,7 +73,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
               onClick={() => window.location.reload()}
               className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
             >
-              Refresh
+              Retry
             </button>
           </div>
         </div>
@@ -87,6 +87,19 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   const { profileLoaded, currentUser } = useApp();
   if (!profileLoaded) return <RouteLoading />;
   if (!currentUser?.id) return <Navigate to="/auth" replace />;
+  return <>{children}</>;
+}
+
+/**
+ * Prevent /auth <-> /dashboard ping-pong:
+ * - Wait until auth/profile bootstrap is done.
+ * - If user is already authenticated, send to dashboard unless caller explicitly requested fresh auth.
+ */
+function AuthRoute({ children }: { children: ReactNode }) {
+  const { profileLoaded, currentUser } = useApp();
+  const [searchParams] = useSearchParams();
+  if (!profileLoaded) return <RouteLoading />;
+  if (currentUser?.id && !searchParams.has("fresh")) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -118,7 +131,14 @@ function AppRoutes() {
       <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
-          <Route path="/auth" element={<AuthPage />} />
+          <Route
+            path="/auth"
+            element={
+              <AuthRoute>
+                <AuthPage />
+              </AuthRoute>
+            }
+          />
           <Route
             path="/dashboard"
             element={
