@@ -6,6 +6,7 @@ import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
 import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
 import { PRODUCT_CATEGORIES } from "@/constants/productCategories";
+import { supabase } from "@/lib/supabaseClient";
 
 const CATEGORIES = PRODUCT_CATEGORIES;
 /** Client: all Purchase / primary actions */
@@ -49,6 +50,42 @@ export function inferPlatformKey(title: string) {
 
 export function getAvailableStock(product: Product): number {
   return Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+}
+
+async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  if (!supabase || productIds.length === 0) return counts;
+
+  const primary = await supabase
+    .from("log_items")
+    .select("product_id")
+    .in("product_id", productIds)
+    .eq("status", "available");
+
+  if (!primary.error && primary.data) {
+    for (const row of primary.data as Array<{ product_id?: string }>) {
+      const pid = String(row.product_id ?? "");
+      if (!pid) continue;
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  const fallback = await supabase
+    .from("log_items")
+    .select("product_id")
+    .in("product_id", productIds)
+    .eq("is_delivered", false);
+
+  if (!fallback.error && fallback.data) {
+    for (const row of fallback.data as Array<{ product_id?: string }>) {
+      const pid = String(row.product_id ?? "");
+      if (!pid) continue;
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+  }
+
+  return counts;
 }
 
 // ─── Platform registry ────────────────────────────────────────────────────────
@@ -279,6 +316,7 @@ export default function ProductsPage() {
   const { products, currentUser } = useApp();
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [buyProduct, setBuyProduct] = useState<Product | null>(null);
+  const [liveStockById, setLiveStockById] = useState<Record<string, number>>({});
 
   const productsWithCategory = products.map((p) => ({ ...p, category: normalizeCategory(p.category, p.title) }));
   const presentKeys = Array.from(new Set(productsWithCategory.map((p) => p.category)));
@@ -298,6 +336,40 @@ export default function ProductsPage() {
       if (items.length > 0) grouped.push({ key, platform: { label: key }, items });
     });
   }
+
+  useEffect(() => {
+    const ids = products.map((p) => p.id).filter(Boolean);
+    if (ids.length === 0) {
+      setLiveStockById({});
+      return;
+    }
+
+    let cancelled = false;
+    const loadLiveStocks = async () => {
+      const counts = await fetchLiveStockByProductIds(ids);
+      if (!cancelled) setLiveStockById(counts);
+    };
+
+    void loadLiveStocks();
+
+    if (!supabase) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const channel = supabase
+      .channel("products-page-live-stock")
+      .on("postgres_changes", { event: "*", schema: "public", table: "log_items" }, () => {
+        void loadLiveStocks();
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [products]);
 
   return (
     <div className="space-y-5">
@@ -356,7 +428,7 @@ export default function ProductsPage() {
               <p className="text-sm text-muted-foreground">No {activePlatform?.label} accounts in stock right now.</p>
             </div>
           ) : (
-            <ProductGrid products={filteredProducts} onBuy={setBuyProduct} />
+            <ProductGrid products={filteredProducts} onBuy={setBuyProduct} liveStockById={liveStockById} />
           )}
         </div>
       ) : (
@@ -378,7 +450,7 @@ export default function ProductsPage() {
                     {platform?.label ?? key}
                   </span>
                 </div>
-                <ProductGrid products={items} onBuy={setBuyProduct} />
+                <ProductGrid products={items} onBuy={setBuyProduct} liveStockById={liveStockById} />
               </div>
             ))}
           </div>
@@ -396,13 +468,17 @@ export default function ProductsPage() {
 function ProductGrid({
   products,
   onBuy,
+  liveStockById,
 }: {
   products: Product[];
   onBuy: (p: Product) => void;
+  liveStockById: Record<string, number>;
 }) {
   return (
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-      {products.map((p) => <ProductCard key={p.id} product={p} onBuy={onBuy} />)}
+      {products.map((p) => (
+        <ProductCard key={p.id} product={p} onBuy={onBuy} liveStock={liveStockById[p.id]} />
+      ))}
     </div>
   );
 }
@@ -412,8 +488,16 @@ function ProductGrid({
  * Twitter/X, Telegram, Facebook) via `ProductBrandAvatar` / `resolveProductBrandVisual`, then
  * stored `logo_url` if present, else VPN shield or generic box.
  */
-function ProductCard({ product: p, onBuy }: { product: Product; onBuy: (p: Product) => void }) {
-  const availableStock = getAvailableStock(p);
+function ProductCard({
+  product: p,
+  onBuy,
+  liveStock,
+}: {
+  product: Product;
+  onBuy: (p: Product) => void;
+  liveStock?: number;
+}) {
+  const availableStock = Number.isFinite(liveStock) ? Math.max(0, Number(liveStock)) : getAvailableStock(p);
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
 

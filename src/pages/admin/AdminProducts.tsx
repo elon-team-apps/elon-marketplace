@@ -172,7 +172,7 @@ function BulkUploadModal({
   liveStockById: Record<string, number>;
   initialProductId: string | null;
   onClose: () => void;
-  onSuccess: (productId: string, inserted: number, newStock: number) => void;
+  onSuccess: (productId: string, inserted: number, newStock: number) => void | Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState(() => initialProductId ?? products[0]?.id ?? "");
   const [logsText, setLogsText] = useState("");
@@ -243,13 +243,13 @@ function BulkUploadModal({
       sonnerToast.success("Upload complete", {
         description: `${inserted} log line(s) added · Stock now ${newStock}`,
       });
-      onSuccess(selectedId, inserted, newStock);
+      await Promise.resolve(onSuccess(selectedId, inserted, newStock));
       return;
     }
 
     const prevStock = selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0;
     const newStockOffline = prevStock + entries.length;
-    onSuccess(selectedId, entries.length, newStockOffline);
+    await Promise.resolve(onSuccess(selectedId, entries.length, newStockOffline));
     setResult({
       inserted: entries.length,
       newStock: newStockOffline,
