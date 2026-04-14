@@ -133,6 +133,9 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
     setPurchasing(true);
     setPurchaseState({ phase: "idle" });
     try {
+      if (canBypassBalance) {
+        console.info("[PurchaseModal] Admin balance bypass active for test purchase.");
+      }
       if (!supabase || !currentUser?.email) {
         setPurchaseState({ phase: "error", message: "Please log in to continue." });
         setPurchasing(false);
@@ -305,8 +308,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             <div className="flex items-center gap-3">
               <PlatformLogo product={product} platform={platform} size={35} />
               <div>
-                <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1" style={{ color: TEXT_BLACK }}>{product.title}</h3>
-                <p className="text-[11px] mt-0.5" style={{ color: TEXT_BLACK }}>
+                <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1 text-slate-900 dark:text-slate-100">{product.title}</h3>
+                <p className="text-[11px] mt-0.5 text-slate-700 dark:text-slate-200">
                   {availableStock} available · {platform?.label ?? product.category}
                 </p>
               </div>
@@ -317,27 +320,25 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           </div>
           <div className="p-5 space-y-5">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: TEXT_BLACK }}>Select Quantity</p>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-3 text-slate-700 dark:text-slate-100">Select Quantity</p>
               <div className="flex items-center gap-4">
                 <button
                   type="button"
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
                   disabled={qty <= 1}
-                  className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/12 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-white/8 transition-colors disabled:opacity-30"
-                  style={{ color: TEXT_BLACK }}
+                  className="h-10 w-10 rounded-xl border border-slate-300 dark:border-white/25 bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-colors disabled:opacity-30"
                 >
                   <Minus className="h-4 w-4" />
                 </button>
                 <div className="flex-1 text-center">
-                  <span className="font-bold text-3xl" style={{ color: TEXT_BLACK }}>{qty}</span>
-                  <span className="text-sm ml-2" style={{ color: TEXT_BLACK }}>account{qty > 1 ? "s" : ""}</span>
+                  <span className="font-bold text-3xl text-slate-900 dark:text-slate-100">{qty}</span>
+                  <span className="text-sm ml-2 text-slate-700 dark:text-slate-200">account{qty > 1 ? "s" : ""}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
                   disabled={qty >= maxQty}
-                  className="h-10 w-10 rounded-xl border border-slate-200 dark:border-white/12 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-white/8 transition-colors disabled:opacity-30"
-                  style={{ color: TEXT_BLACK }}
+                  className="h-10 w-10 rounded-xl border border-slate-300 dark:border-white/25 bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-white/20 transition-colors disabled:opacity-30"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -412,11 +413,6 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                 <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
                   Fund with Paystack →
                 </Link>
-              </p>
-            )}
-            {canBypassBalance && (
-              <p className="text-xs text-center text-amber-600">
-                Admin test mode: balance check bypass active.
               </p>
             )}
             {!currentUser?.email && (

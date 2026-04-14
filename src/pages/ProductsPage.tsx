@@ -504,9 +504,11 @@ function ProductCard({
           {availableStock <= 0 ? (
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
-            <>In Stock: <span className="font-semibold text-black">{availableStock} qty.</span> — low!</>
+            <span className="font-semibold text-black">
+              {availableStock} account{availableStock === 1 ? "" : "s"} available
+            </span>
           ) : (
-            <>In Stock: <span className="font-semibold text-black">{availableStock} qty.</span></>
+            <span className="font-semibold text-black">In Stock</span>
           )}
         </p>
         {availableStock > 0 && (
@@ -514,11 +516,6 @@ function ProductCard({
             <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
               Ready for Delivery
             </span>
-            {stockView.isManualOnly && (
-              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                Manual Stock
-              </span>
-            )}
           </div>
         )}
 
