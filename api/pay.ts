@@ -7,7 +7,7 @@
  * Required Vercel Environment Variable (server-side only, no VITE_ prefix):
  *   POCKETFI_SECRET_KEY
  *
- * POST body (JSON):  { amount: number, email: string, reference: string, callbackUrl: string }
+ * POST body (JSON):  { amount: number, email: string, reference: string, callbackUrl: string, metadata?: object }
  * Response (JSON):   { checkoutUrl: string } | { error: string }
  */
 
@@ -42,7 +42,7 @@ export default async function handler(req: any, res: any) {
 
   // ── Parse body ──────────────────────────────────────────────────────────────
   const body = req.body ?? {};
-  const { amount, email, reference, callbackUrl } = body;
+  const { amount, email, reference, callbackUrl, metadata } = body;
 
   if (!amount || !email || !reference || !callbackUrl) {
     res.status(400).json({
@@ -74,6 +74,7 @@ export default async function handler(req: any, res: any) {
         email:        String(email),
         reference:    String(reference),
         callback_url: String(callbackUrl),
+        metadata: typeof metadata === "object" && metadata ? metadata : undefined,
       }),
     });
   } catch (err) {

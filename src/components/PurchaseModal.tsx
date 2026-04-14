@@ -11,7 +11,6 @@ import {
   formatSupabasePostgrestError,
   isLikelySchemaOrMissingColumnError,
 } from "@/lib/supabaseErrors";
-import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
 import { toast as sonnerToast } from "sonner";
 import {
   PlatformLogo,
@@ -97,6 +96,11 @@ function parseInvokeErrorPayload(payload: Record<string, unknown>): string {
   return parts.filter(Boolean).join("\n") || "Unable to start payment.";
 }
 
+function buildPocketFiReference(): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `pfi_${Date.now()}_${rand}`;
+}
+
 type PurchaseState =
   | { phase: "idle" }
   | { phase: "success"; logs: string[]; count: number }
@@ -122,8 +126,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
   const hasPurchaseFunds = canAfford || canBypassBalance;
-  const MIN_PAYSTACK_NAIRA = 100;
-  const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYSTACK_NAIRA;
+  const MIN_PAYMENT_NAIRA = 100;
+  const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
   const canStartPayment =
     Boolean(currentUser?.email) && Number.isFinite(totalPrice) && totalPrice > 0 && meetsMinimum;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
@@ -146,7 +150,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         setPurchasing(false);
         return;
       }
-      if (totalPrice < MIN_PAYSTACK_NAIRA) {
+      if (totalPrice < MIN_PAYMENT_NAIRA) {
         setPurchaseState({ phase: "error", message: "Minimum purchase amount is ₦100" });
         setPurchasing(false);
         return;
@@ -163,59 +167,12 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke("pocketfi-init", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: {
-          amount: totalPrice,
-          email: currentUser.email,
-          product_id: product.id,
-          quantity: qty,
-        },
-      });
-
-      if (error) {
-        let detailed = error.message || "Unable to start payment.";
-        const ctx = (error as { context?: unknown }).context;
-        if (ctx instanceof Response) {
-          try {
-            const text = await ctx.text();
-            if (text) {
-              try {
-                const parsed = JSON.parse(text) as Record<string, unknown>;
-                detailed = parseInvokeErrorPayload(parsed);
-              } catch {
-                detailed = text;
-              }
-            }
-          } catch {
-            /* keep default */
-          }
-        }
-        setPurchaseState({ phase: "error", message: detailed });
-        setPurchasing(false);
-        return;
-      }
-
-      const payload = (data ?? {}) as Record<string, unknown>;
-      const payUrl = extractPaystackRedirectUrl(payload);
-      if (!payUrl) {
-        const msg = parseInvokeErrorPayload(payload);
-        setPurchaseState({ phase: "error", message: msg });
-        setPurchasing(false);
-        return;
-      }
-
-      const reference =
-        typeof payload.reference === "string" && payload.reference.trim()
-          ? payload.reference.trim()
-          : typeof (payload.data as Record<string, unknown> | undefined)?.reference === "string"
-            ? String((payload.data as Record<string, unknown>).reference).trim()
-            : "";
+      const reference = buildPocketFiReference();
 
       if (!reference) {
         setPurchaseState({
           phase: "error",
-          message: "Paystack did not return a transaction reference. Try again or contact support.",
+          message: "PocketFi did not return a transaction reference. Try again or contact support.",
         });
         setPurchasing(false);
         return;
@@ -231,8 +188,15 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       const naira = Math.trunc(totalPrice);
+      const callbackUrl = `${window.location.origin}/dashboard?payment=success`;
+      const metadata = {
+        totalAmount: naira,
+        customerEmail: currentUser.email,
+        productId: product.id,
+        quantity: qty,
+      };
 
-      // Pending row in public.transactions (Paystack webhook completes → status completed).
+      // Pending row in public.transactions (PocketFi webhook completes → status completed).
       // Prefer SECURITY DEFINER RPC so reservation works even when direct INSERT is blocked by RLS.
       const { data: reserveData, error: reserveRpcErr } = await supabase.rpc("reserve_purchase_transaction", {
         p_reference: reference,
@@ -267,12 +231,79 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         }
       }
 
+      if (canBypassBalance) {
+        const simulateRes = await fetch("/api/webhooks/pocketfi", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            "x-admin-bypass": "true",
+          },
+          body: JSON.stringify({
+            event: "payment.success",
+            data: {
+              reference,
+              amount: naira,
+              status: "success",
+              metadata,
+            },
+          }),
+        });
+        if (!simulateRes.ok) {
+          const msg = await simulateRes.text();
+          setPurchaseState({
+            phase: "error",
+            message: `Admin bypass simulation failed.\n${msg}`,
+          });
+          setPurchasing(false);
+          return;
+        }
+        sonnerToast.success("Admin test purchase completed", {
+          description: `Fulfillment executed for ${qty} item${qty === 1 ? "" : "s"}.`,
+        });
+        window.location.assign("/dashboard?payment=success");
+        return;
+      }
+
+      const payRes = await fetch("/api/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: naira,
+          email: currentUser.email,
+          reference,
+          callbackUrl,
+          metadata,
+        }),
+      });
+      const payPayload = (await payRes.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!payRes.ok) {
+        const msg = parseInvokeErrorPayload(payPayload);
+        setPurchaseState({ phase: "error", message: msg });
+        setPurchasing(false);
+        return;
+      }
+      const payUrlRaw =
+        typeof payPayload.checkoutUrl === "string"
+          ? payPayload.checkoutUrl
+          : typeof payPayload.checkout_url === "string"
+            ? payPayload.checkout_url
+            : typeof payPayload.authorization_url === "string"
+              ? payPayload.authorization_url
+              : "";
+      const payUrl = String(payUrlRaw).trim();
+      if (!payUrl) {
+        setPurchaseState({ phase: "error", message: "PocketFi did not return a checkout URL." });
+        setPurchasing(false);
+        return;
+      }
+
       setPurchaseState({ phase: "idle" });
       sonnerToast.success("Success", {
-        description: `Opening secure checkout for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
+        description: `Opening PocketFi checkout for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
       });
       window.setTimeout(() => {
-        window.location.replace(payUrl.trim());
+        window.location.replace(payUrl);
       }, 150);
     } catch (e) {
       let msg = "Unable to start payment.";
@@ -411,7 +442,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
                 Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
                 <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
-                  Fund with Paystack →
+                  Fund Wallet →
                 </Link>
               </p>
             )}
@@ -420,7 +451,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                 Please log in to continue.
               </p>
             )}
-            {availableStock > 0 && totalPrice > 0 && totalPrice < MIN_PAYSTACK_NAIRA && (
+            {availableStock > 0 && totalPrice > 0 && totalPrice < MIN_PAYMENT_NAIRA && (
               <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
                 Minimum purchase amount is ₦100
               </p>
