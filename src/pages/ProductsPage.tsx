@@ -424,7 +424,13 @@ function ProductCard({
   onBuy: (p: Product) => void;
 }) {
   const [liveStock, setLiveStock] = useState<number | null>(null);
-  const availableStock = liveStock ?? getAvailableStock(p);
+  const manualFallbackStock = Math.max(0, Number(p.manual_stock ?? 0));
+  const availableStock =
+    liveStock === null
+      ? getAvailableStock(p)
+      : liveStock > 0
+        ? liveStock
+        : manualFallbackStock;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
 

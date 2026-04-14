@@ -25,10 +25,27 @@ export async function rpcBulkUploadLogs(
     recovery: e.recovery,
   }));
 
-  const { data, error } = await supabase.rpc("bulk_upload_logs", {
+  let { data, error } = await supabase.rpc("bulk_upload_logs", {
     p_product_id: productId,
     p_logs,
   });
+
+  // Backward-compatible payload fallback for older SQL functions that expect `{ logs: [...] }`.
+  if (error) {
+    const normalizedMessage = (error.message ?? "").toLowerCase();
+    const isJsonOperatorMismatch =
+      normalizedMessage.includes("operator does not exist") ||
+      normalizedMessage.includes("cannot extract elements from an object") ||
+      normalizedMessage.includes("cannot extract elements from a scalar");
+    if (isJsonOperatorMismatch) {
+      const retry = await supabase.rpc("bulk_upload_logs", {
+        p_product_id: productId,
+        p_logs: { logs: p_logs },
+      });
+      data = retry.data;
+      error = retry.error;
+    }
+  }
 
   const payload = (data ?? null) as Record<string, unknown> | null;
 

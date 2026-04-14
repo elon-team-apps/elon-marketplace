@@ -10,6 +10,8 @@ export interface Product {
   category: string;
   price: number;
   description: string;
+  /** Optional admin-entered fallback shown when no live log_items exist yet. */
+  manual_stock?: number;
   stock_count: number;
   // Backward-compat alias while remaining screens migrate.
   stock?: number;
@@ -518,6 +520,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         category:    String(row.category ?? ""),
         price:       Number(row.price ?? 0),
         description: String(row.description ?? ""),
+        manual_stock: row.manual_stock === null || row.manual_stock === undefined
+          ? null
+          : Number(row.manual_stock),
         stock_count: row.stock_count === null || row.stock_count === undefined
           ? null
           : Number(row.stock_count),
@@ -577,6 +582,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             category: r.category,
             price: r.price,
             description: r.description,
+            manual_stock: r.manual_stock === null ? undefined : Number(r.manual_stock),
             stock_count: resolvedStock,
             stock: resolvedStock,
             logs: r.logs,
@@ -715,6 +721,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       category,
       price: Number(row.price ?? 0),
       description: String(row.description ?? ""),
+      manual_stock: row.manual_stock === null || row.manual_stock === undefined
+        ? undefined
+        : Math.max(0, Number(row.manual_stock ?? 0)),
       stock_count: resolvedStock,
       stock: resolvedStock,
       logs: [],

@@ -422,6 +422,7 @@ type CreateForm = {
   category: string;
   price: string;
   description: string;
+  manualStock: string;
   logsText: string;
 };
 
@@ -430,6 +431,7 @@ const emptyCreateForm: CreateForm = {
   category: DEFAULT_PRODUCT_CATEGORY,
   price: "",
   description: "",
+  manualStock: "",
   logsText: "",
 };
 
@@ -477,6 +479,16 @@ function CreateProductModal({
       toast({ title: "Enter a valid price", variant: "destructive" });
       return;
     }
+    const manualStockInput = form.manualStock.trim();
+    const parsedManualStock = manualStockInput === "" ? null : Number(manualStockInput);
+    if (
+      manualStockInput !== "" &&
+      (!Number.isFinite(parsedManualStock) || parsedManualStock < 0 || !Number.isInteger(parsedManualStock))
+    ) {
+      setCreateErrorMsg("Manual stock count must be a whole number 0 or greater.");
+      toast({ title: "Invalid manual stock count", variant: "destructive" });
+      return;
+    }
     if (rawLogLines.length > 0 && !pasteRes.ok) {
       setCreateErrorMsg(pasteRes.message);
       toast({
@@ -512,6 +524,7 @@ function CreateProductModal({
             category: form.category,
             price: Math.trunc(price),
             description: form.description.trim(),
+            manual_stock: parsedManualStock,
             stock: 0,
             stock_count: 0,
             status: "sold_out",
@@ -594,6 +607,7 @@ function CreateProductModal({
         category: form.category,
         price,
         description: form.description.trim(),
+        manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
         logs: uploadEntries.map((e) => `${e.email}:${e.password}:${e.recovery}`),
         stock_count: uploadEntries.length,
         stock: uploadEntries.length,
@@ -667,6 +681,25 @@ function CreateProductModal({
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Price (₦)</Label>
               <Input type="number" min={1} className="mt-1.5" value={form.price} onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, price: e.target.value })); }} disabled={saving} />
             </div>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Manual Stock Count</Label>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              className="mt-1.5"
+              value={form.manualStock}
+              onChange={(e) => {
+                setCreateErrorMsg("");
+                setForm((f) => ({ ...f, manualStock: e.target.value }));
+              }}
+              disabled={saving}
+              placeholder="Optional fallback stock (e.g. 10)"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Used only when no live <code className="text-[11px]">log_items</code> are currently available.
+            </p>
           </div>
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Description</Label>
@@ -747,6 +780,9 @@ function EditProductModal({
   const [category, setCategory] = useState(product.category);
   const [price, setPrice] = useState(product.price.toString());
   const [description, setDescription] = useState(product.description);
+  const [manualStock, setManualStock] = useState(
+    typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "",
+  );
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
@@ -756,8 +792,9 @@ function EditProductModal({
     setCategory(product.category);
     setPrice(product.price.toString());
     setDescription(product.description);
+    setManualStock(typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "");
     setErrorMsg("");
-  }, [product.id, product.title, product.category, product.price, product.description]);
+  }, [product.id, product.title, product.category, product.price, product.description, product.manual_stock]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -767,6 +804,15 @@ function EditProductModal({
     const n = parseFloat(price);
     if (isNaN(n) || n <= 0) {
       toast({ title: "Valid price required", variant: "destructive" });
+      return;
+    }
+    const manualStockInput = manualStock.trim();
+    const parsedManualStock = manualStockInput === "" ? null : Number(manualStockInput);
+    if (
+      manualStockInput !== "" &&
+      (!Number.isFinite(parsedManualStock) || parsedManualStock < 0 || !Number.isInteger(parsedManualStock))
+    ) {
+      toast({ title: "Manual stock must be a whole number", variant: "destructive" });
       return;
     }
 
@@ -784,6 +830,7 @@ function EditProductModal({
             category: nextCategory,
             price: Math.trunc(n),
             description: description.trim(),
+            manual_stock: parsedManualStock,
             logo_url: autoLogoUrl ?? null,
           })
           .eq("id", product.id)
@@ -809,6 +856,7 @@ function EditProductModal({
           category: nextCategory,
           price: Math.trunc(n),
           description: description.trim(),
+          manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
           logo_url: autoLogoUrl,
         });
       }
@@ -866,6 +914,19 @@ function EditProductModal({
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Description</Label>
             <textarea rows={3} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Manual Stock Count</Label>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              className="mt-1.5"
+              value={manualStock}
+              onChange={(e) => setManualStock(e.target.value)}
+              disabled={saving}
+              placeholder="Optional fallback stock"
+            />
           </div>
         </div>
         <div className="px-5 py-4 border-t border-slate-100 dark:border-white/10 flex justify-end gap-2">
