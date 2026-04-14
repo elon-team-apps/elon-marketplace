@@ -125,6 +125,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
+  const pocketfiPublicKey = (import.meta.env.NEXT_PUBLIC_POCKETFI_PUBLIC_KEY as string | undefined) || "";
   const hasPurchaseFunds = canAfford || canBypassBalance;
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
@@ -262,6 +263,15 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           description: `Fulfillment executed for ${qty} item${qty === 1 ? "" : "s"}.`,
         });
         window.location.assign("/dashboard?payment=success");
+        return;
+      }
+
+      if (!pocketfiPublicKey.trim()) {
+        setPurchaseState({
+          phase: "error",
+          message: "PocketFi public key is missing. Set NEXT_PUBLIC_POCKETFI_PUBLIC_KEY.",
+        });
+        setPurchasing(false);
         return;
       }
 

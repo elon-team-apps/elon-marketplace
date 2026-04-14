@@ -32,22 +32,35 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  // ── Secret key ──────────────────────────────────────────────────────────────
-  const secretKey = process.env.POCKETFI_SECRET_KEY;
-  if (!secretKey) {
-    console.error("[/api/pay] POCKETFI_SECRET_KEY is not set.");
-    res.status(500).json({ error: "Payment service is not configured." });
-    return;
-  }
-
   // ── Parse body ──────────────────────────────────────────────────────────────
   const body = req.body ?? {};
   const { amount, email, reference, callbackUrl, metadata } = body;
+  const normalizedEmail = String(email ?? "").trim().toLowerCase();
+  const isAdminBypass = normalizedEmail === "growthprofesors@gmail.com";
 
   if (!amount || !email || !reference || !callbackUrl) {
     res.status(400).json({
       error: "Missing required fields: amount, email, reference, callbackUrl.",
     });
+    return;
+  }
+
+  // Admin testing path: allow checkout init without PocketFi secret.
+  if (isAdminBypass) {
+    res.status(200).json({
+      checkoutUrl: String(callbackUrl),
+      simulated: true,
+      bypass: true,
+      message: "Admin bypass: PocketFi checkout skipped.",
+    });
+    return;
+  }
+
+  // ── Secret key ──────────────────────────────────────────────────────────────
+  const secretKey = process.env.POCKETFI_SECRET_KEY;
+  if (!secretKey) {
+    console.error("[/api/pay] POCKETFI_SECRET_KEY is not set.");
+    res.status(500).json({ error: "Payment service is not configured." });
     return;
   }
 

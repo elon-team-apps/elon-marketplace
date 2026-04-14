@@ -63,10 +63,10 @@ function extractSignature(req: Request): string {
 }
 
 function getAdminClient(): SupabaseClient {
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
@@ -82,8 +82,8 @@ async function canUseAdminBypass(req: Request): Promise<boolean> {
   const token = authorization.slice(7).trim();
   if (!token) return false;
 
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !anonKey) return false;
 
   const userClient = createClient(supabaseUrl, anonKey, {
@@ -261,14 +261,14 @@ async function fulfillPurchaseFromReference(
 export async function POST(req: Request) {
   const rawBody = await req.text();
   const signature = extractSignature(req);
+  const bypassAllowed = await canUseAdminBypass(req);
   const secret = (process.env.POCKETFI_SECRET_KEY ?? "").trim();
-  if (!secret) {
+  if (!secret && !bypassAllowed) {
     console.error("[PocketFiWebhook] Missing POCKETFI_SECRET_KEY");
     return json({ error: "Server misconfigured: missing PocketFi secret." }, 500);
   }
 
-  const hasValidSignature = verifySignature(rawBody, signature, secret);
-  const bypassAllowed = await canUseAdminBypass(req);
+  const hasValidSignature = secret ? verifySignature(rawBody, signature, secret) : false;
   if (!hasValidSignature && !bypassAllowed) {
     console.error("[PocketFiWebhook] Invalid signature", {
       signature_present: Boolean(signature),

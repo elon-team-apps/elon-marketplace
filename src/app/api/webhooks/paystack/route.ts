@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-paystack-signature") ?? "";
   const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!paystackSecret) {
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   }
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
-    console.error("[PaystackWebhook] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    console.error("[PaystackWebhook] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
     return NextResponse.json({ error: "Server misconfigured: missing Supabase server credentials." }, { status: 500 });
   }
 

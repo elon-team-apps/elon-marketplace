@@ -1,11 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+export const resolvedSupabaseUrl = (import.meta.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined) ?? undefined;
+export const resolvedSupabaseAnonKey = (import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined) ?? undefined;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!resolvedSupabaseUrl || !resolvedSupabaseAnonKey) {
   console.warn(
-    "[Supabase] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is not set. " +
+    "[Supabase] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set. " +
     "The app will run in offline/localStorage mode. " +
     "Copy .env.example to .env and fill in your project credentials."
   );
@@ -13,8 +13,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Exported as nullable — always guard with `if (supabase)` before calling
 export const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey, {
+  resolvedSupabaseUrl && resolvedSupabaseAnonKey
+    ? createClient(resolvedSupabaseUrl, resolvedSupabaseAnonKey, {
       auth: {
         persistSession: true,
         storageKey: "elon-auth-token",
