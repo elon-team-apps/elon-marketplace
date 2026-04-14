@@ -156,6 +156,14 @@ async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<
   return counts;
 }
 
+function resolveTotalStock(product: Product, liveStockById?: Record<string, number>): number {
+  const live = liveStockById && product.id in liveStockById
+    ? Math.max(0, Number(liveStockById[product.id] ?? 0))
+    : Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+  const manual = Math.max(0, Number(product.manual_stock ?? 0));
+  return live + manual;
+}
+
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
 
 type UploadStatus = "idle" | "uploading" | "success" | "error";
@@ -334,7 +342,7 @@ function BulkUploadModal({
                   >
                     {products.length === 0 && <option value="">No products</option>}
                     {products.map((p) => {
-                      const optStock = liveStockById[p.id] ?? p.stock_count ?? p.stock ?? 0;
+                      const optStock = resolveTotalStock(p, liveStockById);
                       return (
                       <option key={p.id} value={p.id}>
                         {p.title} ({optStock} in stock)
@@ -775,7 +783,7 @@ function EditProductModal({
   onSaved: () => void | Promise<void>;
   patchProductLocal: (id: string, updates: Partial<Omit<Product, "id" | "createdAt">>) => void;
 }) {
-  const { mergeProductRowFromDb } = useApp();
+  const { mergeProductRowFromDb, refreshProducts } = useApp();
   const [title, setTitle] = useState(product.title);
   const [category, setCategory] = useState(product.category);
   const [price, setPrice] = useState(product.price.toString());
@@ -841,6 +849,14 @@ function EditProductModal({
           const details = error
             ? formatSupabasePostgrestError(error)
             : "Update returned no row. Check SELECT policy for products.";
+          if (error) {
+            console.error("[EditProduct] products.update failed", {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+              hint: error.hint,
+            });
+          }
           setErrorMsg(details);
           toast({
             title: "We couldn't update that",
@@ -862,6 +878,7 @@ function EditProductModal({
       }
 
       // Vite SPA equivalent of router.refresh(): re-fetch source-of-truth list.
+      await refreshProducts();
       await onSaved();
       toast({ title: "You're all set", description: "Product details saved." });
       onClose();
@@ -1319,10 +1336,7 @@ export default function AdminProducts() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/10">
                 {products.map((product) => {
-                  const stock =
-                    product.id in liveStockById
-                      ? liveStockById[product.id]!
-                      : (product.stock_count ?? product.stock ?? 0);
+                  const stock = resolveTotalStock(product, liveStockById);
                   return (
                   <tr key={product.id} className="hover:bg-slate-50/60 dark:hover:bg-white/5">
                     <td className="px-3 py-3 align-middle">

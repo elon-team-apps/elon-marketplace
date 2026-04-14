@@ -361,7 +361,10 @@ export default function AdminDashboard() {
     };
   }, [fetchAnalytics]);
 
-  const activeStock = products.reduce((sum, p) => sum + (p.stock_count ?? p.stock ?? 0), 0);
+  const resolveTotalStock = (p: (typeof products)[number]) =>
+    Math.max(0, Number(p.stock_count ?? p.stock ?? 0)) + Math.max(0, Number(p.manual_stock ?? 0));
+
+  const activeStock = products.reduce((sum, p) => sum + resolveTotalStock(p), 0);
 
   const totalRevenue = dbPurchaseRevenue ?? 0;
   const totalLogsSold = dbLogsSold ?? 0;
@@ -564,14 +567,14 @@ export default function AdminDashboard() {
                 <div className="shrink-0">
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                      (p.stock_count ?? p.stock ?? 0) > 5
+                      resolveTotalStock(p) > 5
                         ? "bg-accent/15 text-accent border border-accent/20"
-                        : (p.stock_count ?? p.stock ?? 0) > 0
+                        : resolveTotalStock(p) > 0
                         ? "bg-amber-400/15 text-amber-400 border border-amber-400/20"
                         : "bg-red-500/15 text-red-400 border border-red-500/20"
                     }`}
                   >
-                    {(p.stock_count ?? p.stock ?? 0)} in stock
+                    {resolveTotalStock(p)} in stock
                   </span>
                 </div>
               </div>

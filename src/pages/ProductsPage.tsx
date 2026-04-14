@@ -52,7 +52,9 @@ export function inferPlatformKey(title: string) {
 }
 
 export function getAvailableStock(product: Product): number {
-  return Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+  const live = Math.max(0, Number(product.stock_count ?? product.stock ?? 0));
+  const manual = Math.max(0, Number(product.manual_stock ?? 0));
+  return live + manual;
 }
 
 // ─── Platform registry ────────────────────────────────────────────────────────
@@ -428,9 +430,7 @@ function ProductCard({
   const availableStock =
     liveStock === null
       ? getAvailableStock(p)
-      : liveStock > 0
-        ? liveStock
-        : manualFallbackStock;
+      : Math.max(0, liveStock) + manualFallbackStock;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
 
