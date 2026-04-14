@@ -5,6 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useApp } from "./context/AppContext";
+import { useAuth } from "./hooks/useAuth";
 
 const loadLandingPage = () => import("./app/page");
 const loadAuthPage = () => import("./pages/AuthPage");
@@ -89,16 +90,16 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Admin pages — allowed when `profiles.is_admin` is true (or legacy `role = 'admin'`). */
+/** Admin pages — DB admin, legacy role admin, or superadmin email bypass (see `adminAccess.ts`). */
 function AdminRoute({ children }: { children: ReactNode }) {
-  const { profileLoaded, isAdmin } = useApp();
+  const { profileLoaded, isAdmin } = useAuth();
   if (!profileLoaded) return <RouteLoading />;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
 function AdminChunkPrefetcher() {
-  const { profileLoaded, isAdmin } = useApp();
+  const { profileLoaded, isAdmin } = useAuth();
   useEffect(() => {
     if (!profileLoaded || !isAdmin) return;
     void loadAdminDashboard();

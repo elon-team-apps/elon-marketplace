@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
+import { isSuperAdminEmail } from "@/lib/adminAccess";
 import { toast } from "sonner";
 
 export interface Product {
@@ -44,8 +45,13 @@ export interface Order {
 interface AppContextType {
   currentUser: User;
   profileLoaded: boolean;   // false until Supabase profile has been fetched
-  isAdmin: boolean;         // true only when profiles.role === 'admin' confirmed from DB
+  /** Admin from DB flags, legacy role, or superadmin email bypass (see `adminAccess.ts`). */
+  isAdmin: boolean;
   isAdminView: boolean;
+  /** Non-null when profile fetch failed or threw (e.g. RLS / recursion); UI can show a soft warning. */
+  profileSyncWarning: string | null;
+  /** Clears app + auth storage, signs out, redirects to `/auth` for a clean session. */
+  clearSessionAndHardRefresh: () => Promise<void>;
   products: Product[];
   users: User[];
   orders: Order[];
@@ -209,9 +215,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User>(loadingUser);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [isAdminView, setIsAdminView] = useState(false);
+  const [profileSyncWarning, setProfileSyncWarning] = useState<string | null>(null);
 
-  // Single source of truth for admin — profiles.is_admin (preferred) or legacy role = admin.
-  const isAdmin = currentUser.is_admin === true;
+  const isAdmin =
+    currentUser.is_admin === true ||
+    currentUser.role === "admin" ||
+    isSuperAdminEmail(currentUser.email);
+
+  const clearSessionAndHardRefresh = useCallback(async () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    try {
+      localStorage.removeItem("elon-auth-token");
+    } catch {
+      /* ignore */
+    }
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        console.warn("[AppContext] signOut during hard refresh:", e);
+      }
+    }
+    window.location.assign(`${window.location.origin}/auth`);
+  }, []);
   const [products, setProducts] = useState<Product[]>(stored?.products ?? seedProducts);
   const [users, setUsers] = useState<User[]>(stored?.users ?? seedUsers);
   const [orders, setOrders] = useState<Order[]>(stored?.orders ?? seedOrders);
@@ -235,106 +265,150 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     const fallbackName = authUser.email?.split("@")[0] ?? "User";
-    console.log("[AppContext] syncProfile start — uid:", authUser.id, "email:", authUser.email);
+    const sessionEmail = (authUser.email ?? "").trim();
+    console.log("[AppContext] syncProfile start — uid:", authUser.id, "email:", sessionEmail);
 
     if (!supabase) {
       console.warn("[AppContext] Supabase not configured — running in offline mode.");
-      setCurrentUser({ ...loadingUser, id: authUser.id, email: authUser.email ?? "", name: fallbackName });
-      setProfileLoaded(true);
-      return;
-    }
-
-    // Guard against auth race conditions: ignore stale sync requests if the
-    // currently active Supabase session is missing or belongs to another user.
-    const { data: currentSessionData } = await supabase.auth.getSession();
-    const activeUser = currentSessionData.session?.user;
-    if (!activeUser || activeUser.id !== authUser.id) {
-      console.warn("[AppContext] syncProfile skipped: stale auth user or signed out.", {
-        expected: authUser.id,
-        active: activeUser?.id ?? "none",
+      setCurrentUser({
+        ...loadingUser,
+        id: authUser.id,
+        email: sessionEmail,
+        name: fallbackName,
+        role: isSuperAdminEmail(sessionEmail) ? "admin" : "",
+        is_admin: isSuperAdminEmail(sessionEmail),
       });
       setProfileLoaded(true);
       return;
     }
 
-    // ── Fetch with retry ───────────────────────────────────────────────────
-    // Attempt 1 fires immediately. If it fails (common on cold page load because
-    // the Supabase JWT hasn't been written to the client's session store yet),
-    // we wait and retry. This reliably resolves the "₦0 / no admin" race.
-    let profile: Record<string, unknown> | null = null;
-    let lastError: { message: string; code: string } | null = null;
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      if (attempt > 1) await new Promise<void>((r) => setTimeout(r, attempt * 250));
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", authUser.id)
-        .single();
-
-      if (data) {
-        profile = data;
-        console.log("[AppContext] Profile fetched on attempt", attempt, "→ role:", data.role, "balance:", data.wallet_balance);
-        break;
-      }
-
-      lastError = error as typeof lastError;
-      console.warn(`[AppContext] Profile fetch attempt ${attempt} failed:`, error?.code, error?.message);
-    }
-
-    if (profile) {
-      const { data: latestSessionData } = await supabase.auth.getSession();
-      const latestUser = latestSessionData.session?.user;
-      if (!latestUser || latestUser.id !== authUser.id) {
-        console.warn("[AppContext] Profile fetched but session changed; ignoring stale profile update.", {
+    try {
+      const { data: currentSessionData } = await supabase.auth.getSession();
+      const activeUser = currentSessionData.session?.user;
+      if (!activeUser || activeUser.id !== authUser.id) {
+        console.warn("[AppContext] syncProfile skipped: stale auth user or signed out.", {
           expected: authUser.id,
-          active: latestUser?.id ?? "none",
+          active: activeUser?.id ?? "none",
         });
-        setProfileLoaded(true);
         return;
       }
 
-      const roleRaw = ((profile.role as string) ?? "user").toLowerCase();
-      const roleFromDb = roleRaw === "admin" ? "admin" : "user";
-      const flagRaw = profile.is_admin;
-      const fromColumn = flagRaw === true || flagRaw === "true" || flagRaw === "t";
-      const resolvedAdmin = fromColumn || roleFromDb === "admin";
-      const resolvedRole: "admin" | "user" = resolvedAdmin ? "admin" : "user";
+      let profile: Record<string, unknown> | null = null;
+      let lastError: { message: string; code: string } | null = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (attempt > 1) await new Promise<void>((r) => setTimeout(r, attempt * 250));
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .single();
+
+        if (data) {
+          profile = data;
+          console.log("[AppContext] Profile fetched on attempt", attempt, "→ role:", data.role, "balance:", data.wallet_balance);
+          break;
+        }
+
+        lastError = error as typeof lastError;
+        console.warn(`[AppContext] Profile fetch attempt ${attempt} failed:`, error?.code, error?.message);
+      }
+
+      if (profile) {
+        const { data: latestSessionData } = await supabase.auth.getSession();
+        const latestUser = latestSessionData.session?.user;
+        if (!latestUser || latestUser.id !== authUser.id) {
+          console.warn("[AppContext] Profile fetched but session changed; ignoring stale profile update.", {
+            expected: authUser.id,
+            active: latestUser?.id ?? "none",
+          });
+          return;
+        }
+
+        const email = ((profile.email as string) || authUser.email || "").trim();
+        const roleRaw = ((profile.role as string) ?? "").toLowerCase();
+        const roleFromDb = roleRaw === "admin" ? "admin" : "user";
+        const flagRaw = profile.is_admin;
+        const fromColumn = flagRaw === true || flagRaw === "true" || flagRaw === "t";
+        const resolvedAdmin = fromColumn || roleFromDb === "admin" || isSuperAdminEmail(email);
+        const resolvedRole: "admin" | "user" = resolvedAdmin ? "admin" : "user";
+
+        setProfileSyncWarning(null);
+        setCurrentUser({
+          id: String(profile.id ?? authUser.id),
+          name: fallbackName,
+          email,
+          wallet_balance: (profile.wallet_balance as number) ?? 0,
+          role: resolvedRole,
+          is_admin: resolvedAdmin,
+          createdAt: (profile.created_at as string) ?? "",
+        });
+        if (!resolvedAdmin && isAdminViewRef.current) setIsAdminView(false);
+        return;
+      }
+
+      console.error("[AppContext] All profile fetch retries failed. Last error:", lastError);
+      const warn =
+        `Could not load profile from Supabase. ` +
+        `(${lastError?.code ?? "unknown"}) ${lastError?.message ?? "No details"}`;
+      setProfileSyncWarning(warn);
+
+      const existing = currentUserRef.current;
+      if (existing.id === authUser.id && (existing.role !== "" || existing.is_admin)) {
+        console.log("[AppContext] Keeping existing loaded profile after fetch failure (no downgrade).");
+        return;
+      }
+
+      if (isSuperAdminEmail(sessionEmail)) {
+        setCurrentUser({
+          id: authUser.id,
+          email: sessionEmail,
+          name: fallbackName,
+          wallet_balance: 0,
+          role: "admin",
+          is_admin: true,
+          createdAt: "",
+        });
+        return;
+      }
+
       setCurrentUser({
-        id:             profile.id as string,
-        name:           fallbackName,
-        email:          (profile.email as string) || authUser.email || "",
-        wallet_balance: (profile.wallet_balance as number) ?? 0,
-        role:           resolvedRole,
-        is_admin:       resolvedAdmin,
-        createdAt:      (profile.created_at as string) ?? "",
+        ...loadingUser,
+        id: authUser.id,
+        email: sessionEmail,
+        name: fallbackName,
       });
-      if (!resolvedAdmin && isAdminViewRef.current) setIsAdminView(false);
+      toast.error("Profile sync failed", {
+        description: `${warn} Use “Clear session & reload” in the banner if this persists.`,
+        duration: 10000,
+      });
+    } catch (err) {
+      console.error("[AppContext] syncProfile threw:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setProfileSyncWarning(`Profile sync crashed: ${msg}`);
+      if (isSuperAdminEmail(sessionEmail)) {
+        setCurrentUser({
+          id: authUser.id,
+          email: sessionEmail,
+          name: fallbackName,
+          wallet_balance: 0,
+          role: "admin",
+          is_admin: true,
+          createdAt: "",
+        });
+      } else {
+        setCurrentUser({
+          ...loadingUser,
+          id: authUser.id,
+          email: sessionEmail,
+          name: fallbackName,
+        });
+      }
+    } finally {
       setProfileLoaded(true);
-      return;
     }
-
-    // ── All retries failed ─────────────────────────────────────────────────
-    console.error("[AppContext] All profile fetch retries failed. Last error:", lastError);
-
-    // Never downgrade an already-loaded admin session (e.g. from a background re-sync).
-    const existing = currentUserRef.current;
-    if (existing.id === authUser.id && (existing.role !== "" || existing.is_admin)) {
-      console.log("[AppContext] Keeping existing loaded profile to avoid downgrade.");
-      setProfileLoaded(true);
-      return;
-    }
-
-    // Profile row missing (new user before trigger fires?) — put them in a
-    // recoverable state with their auth data. The ↻ button can retry.
-    setCurrentUser({ ...loadingUser, id: authUser.id, email: authUser.email ?? "", name: fallbackName });
-    setProfileLoaded(true);
-    toast.error("Profile sync failed", {
-      description: `(${lastError?.code ?? "unknown"}) ${lastError?.message ?? "No details"}. Click ↻ to retry.`,
-      duration: 8000,
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Auth subscription ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -369,6 +443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.log("[AppContext] Signed out — clearing user state.");
         setCurrentUser(loadingUser);
         setIsAdminView(false);
+        setProfileSyncWarning(null);
         setProfileLoaded(true);
       }
     });
@@ -560,6 +635,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Clears currentUserRef.role so the retry logic doesn't skip the fetch.
   const refreshProfile = useCallback(async () => {
     if (!supabase) return;
+    setProfileSyncWarning(null);
     currentUserRef.current = { ...currentUserRef.current, role: "" };
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) await syncProfile(session.user);
@@ -725,6 +801,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         profileLoaded,
         isAdmin,
         isAdminView,
+        profileSyncWarning,
+        clearSessionAndHardRefresh,
         products,
         users,
         orders,
