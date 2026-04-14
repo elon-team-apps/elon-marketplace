@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
 import logo from "@/assets/logo-transparent.png";
-import { useApp } from "@/context/AppContext";
+import { useApp, type Product as AppProduct } from "@/context/AppContext";
 import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
+import { calculateStockBreakdown } from "@/lib/stock";
 import {
   ArrowRight,
   Facebook,
@@ -80,12 +81,22 @@ const whyUs = [
   },
 ];
 
-const hotDeals = [
+const curatedHotDeals = [
   { platform: "Facebook", title: "Aged Facebook Profile", category: "Social Media", year: "2010", price: "₦12,000", icon: Facebook, color: "#1877F2", liveStock: 14, manualStock: 0 },
   { platform: "Instagram", title: "Aged Instagram Profile", category: "Social Media", year: "2015", price: "₦8,500", icon: Instagram, color: "#E1306C", liveStock: 0, manualStock: 22 },
   { platform: "LinkedIn", title: "Aged LinkedIn Profile", category: "Social Media", year: "2012", price: "₦15,000", icon: Linkedin, color: "#0A66C2", liveStock: 9, manualStock: 0 },
   { platform: "Twitter / X", title: "Aged Twitter/X Profile", category: "Social Media", year: "2013", price: "₦10,000", icon: Twitter, color: "#1DA1F2", liveStock: 4, manualStock: 6 },
 ];
+
+function resolvePlatformMeta(product: AppProduct) {
+  const title = product.title.toLowerCase();
+  if (title.includes("facebook")) return { platform: "Facebook", icon: Facebook, color: "#1877F2" };
+  if (title.includes("instagram")) return { platform: "Instagram", icon: Instagram, color: "#E1306C" };
+  if (title.includes("linkedin")) return { platform: "LinkedIn", icon: Linkedin, color: "#0A66C2" };
+  if (title.includes("twitter") || title.includes(" x ")) return { platform: "Twitter / X", icon: Twitter, color: "#1DA1F2" };
+  if (title.includes("youtube")) return { platform: "YouTube", icon: Youtube, color: "#FF0000" };
+  return { platform: product.category || "Digital Asset", icon: BadgeCheck, color: "#34d399" };
+}
 
 const reviews = [
   { name: "ChimaOG",   comment: "Best place for aged IG logs! Super fast delivery.", rating: 5 },
@@ -97,9 +108,33 @@ const reviews = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const LandingPage = () => {
-  const { currentUser } = useApp();
+  const { currentUser, products } = useApp();
   const hasSession = Boolean(currentUser?.id);
   const walletBalance = Number(currentUser?.wallet_balance ?? 0);
+  const liveFeaturedDeals = products
+    .map((product) => {
+      const stock = calculateStockBreakdown(product);
+      const platformMeta = resolvePlatformMeta(product);
+      return {
+        id: product.id,
+        title: product.title,
+        category: product.category,
+        year: product.createdAt ? String(new Date(product.createdAt).getFullYear()) : "Recent",
+        price: `₦${Number(product.price ?? 0).toLocaleString()}`,
+        icon: platformMeta.icon,
+        color: platformMeta.color,
+        platform: platformMeta.platform,
+        liveStock: stock.live,
+        manualStock: stock.manual,
+        totalStock: stock.total,
+      };
+    })
+    .sort((a, b) => {
+      if (b.totalStock !== a.totalStock) return b.totalStock - a.totalStock;
+      return b.year.localeCompare(a.year);
+    })
+    .slice(0, 4);
+  const featuredDeals = liveFeaturedDeals.length > 0 ? liveFeaturedDeals : curatedHotDeals;
 
   return (
     <div className="min-h-screen bg-[#080c14] text-white" style={{ fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif" }}>
@@ -351,13 +386,13 @@ const LandingPage = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {hotDeals.map((d) => {
+            {featuredDeals.map((d) => {
               const Icon = d.icon;
               const totalStock = d.liveStock + d.manualStock;
               const manualOnly = d.liveStock === 0 && d.manualStock > 0;
               return (
                 <div
-                  key={d.platform}
+                  key={"id" in d ? d.id : d.platform}
                   className="card-lift rounded-2xl p-6 flex flex-col backdrop-blur-xl"
                   style={{
                     background: "linear-gradient(160deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))",
