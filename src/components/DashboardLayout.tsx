@@ -98,6 +98,7 @@ const DashboardLayout = () => {
   const [refreshing, setRefreshing] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
   const canAccessAdmin = isAdmin || isSuperAdminEmail(currentUser?.email);
+  const usingEmailAdminFallback = !isAdmin && isSuperAdminEmail(currentUser?.email);
 
   const close = () => setSidebarOpen(false);
 
@@ -230,6 +231,11 @@ const DashboardLayout = () => {
                 <span className="font-semibold">Account data warning.</span>{" "}
                 {profileSyncWarning} You can still use the app; admin tools stay enabled for approved admin email accounts.
               </p>
+              {usingEmailAdminFallback && (
+                <span className="inline-flex items-center rounded-md border border-amber-700/30 bg-amber-100/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900 dark:border-amber-400/40 dark:bg-amber-900/40 dark:text-amber-200">
+                  Email-based admin fallback
+                </span>
+              )}
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
