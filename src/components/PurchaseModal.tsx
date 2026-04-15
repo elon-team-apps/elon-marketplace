@@ -101,6 +101,21 @@ function buildPocketFiReference(): string {
   return `pfi_${Date.now()}_${rand}`;
 }
 
+function extractDeliveredData(payload: Record<string, unknown>): string[] {
+  const data = (payload.data as Record<string, unknown> | undefined) ?? payload;
+  const raw = data.delivered_data;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
+function toEmailPasswordView(entry: string): string {
+  const parts = String(entry).split(":");
+  if (parts.length < 2) return entry;
+  return `${parts[0]}:${parts[1]}`;
+}
+
 type PurchaseState =
   | { phase: "idle" }
   | { phase: "success"; logs: string[]; count: number }
@@ -259,10 +274,13 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           setPurchasing(false);
           return;
         }
+        const simulatePayload = (await simulateRes.json().catch(() => ({}))) as Record<string, unknown>;
+        const delivered = extractDeliveredData(simulatePayload).map(toEmailPasswordView);
+        setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
+        setPurchasing(false);
         sonnerToast.success("Admin test purchase completed", {
           description: `Fulfillment executed for ${qty} item${qty === 1 ? "" : "s"}.`,
         });
-        window.location.assign("/dashboard?payment=success");
         return;
       }
 
@@ -447,6 +465,24 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                 <p className="text-sm text-sky-700 dark:text-sky-300">{purchaseState.message}</p>
               </div>
             )}
+            {purchaseState.phase === "success" && (
+              <div className="rounded-xl px-4 py-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 space-y-2.5">
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  Purchase completed ({purchaseState.count} account{purchaseState.count === 1 ? "" : "s"})
+                </p>
+                {purchaseState.logs.length > 0 ? (
+                  <div className="max-h-40 overflow-auto rounded-lg border border-emerald-200/70 dark:border-emerald-500/20 bg-white/60 dark:bg-black/20 px-2.5 py-2">
+                    <pre className="text-xs whitespace-pre-wrap break-words font-mono text-emerald-900 dark:text-emerald-100 leading-relaxed">
+                      {purchaseState.logs.join("\n")}
+                    </pre>
+                  </div>
+                ) : (
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                    No log data was returned in webhook response.
+                  </p>
+                )}
+              </div>
+            )}
 
             {!hasPurchaseFunds && availableStock > 0 && (
               <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
@@ -470,7 +506,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             <button
               type="button"
               onClick={handlePurchase}
-              disabled={!canAttemptPurchase || purchasing || !hasPurchaseFunds || !canStartPayment}
+              disabled={!canAttemptPurchase || purchasing || !hasPurchaseFunds || !canStartPayment || purchaseState.phase === "success"}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: BTN_NAVY,

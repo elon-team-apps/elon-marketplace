@@ -57,6 +57,14 @@ function formatDbError(error: {
   return parts.join(" | ") || "Unknown database error.";
 }
 
+function extractDeliveredData(payload: Record<string, unknown>): string[] {
+  const raw = payload.delivered_data ?? payload.credentials_delivered;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
 function verifySignature(rawBody: string, signatureHeader: string, secret: string): boolean {
   const signature = signatureHeader.trim().toLowerCase();
   if (!signature || !secret) return false;
@@ -244,16 +252,60 @@ async function fulfillPurchaseFromReference(
   if (updateProductError) return { ok: false, status: 500, error: `Failed to update product inventory: ${formatDbError(updateProductError)}` };
 
   const deliveredCredentials = logsToDeliver.slice(0, fromLogs).map((row) => row.credentials);
-  const { error: txUpdateError } = await supabaseAdmin
+  const sharedTxUpdate = {
+    status: "completed",
+    amount: amountNaira > 0 ? amountNaira : tx.amount,
+    log_id: fromLogs > 0 ? logsToDeliver[fromLogs - 1].id : null,
+  };
+
+  // Probe table columns before update to avoid stale assumptions after migrations.
+  const txProbe = await supabaseAdmin.from("transactions").select("*").limit(1);
+  if (txProbe.error) {
+    console.warn("[PocketFiWebhook] transactions schema probe failed", {
+      reference,
+      error: formatDbError(txProbe.error),
+    });
+  }
+
+  const primaryTxUpdate = await supabaseAdmin
     .from("transactions")
     .update({
-      status: "completed",
-      amount: amountNaira > 0 ? amountNaira : tx.amount,
-      credentials_delivered: deliveredCredentials,
-      log_id: fromLogs > 0 ? logsToDeliver[fromLogs - 1].id : null,
+      ...sharedTxUpdate,
+      credentials_delivered: true,
+      delivered_data: deliveredCredentials,
     })
-    .eq("id", tx.id);
-  if (txUpdateError) return { ok: false, status: 500, error: `Failed to mark transaction completed: ${formatDbError(txUpdateError)}` };
+    .eq("id", tx.id)
+    .select("credentials_delivered, delivered_data")
+    .maybeSingle();
+
+  let txUpdateError = primaryTxUpdate.error;
+  let resolvedDeliveredData = extractDeliveredData((primaryTxUpdate.data ?? {}) as Record<string, unknown>);
+
+  if (txUpdateError) {
+    console.warn("[PocketFiWebhook] Primary transaction update failed; falling back to legacy payload", {
+      reference,
+      error: formatDbError(txUpdateError),
+    });
+    const legacyTxUpdate = await supabaseAdmin
+      .from("transactions")
+      .update({
+        ...sharedTxUpdate,
+        credentials_delivered: deliveredCredentials,
+      })
+      .eq("id", tx.id)
+      .select("credentials_delivered, delivered_data")
+      .maybeSingle();
+    txUpdateError = legacyTxUpdate.error;
+    resolvedDeliveredData = extractDeliveredData((legacyTxUpdate.data ?? {}) as Record<string, unknown>);
+  }
+
+  if (txUpdateError) {
+    return { ok: false, status: 500, error: `Failed to mark transaction completed: ${formatDbError(txUpdateError)}` };
+  }
+
+  if (resolvedDeliveredData.length === 0) {
+    resolvedDeliveredData = deliveredCredentials;
+  }
 
   const profileRow = buyerProfile;
 
@@ -283,6 +335,7 @@ async function fulfillPurchaseFromReference(
       reference,
       delivered_logs: fromLogs,
       manual_units_used: fromManual,
+      delivered_data: resolvedDeliveredData,
     },
   };
 }
