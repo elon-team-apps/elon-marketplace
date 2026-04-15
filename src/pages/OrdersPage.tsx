@@ -273,9 +273,16 @@ export default function OrdersPage() {
   const [viewing, setViewing] = useState<(Order & { credentials?: string }) | null>(null);
   const [dbOrders, setDbOrders] = useState<DbOrder[]>([]);
   const [loadingDb, setLoadingDb] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   // User's local orders from AppContext (works offline + immediately after purchase)
   const localOrders = orders.filter((o) => o.userId === currentUser?.id);
+
+  useEffect(() => {
+    const onRefresh = () => setRefreshNonce((v) => v + 1);
+    window.addEventListener("orders:refresh", onRefresh);
+    return () => window.removeEventListener("orders:refresh", onRefresh);
+  }, []);
 
   // When Supabase is available, fetch from log_items (buyer_id) joined with products
   useEffect(() => {
@@ -323,7 +330,7 @@ export default function OrdersPage() {
         }
         setLoadingDb(false);
       });
-  }, [currentUser?.id]);
+  }, [currentUser?.id, refreshNonce]);
 
   // Merge DB orders with local — DB rows take precedence (deduplicated by id).
   // Local rows are kept for immediately-purchased items not yet in the DB query.

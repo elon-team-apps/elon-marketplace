@@ -104,6 +104,9 @@ function buildPocketFiReference(): string {
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const data = (payload.data as Record<string, unknown> | undefined) ?? payload;
   const raw = data.delivered_data;
+  if (typeof raw === "string") {
+    return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  }
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => String(item ?? "").trim())
@@ -278,6 +281,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         const delivered = extractDeliveredData(simulatePayload).map(toEmailPasswordView);
         setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
         setPurchasing(false);
+        window.dispatchEvent(new CustomEvent("orders:refresh"));
         sonnerToast.success("Admin test purchase completed", {
           description: `Fulfillment executed for ${qty} item${qty === 1 ? "" : "s"}.`,
         });

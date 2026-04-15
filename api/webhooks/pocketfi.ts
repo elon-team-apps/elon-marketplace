@@ -59,10 +59,21 @@ function formatDbError(error: {
 
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const raw = payload.delivered_data ?? payload.credentials_delivered;
+  if (typeof raw === "string") {
+    return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  }
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => String(item ?? "").trim())
     .filter(Boolean);
+}
+
+function toEmailPassword(credentials: string): string {
+  const clean = String(credentials ?? "").trim();
+  if (!clean) return "";
+  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
+  if (parts.length < 2) return clean;
+  return `${String(parts[0] ?? "").trim()}:${String(parts[1] ?? "").trim()}`;
 }
 
 function verifySignature(rawBody: string, signatureHeader: string, secret: string): boolean {
@@ -252,10 +263,11 @@ async function fulfillPurchaseFromReference(
   if (updateProductError) return { ok: false, status: 500, error: `Failed to update product inventory: ${formatDbError(updateProductError)}` };
 
   const deliveredCredentials = logsToDeliver.slice(0, fromLogs).map((row) => row.credentials);
+  const deliveredDataLines = deliveredCredentials.map(toEmailPassword).filter(Boolean);
+  const deliveredData = deliveredDataLines.join("\n");
   const sharedTxUpdate = {
     status: "completed",
     amount: amountNaira > 0 ? amountNaira : tx.amount,
-    log_id: fromLogs > 0 ? logsToDeliver[fromLogs - 1].id : null,
   };
 
   // Probe table columns before update to avoid stale assumptions after migrations.
@@ -272,10 +284,10 @@ async function fulfillPurchaseFromReference(
     .update({
       ...sharedTxUpdate,
       credentials_delivered: true,
-      delivered_data: deliveredCredentials,
+      delivered_data: deliveredData,
     })
     .eq("id", tx.id)
-    .select("credentials_delivered, delivered_data")
+    .select("credentials_delivered, delivered_data, log_id")
     .maybeSingle();
 
   let txUpdateError = primaryTxUpdate.error;
@@ -290,10 +302,11 @@ async function fulfillPurchaseFromReference(
       .from("transactions")
       .update({
         ...sharedTxUpdate,
-        credentials_delivered: deliveredCredentials,
+        credentials_delivered: true,
+        delivered_data: deliveredData,
       })
       .eq("id", tx.id)
-      .select("credentials_delivered, delivered_data")
+      .select("credentials_delivered, delivered_data, log_id")
       .maybeSingle();
     txUpdateError = legacyTxUpdate.error;
     resolvedDeliveredData = extractDeliveredData((legacyTxUpdate.data ?? {}) as Record<string, unknown>);
@@ -304,7 +317,24 @@ async function fulfillPurchaseFromReference(
   }
 
   if (resolvedDeliveredData.length === 0) {
-    resolvedDeliveredData = deliveredCredentials;
+    resolvedDeliveredData = deliveredDataLines.length > 0 ? deliveredDataLines : deliveredCredentials;
+  }
+
+  if (fromLogs > 0) {
+    const logId = logsToDeliver[fromLogs - 1].id;
+    const logIdUpdate = await supabaseAdmin
+      .from("transactions")
+      .update({ log_id: logId })
+      .eq("id", tx.id);
+    if (logIdUpdate.error) {
+      // Non-fatal by requirement: log_id write failure should not fail fulfillment.
+      console.warn("[PocketFiWebhook] Non-fatal: failed to update transactions.log_id", {
+        reference,
+        transaction_id: tx.id,
+        log_id: logId,
+        error: formatDbError(logIdUpdate.error),
+      });
+    }
   }
 
   const profileRow = buyerProfile;
