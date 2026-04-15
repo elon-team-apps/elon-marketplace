@@ -38,6 +38,22 @@ function asPositiveInt(value: unknown, fallback = 0): number {
   return n;
 }
 
+function formatDbError(error: {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+} | null | undefined): string {
+  if (!error) return "Unknown database error.";
+  const parts = [
+    error.message ? `message=${error.message}` : "",
+    error.code ? `code=${error.code}` : "",
+    error.details ? `details=${error.details}` : "",
+    error.hint ? `hint=${error.hint}` : "",
+  ].filter(Boolean);
+  return parts.join(" | ") || "Unknown database error.";
+}
+
 function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value);
@@ -121,6 +137,7 @@ async function fulfillPurchaseFromReference(
   reference: string,
   amountRaw: unknown,
 ) {
+  // This path always runs with service-role client (bypasses RLS for admin simulation).
   const { data: tx, error: txError } = await supabaseAdmin
     .from("transactions")
     .select("id, user_id, product_id, amount, status, quantity, reference")
@@ -129,7 +146,7 @@ async function fulfillPurchaseFromReference(
     .maybeSingle();
 
   if (txError) {
-    return { ok: false, status: 500, error: `Failed to fetch transaction: ${txError.message}` };
+    return { ok: false, status: 500, error: `Failed to fetch transaction: ${formatDbError(txError)}` };
   }
   if (!tx) {
     return { ok: true, status: 200, data: { ok: true, message: "No purchase row matched this reference." } };
@@ -159,36 +176,60 @@ async function fulfillPurchaseFromReference(
     return {
       ok: false,
       status: 500,
-      error: `Failed to fetch product for fulfillment: ${productError?.message ?? "not found"}`,
+      error: `Failed to fetch product for fulfillment: ${formatDbError(productError)}`,
     };
   }
+  const manualStock = Math.max(0, asPositiveInt(product.manual_stock, 0));
+  const canSatisfyFromManualOnly = manualStock >= quantity;
 
-  const { count: availableLogCount, error: countError } = await supabaseAdmin
+  const { count: rawAvailableLogCount, error: countError } = await supabaseAdmin
     .from("log_items")
     .select("id", { count: "exact", head: true })
     .eq("product_id", tx.product_id)
     .eq("status", "available")
     .eq("is_delivered", false);
-  if (countError) {
-    return { ok: false, status: 500, error: `Failed to count available logs: ${countError.message}` };
+  if (countError && !canSatisfyFromManualOnly) {
+    return { ok: false, status: 500, error: `Failed to count available logs: ${formatDbError(countError)}` };
+  }
+  if (countError && canSatisfyFromManualOnly) {
+    console.warn("[PocketFiWebhook] Counting logs failed; using manual stock fallback.", {
+      reference,
+      product_id: tx.product_id,
+      count_error: formatDbError(countError),
+      manual_stock: manualStock,
+      quantity,
+    });
+  }
+  const availableLogCount = countError ? 0 : Math.max(0, Number(rawAvailableLogCount ?? 0));
+
+  let logsToDeliver: Array<{ id: string; credentials: string }> = [];
+  if (availableLogCount > 0) {
+    const { data: availableLogs, error: logFetchError } = await supabaseAdmin
+      .from("log_items")
+      .select("id, credentials")
+      .eq("product_id", tx.product_id)
+      .eq("status", "available")
+      .eq("is_delivered", false)
+      .order("created_at", { ascending: true })
+      .limit(quantity);
+    if (logFetchError && !canSatisfyFromManualOnly) {
+      return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
+    }
+    if (logFetchError && canSatisfyFromManualOnly) {
+      console.warn("[PocketFiWebhook] Fetching logs failed; using manual stock fallback.", {
+        reference,
+        product_id: tx.product_id,
+        fetch_error: formatDbError(logFetchError),
+        manual_stock: manualStock,
+        quantity,
+      });
+    } else {
+      logsToDeliver = (availableLogs ?? []) as Array<{ id: string; credentials: string }>;
+    }
   }
 
-  const { data: availableLogs, error: logFetchError } = await supabaseAdmin
-    .from("log_items")
-    .select("id, credentials")
-    .eq("product_id", tx.product_id)
-    .eq("status", "available")
-    .eq("is_delivered", false)
-    .order("created_at", { ascending: true })
-    .limit(quantity);
-  if (logFetchError) {
-    return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${logFetchError.message}` };
-  }
-
-  const logsToDeliver = availableLogs ?? [];
   const fromLogs = Math.min(logsToDeliver.length, quantity);
   const fromManual = quantity - fromLogs;
-  const manualStock = Math.max(0, asPositiveInt(product.manual_stock, 0));
 
   if (fromManual > manualStock) {
     return {
@@ -208,7 +249,7 @@ async function fulfillPurchaseFromReference(
       return {
         ok: false,
         status: 500,
-        error: `Failed to mark delivered logs: ${markDeliveredError.message}`,
+        error: `Failed to mark delivered logs: ${formatDbError(markDeliveredError)}`,
       };
     }
   }
@@ -229,7 +270,7 @@ async function fulfillPurchaseFromReference(
     })
     .eq("id", tx.product_id);
   if (updateProductError) {
-    return { ok: false, status: 500, error: `Failed to update product inventory: ${updateProductError.message}` };
+    return { ok: false, status: 500, error: `Failed to update product inventory: ${formatDbError(updateProductError)}` };
   }
 
   const deliveredCredentials = logsToDeliver.slice(0, fromLogs).map((row) => row.credentials);
@@ -246,7 +287,7 @@ async function fulfillPurchaseFromReference(
     return {
       ok: false,
       status: 500,
-      error: `Failed to mark transaction completed: ${txUpdateError.message}`,
+      error: `Failed to mark transaction completed: ${formatDbError(txUpdateError)}`,
     };
   }
 
