@@ -1,7 +1,10 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const SUPERADMIN_EMAIL = "growthprofesors@gmail.com";
+const SUPERADMIN_EMAILS = new Set([
+  "growthprofesors@gmail.com",
+  "godwindavid199501@gmail.com",
+]);
 
 type PocketFiPayload = {
   event?: string;
@@ -33,6 +36,10 @@ type EnvCheck = {
 
 function normalize(input: string | null | undefined): string {
   return (input ?? "").trim().toLowerCase();
+}
+
+function isWhitelistedAdminEmail(email: string | null | undefined): boolean {
+  return SUPERADMIN_EMAILS.has(normalize(email));
 }
 
 function asPositiveInt(value: unknown, fallback = 0): number {
@@ -145,7 +152,7 @@ async function canUseAdminBypass(req: ApiRequest): Promise<boolean> {
   });
   const { data, error } = await userClient.auth.getUser(token);
   if (error || !data.user) return false;
-  return normalize(data.user.email) === SUPERADMIN_EMAIL;
+  return isWhitelistedAdminEmail(data.user.email);
 }
 
 async function fulfillPurchaseFromReference(
@@ -171,7 +178,7 @@ async function fulfillPurchaseFromReference(
     .select("email")
     .eq("id", tx.user_id)
     .maybeSingle();
-  const isAdminBuyer = normalize(buyerProfile?.email) === SUPERADMIN_EMAIL;
+  const isAdminBuyer = isWhitelistedAdminEmail(buyerProfile?.email);
 
   const quantity = Math.max(1, asPositiveInt(tx.quantity, 1));
   const amountNaira = asPositiveInt(amountRaw, asPositiveInt(tx.amount, 0));

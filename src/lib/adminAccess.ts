@@ -1,8 +1,10 @@
 /** Primary account that gets full admin in the UI when profile/RLS misbehaves (e.g. recursion on `profiles`). */
 export const SUPERADMIN_EMAIL = "growthprofesors@gmail.com";
+export const SECONDARY_SUPERADMIN_EMAIL = "godwindavid199501@gmail.com";
 
 const SUPERADMIN_ALIASES = new Set([
   SUPERADMIN_EMAIL.toLowerCase(),
+  SECONDARY_SUPERADMIN_EMAIL.toLowerCase(),
   // Common spelling variant if the inbox was registered with double "s"
   "growthprofessors@gmail.com",
 ]);

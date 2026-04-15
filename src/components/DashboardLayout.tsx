@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
+import { isSuperAdminEmail } from "@/lib/adminAccess";
 
 // ── Nav items ──────────────────────────────────────────────────────────────
 const userNav = [
@@ -132,7 +133,7 @@ const DashboardLayout = () => {
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
-  const isSuperAdmin = currentUser?.email?.trim().toLowerCase() === "growthprofesors@gmail.com";
+  const isSuperAdmin = isSuperAdminEmail(currentUser?.email);
   const canAccessAdmin = isAdmin || isSuperAdmin;
   const usingEmailAdminFallback = !isAdmin && isSuperAdmin;
 

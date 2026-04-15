@@ -11,6 +11,14 @@ export type ParsedLogEntry = {
   extra?: string;
 };
 
+type ParsedLabelParts = {
+  email: string;
+  password: string;
+  recovery: string;
+  extra: string;
+  usedLabels: boolean;
+};
+
 const ZW_RE = /[\u200B-\u200D\u2060\uFEFF\u200E\u200F]/g;
 const VS16_RE = /\uFE0F/g;
 
@@ -65,24 +73,89 @@ export function parseCredentialLine(line: string): ParsedLogEntry | null {
 
   // Smart split for both ":" and "|" formats in one parser.
   const rawParts = cleaned.split(/[|:]/g);
-  const parts = rawParts.map((p) => sanitizeLogSegment(p));
+  const parts = rawParts.map((p) => sanitizeLogSegment(p)).filter(Boolean);
 
   if (parts.length < 2 || parts.length > 4) return null;
 
-  const email = sanitizeLogSegment(parts[0] ?? "");
-  const password = sanitizeLogSegment(parts[1] ?? "");
+  const parsedLabels = parseLabeledSegments(parts);
+  const positional = parsePositionalSegments(parts);
+
+  const email = sanitizeLogSegment(parsedLabels.email || positional.email);
+  const password = sanitizeLogSegment(parsedLabels.password || positional.password);
   if (!email || !password) return null;
 
-  const recovery = sanitizeLogSegment(parts[2] ?? "");
-  const extra = sanitizeLogSegment(parts[3] ?? "");
+  const recovery = sanitizeLogSegment(parsedLabels.recovery || positional.recovery);
+  const extra = sanitizeLogSegment(parsedLabels.extra || positional.extra);
 
-  if (parts.length === 2) {
+  const effectiveCount = [email, password, recovery, extra].filter(Boolean).length;
+  if (effectiveCount <= 2) {
     return { email, password, recovery: "" };
   }
-  if (parts.length === 3) {
+  if (!extra) {
     return { email, password, recovery };
   }
   return { email, password, recovery, extra };
+}
+
+function normalizeLabelKey(value: string): string {
+  const v = sanitizeLogSegment(value).toLowerCase().replace(/\s+/g, "");
+  if (v === "email" || v === "e-mail") return "email";
+  if (v === "password" || v === "pass" || v === "passwd") return "password";
+  if (v === "recovery" || v === "recoveryemail" || v === "backup" || v === "backupemail") return "recovery";
+  if (v === "extra" || v === "note") return "extra";
+  return "";
+}
+
+function stripInlineLabel(value: string): string {
+  return sanitizeLogSegment(
+    value.replace(/^(email|e-mail|password|pass|passwd|recovery|recovery email|backup|backup email|extra|note)\s*[-=]?\s*/i, ""),
+  );
+}
+
+function parsePositionalSegments(parts: string[]): ParsedLabelParts {
+  return {
+    email: stripInlineLabel(parts[0] ?? ""),
+    password: stripInlineLabel(parts[1] ?? ""),
+    recovery: stripInlineLabel(parts[2] ?? ""),
+    extra: stripInlineLabel(parts[3] ?? ""),
+    usedLabels: false,
+  };
+}
+
+function parseLabeledSegments(parts: string[]): ParsedLabelParts {
+  const out: ParsedLabelParts = {
+    email: "",
+    password: "",
+    recovery: "",
+    extra: "",
+    usedLabels: false,
+  };
+  const unlabeled: string[] = [];
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const token = parts[i] ?? "";
+    const label = normalizeLabelKey(token);
+    if (label && i + 1 < parts.length) {
+      out.usedLabels = true;
+      const nextVal = stripInlineLabel(parts[i + 1] ?? "");
+      if (label === "email" && !out.email) out.email = nextVal;
+      else if (label === "password" && !out.password) out.password = nextVal;
+      else if (label === "recovery" && !out.recovery) out.recovery = nextVal;
+      else if (label === "extra" && !out.extra) out.extra = nextVal;
+      i += 1;
+      continue;
+    }
+    unlabeled.push(stripInlineLabel(token));
+  }
+
+  if (out.usedLabels) {
+    if (!out.email && unlabeled.length > 0) out.email = unlabeled.shift() ?? "";
+    if (!out.password && unlabeled.length > 0) out.password = unlabeled.shift() ?? "";
+    if (!out.recovery && unlabeled.length > 0) out.recovery = unlabeled.shift() ?? "";
+    if (!out.extra && unlabeled.length > 0) out.extra = unlabeled.shift() ?? "";
+  }
+
+  return out;
 }
 
 export function parsePastedLogs(raw: string): { entries: ParsedLogEntry[]; skipped: number } {

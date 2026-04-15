@@ -36,7 +36,9 @@ export default async function handler(req: any, res: any) {
   const body = req.body ?? {};
   const { amount, email, reference, callbackUrl, metadata } = body;
   const normalizedEmail = String(email ?? "").trim().toLowerCase();
-  const isAdminBypass = normalizedEmail === "growthprofesors@gmail.com";
+  const isAdminBypass =
+    normalizedEmail === "growthprofesors@gmail.com" ||
+    normalizedEmail === "godwindavid199501@gmail.com";
 
   if (!amount || !email || !reference || !callbackUrl) {
     res.status(400).json({
