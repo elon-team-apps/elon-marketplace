@@ -11,6 +11,7 @@ import {
   formatSupabasePostgrestError,
   isLikelySchemaOrMissingColumnError,
 } from "@/lib/supabaseErrors";
+import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
 import { toast as sonnerToast } from "sonner";
 import {
   PlatformLogo,
@@ -96,9 +97,9 @@ function parseInvokeErrorPayload(payload: Record<string, unknown>): string {
   return parts.filter(Boolean).join("\n") || "Unable to start payment.";
 }
 
-function buildPocketFiReference(): string {
+function buildPaymentReference(): string {
   const rand = Math.random().toString(36).slice(2, 10);
-  return `pfi_${Date.now()}_${rand}`;
+  return `psk_${Date.now()}_${rand}`;
 }
 
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
@@ -143,7 +144,6 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
-  const pocketfiPublicKey = (import.meta.env.NEXT_PUBLIC_POCKETFI_PUBLIC_KEY as string | undefined) || "";
   const hasPurchaseFunds = canAfford || canBypassBalance;
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
@@ -186,12 +186,12 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      const reference = buildPocketFiReference();
+      const reference = buildPaymentReference();
 
       if (!reference) {
         setPurchaseState({
           phase: "error",
-          message: "PocketFi did not return a transaction reference. Try again or contact support.",
+          message: "Paystack did not return a transaction reference. Try again or contact support.",
         });
         setPurchasing(false);
         return;
@@ -215,7 +215,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         quantity: qty,
       };
 
-      // Pending row in public.transactions (PocketFi webhook completes → status completed).
+      // Pending row in public.transactions (Paystack webhook completes → status completed).
       // Prefer SECURITY DEFINER RPC so reservation works even when direct INSERT is blocked by RLS.
       const { data: reserveData, error: reserveRpcErr } = await supabase.rpc("reserve_purchase_transaction", {
         p_reference: reference,
@@ -251,7 +251,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       if (canBypassBalance) {
-        const simulateRes = await fetch("/api/webhooks/pocketfi", {
+        const simulateRes = await fetch("/api/webhooks/paystack", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -259,10 +259,10 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             "x-admin-bypass": "true",
           },
           body: JSON.stringify({
-            event: "payment.success",
+            event: "charge.success",
             data: {
               reference,
-              amount: naira,
+              amount: naira * 100,
               status: "success",
               metadata,
             },
@@ -288,20 +288,11 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      if (!pocketfiPublicKey.trim()) {
-        setPurchaseState({
-          phase: "error",
-          message: "PocketFi public key is missing. Set NEXT_PUBLIC_POCKETFI_PUBLIC_KEY.",
-        });
-        setPurchasing(false);
-        return;
-      }
-
       const payRes = await fetch("/api/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: naira,
+          amount: naira * 100,
           email: currentUser.email,
           reference,
           callbackUrl,
@@ -312,27 +303,26 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       if (!payRes.ok) {
         const msg = parseInvokeErrorPayload(payPayload);
         setPurchaseState({ phase: "error", message: msg });
+        sonnerToast.error("Paystack initialization failed", {
+          description: msg,
+        });
         setPurchasing(false);
         return;
       }
-      const payUrlRaw =
-        typeof payPayload.checkoutUrl === "string"
-          ? payPayload.checkoutUrl
-          : typeof payPayload.checkout_url === "string"
-            ? payPayload.checkout_url
-            : typeof payPayload.authorization_url === "string"
-              ? payPayload.authorization_url
-              : "";
-      const payUrl = String(payUrlRaw).trim();
+      const payUrl = extractPaystackRedirectUrl(payPayload) ?? "";
       if (!payUrl) {
-        setPurchaseState({ phase: "error", message: "PocketFi did not return a checkout URL." });
+        const msg = "Paystack did not return a checkout URL.";
+        setPurchaseState({ phase: "error", message: msg });
+        sonnerToast.error("Paystack initialization failed", {
+          description: msg,
+        });
         setPurchasing(false);
         return;
       }
 
       setPurchaseState({ phase: "idle" });
       sonnerToast.success("Success", {
-        description: `Opening PocketFi checkout for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
+        description: `Opening Paystack checkout for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
       });
       window.setTimeout(() => {
         window.location.replace(payUrl);
