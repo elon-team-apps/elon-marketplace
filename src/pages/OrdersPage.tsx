@@ -95,44 +95,44 @@ function CredentialModal({
       style={{ background: "rgba(0,0,0,0.72)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="relative w-full max-w-lg bg-[hsl(var(--sidebar-background))] border border-sidebar-border rounded-2xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden dark:border-white/10 dark:bg-[#0b1120]">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-sidebar-border">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200 dark:border-white/10">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
               <ShieldCheck className="h-4 w-4 text-accent" />
             </div>
             <div>
-              <h2 className="font-heading font-bold text-sidebar-foreground">Order Receipt</h2>
-              <p className="text-xs text-sidebar-foreground/40 mt-0.5 font-mono">
+              <h2 className="font-heading font-bold text-slate-900 dark:text-white">Order Receipt</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
                 #{order.id.slice(-10).toUpperCase()}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
+            className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Order metadata */}
-        <div className="px-6 py-4 grid grid-cols-3 gap-3 border-b border-sidebar-border">
-          <div className="bg-sidebar-accent/30 rounded-xl p-3">
-            <p className="text-[10px] text-sidebar-foreground/40 uppercase tracking-wider mb-1">Product</p>
-            <p className="text-xs font-semibold text-sidebar-foreground leading-snug line-clamp-2">
+        <div className="px-6 py-4 grid grid-cols-3 gap-3 border-b border-slate-200 dark:border-white/10">
+          <div className="rounded-xl bg-slate-100 p-3 dark:bg-white/5">
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Product</p>
+            <p className="text-xs font-semibold text-slate-900 dark:text-white leading-snug line-clamp-2">
               {order.productTitle}
             </p>
           </div>
-          <div className="bg-sidebar-accent/30 rounded-xl p-3">
-            <p className="text-[10px] text-sidebar-foreground/40 uppercase tracking-wider mb-1">Amount</p>
+          <div className="rounded-xl bg-slate-100 p-3 dark:bg-white/5">
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Amount</p>
             <p className="text-sm font-bold text-accent">₦{order.amount.toLocaleString()}</p>
           </div>
-          <div className="bg-sidebar-accent/30 rounded-xl p-3">
-            <p className="text-[10px] text-sidebar-foreground/40 uppercase tracking-wider mb-1">Date</p>
-            <p className="text-xs font-semibold text-sidebar-foreground">
+          <div className="rounded-xl bg-slate-100 p-3 dark:bg-white/5">
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Date</p>
+            <p className="text-xs font-semibold text-slate-900 dark:text-white">
               {new Date(order.createdAt).toLocaleDateString("en-GB", {
                 day: "2-digit",
                 month: "short",
@@ -144,14 +144,14 @@ function CredentialModal({
 
         {/* Credential block */}
         <div className="px-6 py-5">
-          <p className="text-xs text-sidebar-foreground/40 uppercase tracking-wider font-semibold mb-3">
+          <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-3">
             Account Credentials
           </p>
 
           {fetching ? (
             <div className="flex flex-col items-center justify-center py-10 gap-3">
               <Loader2 className="h-6 w-6 text-accent animate-spin" />
-              <p className="text-xs text-sidebar-foreground/50">Retrieving credentials…</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Retrieving credentials…</p>
             </div>
           ) : fetchError ? (
             <div className="rounded-xl border border-destructive/25 bg-destructive/10 px-5 py-4 text-sm text-destructive">
@@ -219,8 +219,8 @@ function CredentialModal({
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/20 px-5 py-8 text-center">
-              <p className="text-sm text-sidebar-foreground/40">No credentials on record.</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
+              <p className="text-sm text-slate-500 dark:text-slate-400">No credentials on record.</p>
             </div>
           )}
 
@@ -300,7 +300,7 @@ export default function OrdersPage() {
             .from("transactions")
             .select("id, amount, created_at, log_id, product_id, products(title, category)")
             .eq("user_id", currentUser.id)
-            .eq("type", "purchase")
+            .in("type", ["purchase", "wallet_payment"])
             .eq("status", "completed")
             .order("created_at", { ascending: false })
             .then(({ data: txData }) => {

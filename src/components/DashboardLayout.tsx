@@ -253,9 +253,6 @@ const DashboardLayout = () => {
             <Home className="h-3.5 w-3.5" />
             Back to Home
           </Link>
-          {isSuperAdmin && (
-            <span className="block px-3 pt-1 text-[8px] opacity-20">SuperAdmin Active</span>
-          )}
         </div>
       </aside>
 

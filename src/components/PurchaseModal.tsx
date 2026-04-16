@@ -178,15 +178,17 @@ type PurchaseState =
   | { phase: "error"; message: string };
 
 export function PurchaseModal({ product, onClose }: { product: Product; onClose: () => void }) {
-  const { currentUser } = useApp();
+  const { currentUser, refreshProfile } = useApp();
   const [qty, setQty] = useState(1);
   const [purchaseState, setPurchaseState] = useState<PurchaseState>({ phase: "idle" });
   const [purchasing, setPurchasing] = useState(false);
+  const [showPaystackOption, setShowPaystackOption] = useState(false);
 
   useEffect(() => {
     setQty(1);
     setPurchasing(false);
     setPurchaseState({ phase: "idle" });
+    setShowPaystackOption(false);
   }, [product.id]);
 
   const availableStock = getAvailableStock(product);
@@ -197,7 +199,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
   const paystackPublicKey = (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined) || "";
-  const hasPurchaseFunds = canAfford || canBypassBalance;
+  const canUseWallet = canAfford;
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
   const canStartPayment =
@@ -205,13 +207,84 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
   const canAttemptPurchase = availableStock > 0;
 
-  const handlePurchase = async () => {
+  const handleWalletPurchase = async () => {
     setPurchasing(true);
     setPurchaseState({ phase: "idle" });
     try {
-      if (canBypassBalance) {
-        console.info("[PurchaseModal] Admin balance bypass active for test purchase.");
+      if (!supabase || !currentUser?.email) {
+        setPurchaseState({ phase: "error", message: "Please log in to continue." });
+        setPurchasing(false);
+        return;
       }
+      if (!canUseWallet) {
+        setPurchaseState({ phase: "error", message: "Insufficient wallet balance for this purchase." });
+        setPurchasing(false);
+        return;
+      }
+      if (!UUID_REGEX.test(product.id)) {
+        setPurchaseState({
+          phase: "error",
+          message: "This product cannot be purchased online. Please refresh the catalogue and try again.",
+        });
+        setPurchasing(false);
+        return;
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (sessionError || !accessToken) {
+        setPurchaseState({
+          phase: "error",
+          message: formatAuthSessionError(sessionError ?? null),
+        });
+        setPurchasing(false);
+        return;
+      }
+
+      setPurchaseState({ phase: "processing", message: "Paying with wallet and delivering your order..." });
+      const walletRes = await fetch("/api/wallet-purchase", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          productId: product.id,
+          quantity: qty,
+        }),
+      });
+      const walletPayload = (await walletRes.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!walletRes.ok) {
+        const message =
+          (typeof walletPayload.error === "string" && walletPayload.error) ||
+          "Wallet purchase failed.";
+        setPurchaseState({ phase: "error", message });
+        setPurchasing(false);
+        return;
+      }
+
+      const delivered = extractDeliveredData(walletPayload).map(toEmailPasswordView);
+      setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
+      window.dispatchEvent(new CustomEvent("orders:refresh"));
+      await refreshProfile();
+      sonnerToast.success("Wallet payment completed", {
+        description: `Delivered ${qty} account${qty === 1 ? "" : "s"} instantly.`,
+      });
+    } catch (e) {
+      console.error("[PurchaseModal] Wallet purchase error", e);
+      setPurchaseState({
+        phase: "error",
+        message: e instanceof Error ? e.message : "Wallet purchase failed.",
+      });
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  const handlePaystackPurchase = async () => {
+    setPurchasing(true);
+    setPurchaseState({ phase: "idle" });
+    try {
       if (!supabase || !currentUser?.email) {
         setPurchaseState({ phase: "error", message: "Please log in to continue." });
         setPurchasing(false);
@@ -335,7 +408,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           const msg = await simulateRes.text();
           setPurchaseState({
             phase: "error",
-            message: `Admin bypass simulation failed.\n${msg}`,
+            message: `Paystack simulation failed.\n${msg}`,
           });
           setPurchasing(false);
           return;
@@ -343,11 +416,12 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         const simulatePayload = (await simulateRes.json().catch(() => ({}))) as Record<string, unknown>;
         const delivered = extractDeliveredData(simulatePayload).map(toEmailPasswordView);
         setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
-        setPurchasing(false);
         window.dispatchEvent(new CustomEvent("orders:refresh"));
-        sonnerToast.success("Admin test purchase completed", {
+        await refreshProfile();
+        sonnerToast.success("Purchase completed", {
           description: `Fulfillment executed for ${qty} item${qty === 1 ? "" : "s"}.`,
         });
+        setPurchasing(false);
         return;
       }
 
@@ -363,7 +437,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       setPurchaseState({ phase: "processing", message: "Initializing Paystack popup..." });
-      sonnerToast.success("Success", {
+      sonnerToast.success("Opening Paystack", {
         description: `Opening Paystack popup for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
       });
 
@@ -385,6 +459,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             message: "Payment received. Waiting for Paystack webhook fulfillment...",
           });
           window.dispatchEvent(new CustomEvent("orders:refresh"));
+          void refreshProfile();
           window.setTimeout(() => {
             window.location.assign(callbackUrl);
           }, 1200);
@@ -490,17 +565,17 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
 
             <div className="rounded-xl p-4 space-y-2.5 bg-slate-50 dark:bg-white/3 border border-slate-200 dark:border-white/7">
               <div className="flex justify-between text-sm">
-                <span style={{ color: TEXT_BLACK }}>Unit price</span>
-                <span className="font-semibold" style={{ color: TEXT_BLACK }}>₦{product.price.toLocaleString()}</span>
+                <span className="text-slate-700 dark:text-slate-200">Unit price</span>
+                <span className="font-semibold text-slate-900 dark:text-white">₦{product.price.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span style={{ color: TEXT_BLACK }}>Quantity</span>
-                <span className="font-semibold" style={{ color: TEXT_BLACK }}>× {qty}</span>
+                <span className="text-slate-700 dark:text-slate-200">Quantity</span>
+                <span className="font-semibold text-slate-900 dark:text-white">× {qty}</span>
               </div>
               <div className="border-t border-slate-200 dark:border-white/10 pt-2.5">
                 <div className="flex justify-between items-baseline">
-                  <span className="font-bold text-sm" style={{ color: TEXT_BLACK }}>Total</span>
-                  <span className="font-extrabold text-xl" style={{ color: TEXT_BLACK }}>
+                  <span className="font-bold text-sm text-slate-900 dark:text-white">Total</span>
+                  <span className="font-extrabold text-xl text-slate-900 dark:text-white">
                     ₦{totalPrice.toLocaleString()}
                   </span>
                 </div>
@@ -508,10 +583,10 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             </div>
 
             <div className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5" style={{ color: TEXT_BLACK }}>
-                <Wallet className="h-3 w-3 shrink-0" style={{ color: TEXT_BLACK }} /> Your balance
+              <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                <Wallet className="h-3 w-3 shrink-0" /> Your balance
               </span>
-              <span className="font-bold" style={{ color: TEXT_BLACK }}>
+              <span className="font-bold text-slate-900 dark:text-white">
                 ₦{balance.toLocaleString()}
               </span>
             </div>
@@ -549,51 +624,100 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               </div>
             )}
 
-            {!hasPurchaseFunds && availableStock > 0 && (
-              <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
+            {!canUseWallet && !canBypassBalance && availableStock > 0 && (
+              <p className="text-xs text-center text-slate-700 dark:text-slate-200">
                 Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
-                <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold" style={{ color: TEXT_BLACK }}>
+                <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold text-slate-900 dark:text-white">
                   Fund Wallet →
                 </Link>
               </p>
             )}
             {!currentUser?.email && (
-              <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
+              <p className="text-xs text-center text-slate-700 dark:text-slate-200">
                 Please log in to continue.
               </p>
             )}
             {availableStock > 0 && totalPrice > 0 && totalPrice < MIN_PAYMENT_NAIRA && (
-              <p className="text-xs text-center" style={{ color: TEXT_BLACK }}>
+              <p className="text-xs text-center text-slate-700 dark:text-slate-200">
                 Minimum purchase amount is ₦100
               </p>
             )}
-
-            <button
-              type="button"
-              onClick={handlePurchase}
-              disabled={!canAttemptPurchase || purchasing || !hasPurchaseFunds || !canStartPayment || purchaseState.phase === "success"}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                background: BTN_NAVY,
-                boxShadow: (!purchasing && hasPurchaseFunds) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
-              }}
-            >
-              {purchasing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin text-white" />
-                  <span className="text-white">
-                    {purchaseState.phase === "processing" ? "Initializing Paystack..." : "Preparing Payment..."}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Eye className="h-4 w-4 text-white" />
-                  <span className="text-white">
-                    Purchase {qty} account{qty > 1 ? "s" : ""} · ₦{totalPrice.toLocaleString()}
-                  </span>
-                </>
-              )}
-            </button>
+            {canUseWallet ? (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={handleWalletPurchase}
+                  disabled={!canAttemptPurchase || purchasing || purchaseState.phase === "success"}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: BTN_NAVY,
+                    boxShadow: !purchasing ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
+                  }}
+                >
+                  {purchasing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-white" />
+                      <span className="text-white">
+                        {purchaseState.phase === "processing" ? "Processing wallet payment..." : "Preparing wallet checkout..."}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="h-4 w-4 text-white" />
+                      <span className="text-white">
+                        Pay with Wallet · ₦{totalPrice.toLocaleString()}
+                      </span>
+                    </>
+                  )}
+                </button>
+                {!showPaystackOption && (
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <Link
+                      to={`/dashboard/wallet?amount=${Math.max(100, totalPrice)}`}
+                      onClick={onClose}
+                      className="font-semibold text-slate-700 underline underline-offset-2 dark:text-slate-200"
+                    >
+                      Top up wallet
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setShowPaystackOption(true)}
+                      className="font-semibold text-slate-700 underline underline-offset-2 dark:text-slate-200"
+                    >
+                      Use Paystack instead
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            {(!canUseWallet || showPaystackOption || canBypassBalance) && (
+              <button
+                type="button"
+                onClick={handlePaystackPurchase}
+                disabled={!canAttemptPurchase || purchasing || (!canStartPayment && !canBypassBalance) || purchaseState.phase === "success"}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  background: BTN_NAVY,
+                  boxShadow: (!purchasing && canStartPayment) ? "0 4px 14px rgba(15,23,42,0.35)" : "none",
+                }}
+              >
+                {purchasing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span className="text-white">
+                      {purchaseState.phase === "processing" ? "Initializing Paystack..." : "Preparing Payment..."}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-4 w-4 text-white" />
+                    <span className="text-white">
+                      Pay with Paystack · ₦{totalPrice.toLocaleString()}
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>
