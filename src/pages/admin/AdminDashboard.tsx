@@ -342,8 +342,7 @@ export default function AdminDashboard() {
       supabase
         .from("transactions")
         .select("amount, quantity")
-        .eq("status", "completed")
-        .eq("type", "purchase"),
+        .eq("status", "completed"),
     ]);
 
     if (!profilesRes.error && typeof profilesRes.count === "number") {
@@ -353,7 +352,7 @@ export default function AdminDashboard() {
     if (!purchasesRes.error && purchasesRes.data) {
       const rows = purchasesRes.data as { amount: number; quantity: number | null }[];
       const revenue = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-      const logs = rows.reduce((sum, r) => sum + Math.max(1, Number(r.quantity ?? 1) || 1), 0);
+      const logs = rows.reduce((sum, r) => sum + Math.max(0, Number(r.quantity ?? 0) || 0), 0);
       setDbPurchaseRevenue(revenue);
       setDbLogsSold(logs);
     }
@@ -397,7 +396,7 @@ export default function AdminDashboard() {
         icon: TrendingUp,
         color: "text-accent",
         bg: "bg-accent/10",
-        change: `${analyticsLoading && dbLogsSold === null ? "—" : totalLogsSold} units sold (completed purchases)`,
+        change: `${analyticsLoading && dbLogsSold === null ? "—" : totalLogsSold} units sold (completed transactions)`,
       },
       {
         label: "Logs Sold",
@@ -405,7 +404,7 @@ export default function AdminDashboard() {
         icon: ShoppingCart,
         color: "text-sky-400",
         bg: "bg-sky-400/10",
-        change: "sum of quantities on completed purchases",
+        change: "sum of quantities on completed transactions",
       },
       {
         label: "Registered Users",

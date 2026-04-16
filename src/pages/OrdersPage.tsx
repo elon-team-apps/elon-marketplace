@@ -28,58 +28,48 @@ function categoryStyle(cat: string) {
   return CATEGORY_STYLE[cat] ?? "bg-white/8 text-slate-400";
 }
 
+function parseDeliveredData(raw: unknown): string {
+  if (typeof raw === "string") return raw.trim();
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
+function parseCredentialsDeliveredFlag(raw: unknown): boolean {
+  if (typeof raw === "boolean") return raw;
+  if (Array.isArray(raw)) return raw.length > 0;
+  if (raw && typeof raw === "object") return true;
+  if (typeof raw === "string") {
+    const v = raw.trim().toLowerCase();
+    return v === "true" || v === "t" || v === "1";
+  }
+  return false;
+}
+
 // ─── Credential Viewer Modal ───────────────────────────────────────────────────
+
+type ModalOrder = Order & {
+  credentials?: string;
+  status?: string;
+  credentialsDelivered?: boolean;
+};
 
 function CredentialModal({
   order,
   onClose,
 }: {
-  order: Order & { credentials?: string };
+  order: ModalOrder;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [credentials, setCredentials] = useState<string | null>(order.deliveredLog || order.credentials || null);
-  const [fetching, setFetching] = useState(false);
-  const [fetchError, setFetchError] = useState("");
-
-  // If credentials not in local state but we have a log_id from Supabase,
-  // fetch them now (RLS enforces the buyer-only policy server-side).
-  useEffect(() => {
-    if (credentials || !supabase) return;
-    const logId = (order as { log_id?: string }).log_id;
-    if (!logId || !UUID_REGEX.test(logId)) return;
-
-    setFetching(true);
-    supabase
-      .from("log_items")
-      .select("credentials")
-      .eq("id", logId)
-      .single()
-      .then(({ data, error }) => {
-        if (error) {
-          void supabase
-            .from("logs_data")
-            .select("credentials")
-            .eq("id", logId)
-            .single()
-            .then(({ data: d2, error: e2 }) => {
-              setFetching(false);
-              if (e2 || !d2) {
-                setFetchError("Could not retrieve credentials. Please contact support.");
-                return;
-              }
-              setCredentials(String((d2 as { credentials?: string }).credentials ?? ""));
-            });
-          return;
-        }
-        if (!data) {
-          setFetchError("Could not retrieve credentials. Please contact support.");
-        } else {
-          setCredentials(String((data as { credentials?: string }).credentials ?? ""));
-        }
-        setFetching(false);
-      });
-  }, [credentials, order]);
+  const credentials = parseDeliveredData(order.deliveredLog || order.credentials || "");
+  const isCompleted = String(order.status ?? "").toLowerCase() === "completed";
+  const credentialsDelivered = Boolean(order.credentialsDelivered);
 
   const handleCopy = () => {
     if (!credentials) return;
@@ -148,14 +138,9 @@ function CredentialModal({
             Account Credentials
           </p>
 
-          {fetching ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-3">
-              <Loader2 className="h-6 w-6 text-accent animate-spin" />
-              <p className="text-xs text-slate-500 dark:text-slate-400">Retrieving credentials…</p>
-            </div>
-          ) : fetchError ? (
-            <div className="rounded-xl border border-destructive/25 bg-destructive/10 px-5 py-4 text-sm text-destructive">
-              {fetchError}
+          {!isCompleted ? (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-700 dark:text-amber-300">
+              Processing: your order is still being fulfilled. Please check back shortly.
             </div>
           ) : credentials ? (
             /* ── The "Secret Key" credential box ── */
@@ -220,12 +205,16 @@ function CredentialModal({
             </div>
           ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
-              <p className="text-sm text-slate-500 dark:text-slate-400">No credentials on record.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {credentialsDelivered
+                  ? "Credentials were marked as delivered but are not visible. Please contact support."
+                  : "No credentials have been delivered yet. Please contact support if this persists."}
+              </p>
             </div>
           )}
 
           {/* Copy button (always visible below the box) */}
-          {credentials && !fetching && (
+          {credentials && isCompleted && (
             <button
               onClick={handleCopy}
               className="mt-3 flex items-center gap-2 w-full justify-center py-2.5 rounded-xl text-sm font-semibold transition-all duration-150"
@@ -243,7 +232,7 @@ function CredentialModal({
 
         {/* Warning footer */}
         <div className="px-6 pb-5">
-          <p className="text-[11px] text-sidebar-foreground/30 text-center leading-relaxed">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
             These credentials are sensitive. Do not share them. For assistance, visit{" "}
             <Link to="/dashboard/support" className="text-accent/60 underline underline-offset-2 hover:text-accent">
               Support
@@ -262,15 +251,19 @@ type DbOrder = {
   id: string;
   amount: number;
   created_at: string;
+  status: string | null;
+  quantity: number | null;
   log_id: string | null;
   product_id: string | null;
   products: { title: string; category: string } | null;
+  delivered_data?: unknown;
+  credentials_delivered?: unknown;
   _credentials?: string | null;
 };
 
 export default function OrdersPage() {
   const { orders, currentUser } = useApp();
-  const [viewing, setViewing] = useState<(Order & { credentials?: string }) | null>(null);
+  const [viewing, setViewing] = useState<ModalOrder | null>(null);
   const [dbOrders, setDbOrders] = useState<DbOrder[]>([]);
   const [loadingDb, setLoadingDb] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -284,50 +277,18 @@ export default function OrdersPage() {
     return () => window.removeEventListener("orders:refresh", onRefresh);
   }, []);
 
-  // When Supabase is available, fetch from log_items (buyer_id) joined with products
+  // Primary source of truth: transactions table (delivered_data + credentials_delivered).
   useEffect(() => {
     if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
     setLoadingDb(true);
     supabase
-      .from("log_items")
-      .select("id, created_at, product_id, credentials, products(title, category, price)")
-      .eq("buyer_id", currentUser.id)
+      .from("transactions")
+      .select("id, amount, created_at, status, quantity, log_id, product_id, delivered_data, credentials_delivered, products(title, category)")
+      .eq("user_id", currentUser.id)
+      .in("type", ["purchase", "wallet_payment"])
       .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          // Fallback: try legacy transactions table if log_items doesn't exist yet
-          supabase!
-            .from("transactions")
-            .select("id, amount, created_at, log_id, product_id, products(title, category)")
-            .eq("user_id", currentUser.id)
-            .in("type", ["purchase", "wallet_payment"])
-            .eq("status", "completed")
-            .order("created_at", { ascending: false })
-            .then(({ data: txData }) => {
-              if (txData) setDbOrders(txData as DbOrder[]);
-              setLoadingDb(false);
-            });
-          return;
-        }
-        if (data) {
-          // Map log_items shape onto DbOrder shape
-          const mapped: DbOrder[] = (data as {
-            id: string;
-            created_at: string;
-            product_id: string | null;
-            credentials: string | null;
-            products: { title: string; category: string; price?: number } | null;
-          }[]).map((row) => ({
-            id: row.id,
-            amount: row.products?.price ?? 0,
-            created_at: row.created_at,
-            log_id: row.id,           // log_items row IS the log — use its id
-            product_id: row.product_id,
-            products: row.products ? { title: row.products.title, category: row.products.category } : null,
-            _credentials: row.credentials, // stash for immediate display
-          }));
-          setDbOrders(mapped as DbOrder[]);
-        }
+      .then(({ data }) => {
+        if (data) setDbOrders(data as DbOrder[]);
         setLoadingDb(false);
       });
   }, [currentUser?.id, refreshNonce]);
@@ -349,16 +310,18 @@ export default function OrdersPage() {
         productTitle: db.products?.title ?? "Unknown Product",
         category: db.products?.category ?? "",
         amount: db.amount,
-        deliveredLog: db._credentials ?? "",  // inline credentials from log_items
+        deliveredLog: parseDeliveredData(db.delivered_data ?? db._credentials ?? ""),
         createdAt: db.created_at,
         log_id: db.log_id ?? undefined,
+        status: db.status ?? undefined,
+        credentialsDelivered: parseCredentialsDeliveredFlag(db.credentials_delivered),
       });
     }
 
     // Local rows that aren't already in DB result (e.g. just purchased this session)
     for (const lo of localOrders) {
       if (!seen.has(lo.id)) {
-        result.push(lo);
+        result.push({ ...lo, status: "completed", credentialsDelivered: Boolean(lo.deliveredLog) });
       }
     }
 
