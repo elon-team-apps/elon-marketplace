@@ -49,12 +49,26 @@ function extractDeliveredData(payload: Record<string, unknown>): string[] {
   return raw.map((item) => String(item ?? "").trim()).filter(Boolean);
 }
 
-function toEmailPassword(credentials: string): string {
-  const clean = String(credentials ?? "").trim();
+function formatDeliveredLog(row: {
+  email?: string | null;
+  password?: string | null;
+  recovery?: string | null;
+  credentials?: string | null;
+}): string {
+  const email = String(row.email ?? "").trim();
+  const password = String(row.password ?? "").trim();
+  const recovery = String(row.recovery ?? "").trim();
+  if (email && password) return `${email}:${password}:${recovery}`;
+
+  const clean = String(row.credentials ?? "").trim();
   if (!clean) return "";
   const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
   if (parts.length < 2) return clean;
-  return `${String(parts[0] ?? "").trim()}:${String(parts[1] ?? "").trim()}`;
+  const e = String(parts[0] ?? "").trim();
+  const p = String(parts[1] ?? "").trim();
+  const r = String(parts.slice(2).join(":") ?? "").trim();
+  if (!e || !p) return clean;
+  return `${e}:${p}:${r}`;
 }
 
 function verifySignature(rawBody: string, headerSignature: string, secret: string): boolean {
@@ -179,11 +193,17 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
   }
   const availableLogCount = countError ? 0 : Math.max(0, Number(rawAvailableLogCount ?? 0));
 
-  let logsToDeliver: Array<{ id: string; credentials: string }> = [];
+  let logsToDeliver: Array<{
+    id: string;
+    credentials: string | null;
+    email: string | null;
+    password: string | null;
+    recovery: string | null;
+  }> = [];
   if (availableLogCount > 0) {
     const { data: availableLogs, error: logFetchError } = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials")
+      .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("status", "available")
       .eq("is_delivered", false)
@@ -192,7 +212,13 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     if (logFetchError && manualStock < quantity) {
       return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
     }
-    logsToDeliver = (availableLogs ?? []) as Array<{ id: string; credentials: string }>;
+    logsToDeliver = (availableLogs ?? []) as Array<{
+      id: string;
+      credentials: string | null;
+      email: string | null;
+      password: string | null;
+      recovery: string | null;
+    }>;
   }
 
   const fromLogs = Math.min(logsToDeliver.length, quantity);
@@ -225,15 +251,18 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     return { ok: false, status: 500, error: `Failed to update product inventory: ${formatDbError(updateProductError)}` };
   }
 
-  const deliveredCredentials = logsToDeliver.slice(0, fromLogs).map((row) => row.credentials);
-  const deliveredDataLines = deliveredCredentials.map(toEmailPassword).filter(Boolean);
+  const deliveredDataLines = logsToDeliver
+    .slice(0, fromLogs)
+    .map((row) => formatDeliveredLog(row))
+    .filter(Boolean);
   const deliveredData = deliveredDataLines.join("\n");
+  const hasDeliveredCredentials = deliveredDataLines.length > 0;
   const txUpdate = await supabaseAdmin
     .from("transactions")
     .update({
       status: "completed",
       amount: amountNaira > 0 ? amountNaira : tx.amount,
-      credentials_delivered: true,
+      credentials_delivered: hasDeliveredCredentials,
       delivered_data: deliveredData,
     })
     .eq("id", tx.id);
