@@ -1,6 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { isSuperAdminEmail } from "@/lib/adminAccess";
 
 type PaystackWebhookEvent = {
   event?: string;
@@ -23,6 +22,15 @@ type ApiResponse = {
 
 function normalize(input: string | null | undefined): string {
   return (input ?? "").trim().toLowerCase();
+}
+
+const SUPERADMIN_EMAILS = new Set([
+  "growthprofesors@gmail.com",
+  "godwindavid199501@gmail.com",
+]);
+
+function isSuperAdminEmail(email: string | null | undefined): boolean {
+  return SUPERADMIN_EMAILS.has(normalize(email));
 }
 
 function headerValue(headers: ApiHeaders, key: string): string {

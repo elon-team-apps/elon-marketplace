@@ -26,10 +26,29 @@ function profileIsAdmin(p: Pick<Profile, "role" | "is_admin">): boolean {
   return p.is_admin === true || (p.role ?? "").toLowerCase() === "admin";
 }
 
-type PaymentMethodSettings = {
+type PaymentMethodSettingsRow = {
   pocketfi_enabled: boolean;
   manual_enabled: boolean;
 };
+
+type PaymentMethodSettings = {
+  paystackEnabled: boolean;
+  manualEnabled: boolean;
+};
+
+function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
+  return {
+    paystackEnabled: Boolean(row?.pocketfi_enabled),
+    manualEnabled: Boolean(row?.manual_enabled),
+  };
+}
+
+function toPaymentSettingsUpdate(settings: PaymentMethodSettings): PaymentMethodSettingsRow {
+  return {
+    pocketfi_enabled: settings.paystackEnabled,
+    manual_enabled: settings.manualEnabled,
+  };
+}
 
 // ── UsersTable ─────────────────────────────────────────────────────────────
 
@@ -302,8 +321,8 @@ export default function AdminDashboard() {
   const { products, orders } = useApp();
   const { toast } = useToast();
   const [pmSettings, setPmSettings] = useState<PaymentMethodSettings>({
-    pocketfi_enabled: true,
-    manual_enabled: false,
+    paystackEnabled: true,
+    manualEnabled: false,
   });
   const [pmLoading, setPmLoading] = useState(false);
   const [dbTotalUsers, setDbTotalUsers] = useState<number | null>(null);
@@ -425,20 +444,20 @@ export default function AdminDashboard() {
       .select("pocketfi_enabled, manual_enabled")
       .eq("id", 1)
       .maybeSingle();
-    if (!error && data) setPmSettings(data as PaymentMethodSettings);
+    if (!error && data) setPmSettings(mapPaymentSettings(data as PaymentMethodSettingsRow));
   }, []);
 
   useEffect(() => {
     fetchPaymentSettings();
   }, [fetchPaymentSettings]);
 
-  const togglePaymentMethod = async (field: "pocketfi_enabled" | "manual_enabled") => {
+  const togglePaymentMethod = async (field: "paystackEnabled" | "manualEnabled") => {
     if (!supabase) return;
     setPmLoading(true);
     const next = { ...pmSettings, [field]: !pmSettings[field] };
     const { error } = await supabase
       .from("payment_method_settings")
-      .update(next)
+      .update(toPaymentSettingsUpdate(next))
       .eq("id", 1);
     if (error) {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
@@ -481,24 +500,24 @@ export default function AdminDashboard() {
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <button
-            onClick={() => togglePaymentMethod("pocketfi_enabled")}
+            onClick={() => togglePaymentMethod("paystackEnabled")}
             disabled={pmLoading}
             className={`rounded-lg border px-4 py-3 text-left transition ${
-              pmSettings.pocketfi_enabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
+              pmSettings.paystackEnabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
             }`}
           >
             <p className="text-sm font-semibold">Paystack</p>
-            <p className="text-xs mt-1">{pmSettings.pocketfi_enabled ? "Enabled" : "Disabled"}</p>
+            <p className="text-xs mt-1">{pmSettings.paystackEnabled ? "Enabled" : "Disabled"}</p>
           </button>
           <button
-            onClick={() => togglePaymentMethod("manual_enabled")}
+            onClick={() => togglePaymentMethod("manualEnabled")}
             disabled={pmLoading}
             className={`rounded-lg border px-4 py-3 text-left transition ${
-              pmSettings.manual_enabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
+              pmSettings.manualEnabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
             }`}
           >
             <p className="text-sm font-semibold">Manual Transfer</p>
-            <p className="text-xs mt-1">{pmSettings.manual_enabled ? "Enabled" : "Disabled"}</p>
+            <p className="text-xs mt-1">{pmSettings.manualEnabled ? "Enabled" : "Disabled"}</p>
           </button>
         </div>
       </div>

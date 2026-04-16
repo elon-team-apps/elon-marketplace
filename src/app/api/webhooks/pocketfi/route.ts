@@ -10,7 +10,7 @@ const SUPERADMIN_EMAILS = new Set([
   "godwindavid199501@gmail.com",
 ]);
 
-type PocketFiPayload = {
+type LegacyPaystackPayload = {
   event?: string;
   data?: {
     reference?: string;
@@ -219,7 +219,7 @@ async function fulfillPurchaseFromReference(
     return { ok: false, status: 500, error: `Failed to count available logs: ${formatDbError(countError)}` };
   }
   if (countError && canSatisfyFromManualOnly) {
-    console.warn("[PocketFiWebhook] Counting logs failed; using manual stock fallback.", {
+      console.warn("[LegacyPaystackWebhookAlias] Counting logs failed; using manual stock fallback.", {
       reference,
       product_id: tx.product_id,
       count_error: formatDbError(countError),
@@ -243,7 +243,7 @@ async function fulfillPurchaseFromReference(
       return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
     }
     if (logFetchError && canSatisfyFromManualOnly) {
-      console.warn("[PocketFiWebhook] Fetching logs failed; using manual stock fallback.", {
+      console.warn("[LegacyPaystackWebhookAlias] Fetching logs failed; using manual stock fallback.", {
         reference,
         product_id: tx.product_id,
         fetch_error: formatDbError(logFetchError),
@@ -311,7 +311,7 @@ async function fulfillPurchaseFromReference(
   // Probe table columns before update to avoid stale assumptions after migrations.
   const txProbe = await supabaseAdmin.from("transactions").select("*").limit(1);
   if (txProbe.error) {
-    console.warn("[PocketFiWebhook] transactions schema probe failed", {
+    console.warn("[LegacyPaystackWebhookAlias] transactions schema probe failed", {
       reference,
       error: formatDbError(txProbe.error),
     });
@@ -332,7 +332,7 @@ async function fulfillPurchaseFromReference(
   let resolvedDeliveredData = extractDeliveredData((primaryTxUpdate.data ?? {}) as Record<string, unknown>);
 
   if (txUpdateError) {
-    console.warn("[PocketFiWebhook] Primary transaction update failed; falling back to legacy payload", {
+    console.warn("[LegacyPaystackWebhookAlias] Primary transaction update failed; falling back to legacy payload", {
       reference,
       error: formatDbError(txUpdateError),
     });
@@ -370,7 +370,7 @@ async function fulfillPurchaseFromReference(
       .eq("id", tx.id);
     if (logIdUpdate.error) {
       // Non-fatal by requirement: log_id write failure should not fail fulfillment.
-      console.warn("[PocketFiWebhook] Non-fatal: failed to update transactions.log_id", {
+      console.warn("[LegacyPaystackWebhookAlias] Non-fatal: failed to update transactions.log_id", {
         reference,
         transaction_id: tx.id,
         log_id: logId,
@@ -382,7 +382,7 @@ async function fulfillPurchaseFromReference(
   const profileRow = buyerProfile;
 
   if (fromLogs > 0) {
-    console.log("[PocketFiWebhook] Fulfillment credentials prepared for customer email", {
+    console.log("[LegacyPaystackWebhookAlias] Fulfillment credentials prepared for customer email", {
       reference,
       email: profileRow?.email ?? null,
       admin_buyer: isAdminBuyer,
@@ -390,7 +390,7 @@ async function fulfillPurchaseFromReference(
       credentials_preview: deliveredCredentials,
     });
   } else {
-    console.log("[PocketFiWebhook] Fulfillment from manual stock completed", {
+    console.log("[LegacyPaystackWebhookAlias] Fulfillment from manual stock completed", {
       reference,
       email: profileRow?.email ?? null,
       quantity,
@@ -431,11 +431,11 @@ export async function POST(req: Request) {
     return json({ error: "Invalid signature." }, 401);
   }
 
-  let payload: PocketFiPayload;
+  let payload: LegacyPaystackPayload;
   try {
-    payload = JSON.parse(rawBody) as PocketFiPayload;
+    payload = JSON.parse(rawBody) as LegacyPaystackPayload;
   } catch (error) {
-    console.error("[PocketFiWebhook] Invalid JSON payload", { error });
+    console.error("[LegacyPaystackWebhookAlias] Invalid JSON payload", { error });
     return json({ error: "Invalid JSON payload." }, 400);
   }
 

@@ -77,6 +77,23 @@ function buildPaymentReference(): string {
   return `psk_wallet_${Date.now()}_${rand}`;
 }
 
+type PaymentMethodSettingsRow = {
+  pocketfi_enabled: boolean;
+  manual_enabled: boolean;
+};
+
+type PaymentMethodSettings = {
+  paystackEnabled: boolean;
+  manualEnabled: boolean;
+};
+
+function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
+  return {
+    paystackEnabled: Boolean(row?.pocketfi_enabled),
+    manualEnabled: Boolean(row?.manual_enabled),
+  };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
   const [searchParams] = useSearchParams();
@@ -87,7 +104,7 @@ export default function WalletPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | null>(null);
-  const [methods, setMethods] = useState({ pocketfi_enabled: true, manual_enabled: false });
+  const [methods, setMethods] = useState<PaymentMethodSettings>({ paystackEnabled: true, manualEnabled: false });
   const paystackPublicKey = (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined) || "";
 
   useEffect(() => {
@@ -105,7 +122,7 @@ export default function WalletPage() {
       .eq("id", 1)
       .maybeSingle()
       .then(({ data }) => {
-        if (data) setMethods(data);
+        if (data) setMethods(mapPaymentSettings(data as PaymentMethodSettingsRow));
       });
   }, []);
 
@@ -339,7 +356,7 @@ export default function WalletPage() {
             Minimum funding amount: ₦100
           </p>
         </div>
-        {methods.pocketfi_enabled ? (
+        {methods.paystackEnabled ? (
           <button
             type="button"
             className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
@@ -365,12 +382,12 @@ export default function WalletPage() {
           </div>
         )}
 
-        {!methods.manual_enabled && (
+        {!methods.manualEnabled && (
           <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-black dark:border-white/40 dark:bg-slate-800/80 dark:text-white">
             Manual transfer is currently disabled by admin.
           </div>
         )}
-        {methods.manual_enabled && (
+        {methods.manualEnabled && (
           <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100 dark:border-emerald-500/35">
             Manual transfer is enabled. Contact support for manual funding instructions.
           </div>
