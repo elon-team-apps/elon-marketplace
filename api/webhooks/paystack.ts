@@ -68,6 +68,10 @@ function resolveServiceEnv() {
 function getAdminClient(): SupabaseClient {
   const env = resolveServiceEnv();
   if (!env.url || !env.serviceRoleKey) {
+    console.error("[PaystackWebhook] Missing admin env", {
+      NEXT_PUBLIC_SUPABASE_URL: Boolean(env.url),
+      SUPABASE_SERVICE_ROLE_KEY: Boolean(env.serviceRoleKey),
+    });
     throw new Error("Missing SUPABASE URL or SUPABASE_SERVICE_ROLE_KEY");
   }
   return createClient(env.url, env.serviceRoleKey, { auth: { persistSession: false } });
@@ -88,6 +92,37 @@ async function canUseAdminBypass(req: ApiRequest): Promise<boolean> {
   const { data, error } = await userClient.auth.getUser(token);
   if (error || !data.user) return false;
   return isSuperAdminEmail(data.user.email);
+}
+
+async function processDepositFromReference(supabaseAdmin: SupabaseClient, reference: string, amountKoboRaw: unknown) {
+  const amountNaira = Math.max(0, Math.floor(asPositiveInt(amountKoboRaw, 0) / 100));
+  const { data, error } = await supabaseAdmin.rpc("process_deposit", {
+    p_reference: reference,
+    p_amount_naira: amountNaira,
+  });
+  if (error) return { ok: false, status: 500, error: `Failed to process wallet deposit: ${formatDbError(error)}` };
+
+  const payload = (data ?? {}) as Record<string, unknown>;
+  if (payload.success === false) {
+    return {
+      ok: false,
+      status: 409,
+      error: typeof payload.message === "string" && payload.message ? payload.message : "Wallet deposit verification failed.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    data: {
+      ok: true,
+      processed: true,
+      transaction_type: "deposit",
+      reference,
+      amount_naira: amountNaira,
+      result: payload,
+    },
+  };
 }
 
 function toEmailPassword(credentials: string): string {
@@ -247,7 +282,20 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const fulfilled = await fulfillPurchaseFromReference(supabaseAdmin, reference, payload.data?.amount);
+  const { data: transaction, error: transactionError } = await supabaseAdmin
+    .from("transactions")
+    .select("id, type")
+    .eq("reference", reference)
+    .maybeSingle();
+  if (transactionError) {
+    console.error("[PaystackWebhook] Failed to identify transaction type", { reference, error: formatDbError(transactionError) });
+    res.status(500).json({ error: `Failed to identify transaction type: ${formatDbError(transactionError)}` });
+    return;
+  }
+
+  const fulfilled = transaction?.type === "deposit"
+    ? await processDepositFromReference(supabaseAdmin, reference, payload.data?.amount)
+    : await fulfillPurchaseFromReference(supabaseAdmin, reference, payload.data?.amount);
   if (!fulfilled.ok) {
     console.error("[PaystackWebhook] Fulfillment failed", { reference, error: fulfilled.error, payload });
     res.status(fulfilled.status).json({ error: fulfilled.error ?? "Fulfillment failed." });

@@ -102,7 +102,8 @@ function headerValue(headers: ApiHeaders, key: string): string {
 }
 
 function extractSignature(req: ApiRequest): string {
-  return headerValue(req.headers, "x-pocketfi-signature")
+  return headerValue(req.headers, "x-paystack-signature")
+    || headerValue(req.headers, "x-pocketfi-signature")
     || headerValue(req.headers, "pocketfi-signature")
     || headerValue(req.headers, "x-signature")
     || "";
@@ -380,7 +381,7 @@ async function fulfillPurchaseFromReference(
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-pocketfi-signature, x-admin-bypass");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-paystack-signature, x-pocketfi-signature, x-admin-bypass");
 
   if (req.method === "OPTIONS") {
     res.status(200).end();
@@ -393,17 +394,17 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const rawBody = JSON.stringify(req.body ?? {});
   const bypassAllowed = await canUseAdminBypass(req);
-  const secret = (process.env.POCKETFI_SECRET_KEY ?? "").trim();
+  const secret = (process.env.PAYSTACK_SECRET_KEY ?? process.env.POCKETFI_SECRET_KEY ?? "").trim();
   if (!secret && !bypassAllowed) {
-    console.error("[PocketFiWebhook] Missing POCKETFI_SECRET_KEY");
-    res.status(500).json({ error: "Server misconfigured: missing PocketFi secret." });
+    console.error("[LegacyPaystackWebhookAlias] Missing PAYSTACK_SECRET_KEY and POCKETFI_SECRET_KEY");
+    res.status(500).json({ error: "Server misconfigured: missing Paystack secret." });
     return;
   }
 
   const signature = String(extractSignature(req));
   const hasValidSignature = secret ? verifySignature(rawBody, signature, secret) : false;
   if (!hasValidSignature && !bypassAllowed) {
-    console.error("[PocketFiWebhook] Invalid signature", {
+    console.error("[LegacyPaystackWebhookAlias] Invalid signature", {
       signature_present: Boolean(signature),
       body_preview: rawBody.slice(0, 250),
     });
@@ -412,7 +413,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const payload = (req.body ?? {}) as PocketFiPayload;
-  if (normalize(payload.event) !== "payment.success") {
+  if (!["payment.success", "charge.success"].includes(normalize(payload.event))) {
     res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null });
     return;
   }
@@ -428,7 +429,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     supabaseAdmin = getAdminClient();
   } catch (error) {
     const env = resolveServiceEnv();
-    console.error("[PocketFiWebhook] Supabase admin client setup failed", {
+    console.error("[LegacyPaystackWebhookAlias] Supabase admin client setup failed", {
       error,
       missing_env: env.missing,
       has_next_public_supabase_url: Boolean((process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim()),
@@ -441,12 +442,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const fulfilled = await fulfillPurchaseFromReference(supabaseAdmin, reference, payload.data?.amount);
   if (!fulfilled.ok) {
-    console.error("[PocketFiWebhook] Fulfillment failed", { reference, error: fulfilled.error });
+    console.error("[LegacyPaystackWebhookAlias] Fulfillment failed", { reference, error: fulfilled.error });
     res.status(fulfilled.status).json({ error: fulfilled.error ?? "Fulfillment failed." });
     return;
   }
 
-  console.log("[PocketFiWebhook] payment.success processed", {
+  console.log("[LegacyPaystackWebhookAlias] webhook processed", {
     reference,
     bypass: bypassAllowed,
     verified: hasValidSignature,

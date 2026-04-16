@@ -102,6 +102,7 @@ function verifySignature(rawBody: string, signatureHeader: string, secret: strin
 
 function extractSignature(req: Request): string {
   return (
+    req.headers.get("x-paystack-signature") ??
     req.headers.get("x-pocketfi-signature") ??
     req.headers.get("pocketfi-signature") ??
     req.headers.get("x-signature") ??
@@ -415,15 +416,15 @@ export async function POST(req: Request) {
   const rawBody = await req.text();
   const signature = extractSignature(req);
   const bypassAllowed = await canUseAdminBypass(req);
-  const secret = (process.env.POCKETFI_SECRET_KEY ?? "").trim();
+  const secret = (process.env.PAYSTACK_SECRET_KEY ?? process.env.POCKETFI_SECRET_KEY ?? "").trim();
   if (!secret && !bypassAllowed) {
-    console.error("[PocketFiWebhook] Missing POCKETFI_SECRET_KEY");
-    return json({ error: "Server misconfigured: missing PocketFi secret." }, 500);
+    console.error("[LegacyPaystackWebhookAlias] Missing PAYSTACK_SECRET_KEY and POCKETFI_SECRET_KEY");
+    return json({ error: "Server misconfigured: missing Paystack secret." }, 500);
   }
 
   const hasValidSignature = secret ? verifySignature(rawBody, signature, secret) : false;
   if (!hasValidSignature && !bypassAllowed) {
-    console.error("[PocketFiWebhook] Invalid signature", {
+    console.error("[LegacyPaystackWebhookAlias] Invalid signature", {
       signature_present: Boolean(signature),
       body_preview: rawBody.slice(0, 250),
     });
@@ -439,7 +440,7 @@ export async function POST(req: Request) {
   }
 
   const event = normalize(payload.event);
-  if (event !== "payment.success") {
+  if (event !== "payment.success" && event !== "charge.success") {
     return json({ ok: true, ignored: true, event });
   }
 
@@ -453,7 +454,7 @@ export async function POST(req: Request) {
     supabaseAdmin = getAdminClient();
   } catch (error) {
     const env = resolveServiceEnv();
-    console.error("[PocketFiWebhook] Supabase admin client setup failed", {
+    console.error("[LegacyPaystackWebhookAlias] Supabase admin client setup failed", {
       error,
       missing_env: env.missing,
       has_next_public_supabase_url: Boolean((process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim()),
@@ -465,7 +466,7 @@ export async function POST(req: Request) {
 
   const fulfilled = await fulfillPurchaseFromReference(supabaseAdmin, reference, payload.data?.amount);
   if (!fulfilled.ok) {
-    console.error("[PocketFiWebhook] Fulfillment failed", {
+    console.error("[LegacyPaystackWebhookAlias] Fulfillment failed", {
       reference,
       error: fulfilled.error,
       payload: safeStringify(payload),
@@ -473,7 +474,7 @@ export async function POST(req: Request) {
     return json({ error: fulfilled.error ?? "Fulfillment failed." }, fulfilled.status);
   }
 
-  console.log("[PocketFiWebhook] payment.success processed", {
+  console.log("[LegacyPaystackWebhookAlias] webhook processed", {
     reference,
     bypass: bypassAllowed,
     verified: hasValidSignature,

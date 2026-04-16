@@ -196,10 +196,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
-  const paystackPublicKey =
-    (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined)
-    || (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY as string | undefined)
-    || "";
+  const paystackPublicKey = (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined) || "";
   const hasPurchaseFunds = canAfford || canBypassBalance;
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
@@ -356,6 +353,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
 
       if (!paystackPublicKey.trim()) {
         const msg = "Paystack public key is missing. Set NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY.";
+        console.error("[PurchaseModal] Paystack init failed: missing NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY");
         setPurchaseState({ phase: "error", message: msg });
         sonnerToast.error("Paystack initialization failed", {
           description: msg,
@@ -370,6 +368,11 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       });
 
       const PaystackPop = await loadPaystackInlineScript();
+      console.log("[PurchaseModal] Paystack popup ready", {
+        hasPopup: Boolean(PaystackPop),
+        keyPrefix: paystackPublicKey.trim().slice(0, 7),
+        reference,
+      });
       const handler = PaystackPop.setup({
         key: paystackPublicKey.trim(),
         email: currentUser.email,
@@ -407,6 +410,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           msg = String(e);
         }
       }
+      console.error("[PurchaseModal] Paystack initialization error", e);
       setPurchaseState({ phase: "error", message: msg });
       setPurchasing(false);
     }

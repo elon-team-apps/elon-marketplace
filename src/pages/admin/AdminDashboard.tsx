@@ -487,7 +487,7 @@ export default function AdminDashboard() {
               pmSettings.pocketfi_enabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
             }`}
           >
-            <p className="text-sm font-semibold">PocketFi</p>
+            <p className="text-sm font-semibold">Paystack</p>
             <p className="text-xs mt-1">{pmSettings.pocketfi_enabled ? "Enabled" : "Disabled"}</p>
           </button>
           <button

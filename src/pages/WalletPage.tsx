@@ -8,7 +8,6 @@ import {
 } from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
-import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
 
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
@@ -16,6 +15,67 @@ const PENDING_REF_KEY = "paystack_pending_reference";
 const LEGACY_PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
+
+type PaystackHandler = {
+  openIframe: () => void;
+};
+
+type PaystackPopup = {
+  setup: (options: {
+    key: string;
+    email: string;
+    amount: number;
+    ref: string;
+    metadata?: Record<string, unknown>;
+    callback?: (response: { reference?: string; [key: string]: unknown }) => void;
+    onClose?: () => void;
+  }) => PaystackHandler;
+};
+
+type PaystackWindow = Window & {
+  PaystackPop?: PaystackPopup;
+};
+
+function getPaystackWindow(): PaystackWindow {
+  return window as PaystackWindow;
+}
+
+async function loadPaystackInlineScript(): Promise<PaystackPopup> {
+  const existing = getPaystackWindow().PaystackPop;
+  if (existing) return existing;
+
+  await new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>('script[data-paystack-inline="true"]');
+    if (existingScript) {
+      if (getPaystackWindow().PaystackPop) {
+        resolve();
+        return;
+      }
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error("Failed to load Paystack inline script.")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://js.paystack.co/v1/inline.js";
+    script.async = true;
+    script.dataset.paystackInline = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Paystack inline script."));
+    document.body.appendChild(script);
+  });
+
+  const popup = getPaystackWindow().PaystackPop;
+  if (!popup) {
+    throw new Error("Paystack inline popup is unavailable.");
+  }
+  return popup;
+}
+
+function buildPaymentReference(): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `psk_wallet_${Date.now()}_${rand}`;
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function WalletPage() {
@@ -28,6 +88,7 @@ export default function WalletPage() {
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | null>(null);
   const [methods, setMethods] = useState({ pocketfi_enabled: true, manual_enabled: false });
+  const paystackPublicKey = (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined) || "";
 
   useEffect(() => {
     const qAmount = searchParams.get("amount");
@@ -104,7 +165,7 @@ export default function WalletPage() {
     };
   }, [pendingRef, currentUser?.id, toast, refreshProfile]);
 
-  // ── Start Paystack checkout (Edge Function slug kept: pocketfi-init) ───────
+  // ── Start Paystack checkout (inline popup + webhook verification) ──────────
   const startPaystackCheckout = async () => {
     if (checkoutLoading) return;
     const numeric = Number(amount);
@@ -132,59 +193,13 @@ export default function WalletPage() {
         throw new Error("Session mismatch. Refresh the page, then try again.");
       }
 
-      const invokePromise = supabase.functions.invoke("pocketfi-init", {
-        body: {
-          amount: naira,
-          email: currentUser.email,
-        },
-      });
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        window.setTimeout(() => reject(new Error("Paystack init request timeout")), 20_000);
-      });
-      const { data, error } = await Promise.race([invokePromise, timeoutPromise]) as Awaited<typeof invokePromise>;
-
-      if (error) {
-        let statusCode: number | undefined;
-        let bodyText = "";
-        const ctx = (error as { context?: unknown }).context;
-        if (ctx instanceof Response) {
-          statusCode = ctx.status;
-          try {
-            bodyText = await ctx.text();
-          } catch {
-            bodyText = "";
-          }
-        }
-
-        const details = `${error.message} ${statusCode ?? ""} ${bodyText}`;
-        if (statusCode === 404 || statusCode === 504 || /404|504|not found|timeout|timed out/i.test(details)) {
-          throw new Error("Payment Gateway is temporarily unavailable. Please try again shortly or contact support.");
-        }
-        throw new Error(error.message || "Unable to initialize Paystack checkout.");
+      if (!paystackPublicKey.trim()) {
+        console.error("[WalletPage] Paystack init failed: missing NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY");
+        throw new Error("Missing Key: NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY");
       }
 
-      const payload = (data ?? {}) as Record<string, unknown>;
-      const checkoutUrl = extractPaystackRedirectUrl(payload);
-      const paystackRef =
-        typeof payload.reference === "string" && payload.reference.trim()
-          ? payload.reference.trim()
-          : null;
-      if (!checkoutUrl) {
-        const bodyErr =
-          (typeof payload.error === "string" && payload.error) ||
-          (typeof payload.message === "string" && payload.message) ||
-          "Payment Gateway is temporarily unavailable. Please try again shortly or contact support.";
-        if (/404|504|not found|timeout|timed out/i.test(bodyErr)) {
-          throw new Error("Payment Gateway is temporarily unavailable. Please try again shortly or contact support.");
-        }
-        throw new Error(bodyErr);
-      }
+      const paystackRef = buildPaymentReference();
 
-      if (!paystackRef) {
-        throw new Error("Paystack did not return a transaction reference. Try again or contact support.");
-      }
-
-      // Persist pending deposit before redirect (reference must match Paystack for verification).
       const { error: txError } = await supabase.from("transactions").insert({
         user_id: currentUser.id,
         amount: naira,
@@ -197,15 +212,59 @@ export default function WalletPage() {
         throw new Error(`Could not create pending transaction: ${txError.message}`);
       }
       localStorage.setItem(PENDING_REF_KEY, paystackRef);
+      setPendingRef(paystackRef);
+      setPendingStatus("pending");
 
-      // Immediate handover: only `replace` so Back from Paystack skips the wallet step.
-      const handoverUrl = checkoutUrl.trim();
-      window.location.replace(handoverUrl);
+      const PaystackPop = await loadPaystackInlineScript();
+      console.log("[WalletPage] Paystack popup ready", {
+        hasPopup: Boolean(PaystackPop),
+        keyPrefix: paystackPublicKey.trim().slice(0, 7),
+        reference: paystackRef,
+        amountKobo: naira * 100,
+      });
+
+      const handler = PaystackPop.setup({
+        key: paystackPublicKey.trim(),
+        email: currentUser.email,
+        amount: naira * 100,
+        ref: paystackRef,
+        metadata: {
+          transactionType: "deposit",
+          buyerEmail: currentUser.email,
+          userId: currentUser.id,
+          amountNaira: naira,
+        },
+        callback: (response) => {
+          const resolvedRef =
+            typeof response.reference === "string" && response.reference.trim()
+              ? response.reference.trim()
+              : paystackRef;
+          console.log("[WalletPage] Paystack callback received", { reference: resolvedRef });
+          localStorage.setItem(PENDING_REF_KEY, resolvedRef);
+          setPendingRef(resolvedRef);
+          setPendingStatus("pending");
+          toast({
+            title: "Payment received",
+            description: "Waiting for Paystack confirmation to update your wallet.",
+          });
+        },
+        onClose: () => {
+          setCheckoutLoading(false);
+        },
+      });
+
+      handler.openIframe();
+      setCheckoutLoading(false);
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start Paystack checkout.";
-      const friendly = /aborted|timeout|load failed|failed to fetch|networkerror/i.test(msg)
-        ? "Paystack is taking too long to respond. Please try again. If this keeps happening, verify `PAYSTACK_SECRET_KEY` in Supabase Edge Function secrets."
+      console.error("[WalletPage] Paystack initialization error", err);
+      const friendly = /missing key/i.test(msg)
+        ? "Paystack public key is missing. Set `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`."
+        : /script|popup is unavailable|load/i.test(msg)
+          ? "Paystack script not loaded. Refresh and try again."
+          : /aborted|timeout|load failed|failed to fetch|networkerror/i.test(msg)
+            ? "Paystack is taking too long to respond. Please try again."
         : msg;
       toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {

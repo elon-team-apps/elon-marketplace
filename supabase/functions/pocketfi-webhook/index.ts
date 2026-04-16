@@ -1,6 +1,6 @@
 /**
  * Elon Marketplace — Paystack Webhook Handler
- * Function name kept `pocketfi-webhook` for stable dashboard URL.
+ * Legacy function slug kept as `pocketfi-webhook` for backward compatibility.
  *
  * Secrets: PAYSTACK_SECRET_KEY (same sk_… secret as pocketfi-init)
  * Auto: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -55,7 +55,7 @@ async function verifyPaystackSignature(
       .join("");
     return timingSafeEqualHex(computedHex, signatureHeader);
   } catch (e) {
-    console.error("[pocketfi-webhook] signature compute error:", e);
+    console.error("[legacy-paystack-webhook] signature compute error:", e);
     return false;
   }
 }
@@ -104,13 +104,13 @@ Deno.serve(async (req: Request) => {
   const paystackSecret = normalizePaystackSecret(rawSecret);
 
   if (!paystackSecret) {
-    console.error("[pocketfi-webhook] PAYSTACK_SECRET_KEY not set.");
+    console.error("[legacy-paystack-webhook] PAYSTACK_SECRET_KEY not set.");
     return ok({ received: true, error: "misconfigured" });
   }
 
   const valid = await verifyPaystackSignature(rawBody, sig, paystackSecret);
   if (!valid) {
-    console.warn("[pocketfi-webhook] Invalid x-paystack-signature (logged, still 200).");
+    console.warn("[legacy-paystack-webhook] Invalid x-paystack-signature (logged, still 200).");
     return ok({ received: true, verified: false });
   }
 
@@ -118,13 +118,13 @@ Deno.serve(async (req: Request) => {
   try {
     payload = JSON.parse(rawBody) as PaystackWebhookPayload;
   } catch {
-    console.warn("[pocketfi-webhook] Invalid JSON body.");
+    console.warn("[legacy-paystack-webhook] Invalid JSON body.");
     return ok({ received: true, parse_error: true });
   }
 
   const event = String(payload.event ?? "").toLowerCase();
   if (event !== "charge.success") {
-    console.log(`[pocketfi-webhook] Ignoring event: ${event}`);
+    console.log(`[legacy-paystack-webhook] Ignoring event: ${event}`);
     return ok({ received: true, ignored: true, event });
   }
 
@@ -134,25 +134,25 @@ Deno.serve(async (req: Request) => {
   const rawAmount = Number(data.amount ?? 0);
 
   if (status && status !== "success") {
-    console.log(`[pocketfi-webhook] charge.success but status=${status} ref=${reference}`);
+    console.log(`[legacy-paystack-webhook] charge.success but status=${status} ref=${reference}`);
     return ok({ received: true, ignored: true, status });
   }
 
   if (!reference) {
-    console.warn("[pocketfi-webhook] charge.success missing reference.");
+    console.warn("[legacy-paystack-webhook] charge.success missing reference.");
     return ok({ received: true, missing_reference: true });
   }
 
   const amountNaira = koboToNaira(rawAmount);
   if (amountNaira <= 0) {
-    console.warn(`[pocketfi-webhook] Invalid amount kobo=${rawAmount} ref=${reference}`);
+    console.warn(`[legacy-paystack-webhook] Invalid amount kobo=${rawAmount} ref=${reference}`);
     return ok({ received: true, invalid_amount: true });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceRoleKey) {
-    console.error("[pocketfi-webhook] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
+    console.error("[legacy-paystack-webhook] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
     return ok({ received: true, error: "server_config" });
   }
 
@@ -166,17 +166,17 @@ Deno.serve(async (req: Request) => {
   });
 
   if (depositErr) {
-    console.error("[pocketfi-webhook] process_deposit RPC error:", depositErr.message);
+    console.error("[legacy-paystack-webhook] process_deposit RPC error:", depositErr.message);
   } else if (depositResult?.success) {
     console.log(
-      `[pocketfi-webhook] Deposit completed ref=${reference} amount=₦${amountNaira}` +
+      `[legacy-paystack-webhook] Deposit completed ref=${reference} amount=₦${amountNaira}` +
         (depositResult.idempotent ? " (idempotent)" : ""),
     );
     return ok({ received: true, processed: true, kind: "deposit" });
   } else if (depositResult && !depositResult.success) {
     const dMsg = String(depositResult.message ?? "");
     if (dMsg !== "Reference not found.") {
-      console.error(`[pocketfi-webhook] process_deposit failed ref=${reference}:`, dMsg);
+      console.error(`[legacy-paystack-webhook] process_deposit failed ref=${reference}:`, dMsg);
       return ok({ received: true, deposit_failed: true });
     }
     // Reference not found on a deposit row — try Paystack purchase fulfillment.
@@ -191,13 +191,13 @@ Deno.serve(async (req: Request) => {
   );
 
   if (purchaseErr) {
-    console.error("[pocketfi-webhook] fulfill_paystack_purchase RPC error:", purchaseErr.message);
+    console.error("[legacy-paystack-webhook] fulfill_paystack_purchase RPC error:", purchaseErr.message);
     return ok({ received: true, purchase_rpc_error: true });
   }
 
   if (purchaseResult?.success) {
     console.log(
-      `[pocketfi-webhook] Purchase fulfilled ref=${reference} amount=₦${amountNaira}` +
+      `[legacy-paystack-webhook] Purchase fulfilled ref=${reference} amount=₦${amountNaira}` +
         (purchaseResult.idempotent ? " (idempotent)" : ""),
     );
     return ok({ received: true, processed: true, kind: "purchase" });
@@ -205,7 +205,7 @@ Deno.serve(async (req: Request) => {
 
   const msg = purchaseResult?.message ?? depositResult?.message ?? "unknown";
   console.warn(
-    `[pocketfi-webhook] No matching pending transaction ref=${reference} last_msg=${msg}`,
+    `[legacy-paystack-webhook] No matching pending transaction ref=${reference} last_msg=${msg}`,
   );
   return ok({ received: true, not_found: true });
 });

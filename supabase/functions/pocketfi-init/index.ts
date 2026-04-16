@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 /**
- * Paystack transaction initialize. Function name stays `pocketfi-init` for stable client URLs.
+ * Paystack transaction initialize. Legacy function slug stays `pocketfi-init` for stable client URLs.
  *
  * Secret: PAYSTACK_SECRET_KEY (sk_test_… / sk_live_…) — value only, no "Bearer " prefix in the secret.
  *
@@ -44,7 +44,7 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     if (!supabaseUrl || !supabaseAnonKey) {
-      console.error("[pocketfi-init] SUPABASE_URL or SUPABASE_ANON_KEY missing.");
+      console.error("[legacy-paystack-init] SUPABASE_URL or SUPABASE_ANON_KEY missing.");
       return json({ error: "Server configuration error." }, 500);
     }
 
@@ -54,14 +54,14 @@ Deno.serve(async (req: Request) => {
 
     const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
     if (authErr || !authData.user) {
-      console.error("[pocketfi-init] auth.getUser failed:", authErr?.message);
+      console.error("[legacy-paystack-init] auth.getUser failed:", authErr?.message);
       return json({ error: authErr?.message ?? "Invalid or expired session." }, 401);
     }
     const authedUser = authData.user;
 
     const rawKey = Deno.env.get("PAYSTACK_SECRET_KEY");
     if (rawKey == null || rawKey.trim() === "") {
-      console.error("[pocketfi-init] PAYSTACK_SECRET_KEY not set.");
+      console.error("[legacy-paystack-init] PAYSTACK_SECRET_KEY not set.");
       return json({ error: "Payment gateway not configured. Contact support." }, 500);
     }
     let paystackSecret = rawKey.trim();
@@ -72,7 +72,7 @@ Deno.serve(async (req: Request) => {
       paystackSecret = paystackSecret.slice(1, -1).trim();
     }
     if (!paystackSecret.startsWith("sk_")) {
-      console.warn("[pocketfi-init] PAYSTACK_SECRET_KEY should start with sk_test_ or sk_live_.");
+      console.warn("[legacy-paystack-init] PAYSTACK_SECRET_KEY should start with sk_test_ or sk_live_.");
     }
     // Exactly one space after "Bearer"; no quotes in the header value.
     const authorizationHeader = "Bearer " + paystackSecret;
@@ -145,7 +145,7 @@ Deno.serve(async (req: Request) => {
       },
     };
 
-    console.log("[pocketfi-init] Paystack initialize", {
+    console.log("[legacy-paystack-init] Paystack initialize", {
       url: PAYSTACK_INIT_URL,
       amount_naira: Math.trunc(amountNaira),
       amount_kobo: paystackBody.amount,
@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
     try {
       parsed = txt ? (JSON.parse(txt) as Record<string, unknown>) : {};
     } catch {
-      console.error("[pocketfi-init] Paystack non-JSON:", txt.slice(0, 500));
+      console.error("[legacy-paystack-init] Paystack non-JSON:", txt.slice(0, 500));
       return json(
         {
           error: "Paystack returned an invalid response.",
@@ -190,7 +190,7 @@ Deno.serve(async (req: Request) => {
       const msg =
         (typeof parsed.message === "string" && parsed.message) ||
         `Paystack error (HTTP ${paystackRes.status})`;
-      console.error("[pocketfi-init] Paystack init failed:", msg, parsed);
+      console.error("[legacy-paystack-init] Paystack init failed:", msg, parsed);
       return json(
         {
           error: msg,
@@ -212,7 +212,7 @@ Deno.serve(async (req: Request) => {
       data,
     });
   } catch (e) {
-    console.error("[pocketfi-init] unhandled:", e);
+    console.error("[legacy-paystack-init] unhandled:", e);
     return json(
       { error: "payment-init crashed.", detail: e instanceof Error ? e.message : String(e) },
       500,

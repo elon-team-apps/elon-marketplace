@@ -1,5 +1,5 @@
 # Supabase CLI — https://supabase.com/docs/guides/cli/config
-# Gateway JWT verification was returning 401 "Invalid JWT" for valid browser sessions.
+# Legacy Paystack alias functions keep JWT verification off.
 # We validate the user session inside the function instead.
 [functions.pocketfi-init]
 verify_jwt = false
