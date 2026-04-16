@@ -165,10 +165,12 @@ function extractDeliveredData(payload: Record<string, unknown>): string[] {
     .filter(Boolean);
 }
 
-function toEmailPasswordView(entry: string): string {
-  const parts = String(entry).split(":");
-  if (parts.length < 2) return entry;
-  return `${parts[0]}:${parts[1]}`;
+function normalizeDeliveredLog(entry: string): string {
+  return String(entry ?? "")
+    .split(":")
+    .map((part) => part.trim())
+    .join(":")
+    .trim();
 }
 
 type PurchaseState =
@@ -183,6 +185,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const [purchaseState, setPurchaseState] = useState<PurchaseState>({ phase: "idle" });
   const [purchasing, setPurchasing] = useState(false);
   const [showPaystackOption, setShowPaystackOption] = useState(false);
+  const [copiedLog, setCopiedLog] = useState<string | null>(null);
 
   useEffect(() => {
     setQty(1);
@@ -206,6 +209,40 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
     Boolean(currentUser?.email) && Number.isFinite(totalPrice) && totalPrice > 0 && meetsMinimum;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
   const canAttemptPurchase = availableStock > 0;
+
+  const copyLogLine = async (line: string) => {
+    try {
+      await navigator.clipboard.writeText(line);
+      setCopiedLog(line);
+      window.setTimeout(() => setCopiedLog((prev) => (prev === line ? null : prev)), 2000);
+    } catch (error) {
+      console.error("[PurchaseModal] Failed to copy delivered log", error);
+    }
+  };
+
+  const pollTransactionDelivery = async (reference: string) => {
+    if (!supabase || !currentUser?.id) return;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("status, delivered_data")
+        .eq("reference", reference)
+        .eq("user_id", currentUser.id)
+        .maybeSingle();
+      if (!error && data) {
+        const status = String(data.status ?? "").toLowerCase();
+        const delivered = extractDeliveredData(data as Record<string, unknown>).map(normalizeDeliveredLog);
+        if (status === "completed" && delivered.length > 0) {
+          setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
+          window.dispatchEvent(new CustomEvent("orders:refresh"));
+          await refreshProfile();
+          return true;
+        }
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1500));
+    }
+    return false;
+  };
 
   const handleWalletPurchase = async () => {
     setPurchasing(true);
@@ -263,7 +300,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      const delivered = extractDeliveredData(walletPayload).map(toEmailPasswordView);
+      const delivered = extractDeliveredData(walletPayload).map(normalizeDeliveredLog);
       setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
       window.dispatchEvent(new CustomEvent("orders:refresh"));
       await refreshProfile();
@@ -414,7 +451,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           return;
         }
         const simulatePayload = (await simulateRes.json().catch(() => ({}))) as Record<string, unknown>;
-        const delivered = extractDeliveredData(simulatePayload).map(toEmailPasswordView);
+        const delivered = extractDeliveredData(simulatePayload).map(normalizeDeliveredLog);
         setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
         window.dispatchEvent(new CustomEvent("orders:refresh"));
         await refreshProfile();
@@ -456,13 +493,18 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         callback: () => {
           setPurchaseState({
             phase: "processing",
-            message: "Payment received. Waiting for Paystack webhook fulfillment...",
+            message: "Payment received. Fetching your credentials...",
           });
-          window.dispatchEvent(new CustomEvent("orders:refresh"));
-          void refreshProfile();
-          window.setTimeout(() => {
-            window.location.assign(callbackUrl);
-          }, 1200);
+          void (async () => {
+            const resolved = await pollTransactionDelivery(reference);
+            if (!resolved) {
+              setPurchaseState({
+                phase: "processing",
+                message: "Payment confirmed. Fetching credentials...",
+              });
+              window.location.assign(callbackUrl);
+            }
+          })();
         },
         onClose: () => {
           setPurchasing(false);
@@ -611,10 +653,24 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                   Purchase completed ({purchaseState.count} account{purchaseState.count === 1 ? "" : "s"})
                 </p>
                 {purchaseState.logs.length > 0 ? (
-                  <div className="max-h-40 overflow-auto rounded-lg border border-emerald-200/70 dark:border-emerald-500/20 bg-white/60 dark:bg-black/20 px-2.5 py-2">
-                    <pre className="text-xs whitespace-pre-wrap break-words font-mono text-emerald-900 dark:text-emerald-100 leading-relaxed">
-                      {purchaseState.logs.join("\n")}
-                    </pre>
+                  <div className="max-h-56 overflow-auto rounded-lg border border-emerald-200/70 dark:border-emerald-500/20 bg-white/60 dark:bg-black/20 px-2.5 py-2 space-y-2">
+                    {purchaseState.logs.map((logLine, index) => (
+                      <div
+                        key={`${logLine}-${index}`}
+                        className="flex items-start justify-between gap-2 rounded-md border border-emerald-200/70 bg-white/70 px-2 py-2 dark:border-emerald-500/10 dark:bg-black/20"
+                      >
+                        <pre className="text-xs whitespace-pre-wrap break-all font-mono text-emerald-900 dark:text-emerald-100 leading-relaxed flex-1 min-w-0">
+                          {logLine}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => void copyLogLine(logLine)}
+                          className="shrink-0 rounded-md border border-emerald-300/80 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                        >
+                          {copiedLog === logLine ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <p className="text-xs text-emerald-700 dark:text-emerald-300">

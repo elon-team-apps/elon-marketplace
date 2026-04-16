@@ -257,13 +257,22 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     .filter(Boolean);
   const deliveredData = deliveredDataLines.join("\n");
   const hasDeliveredCredentials = deliveredDataLines.length > 0;
+  const deliveryUpdate = await supabaseAdmin
+    .from("transactions")
+    .update({
+      credentials_delivered: hasDeliveredCredentials,
+      delivered_data: deliveredData,
+    })
+    .eq("id", tx.id);
+  if (deliveryUpdate.error) {
+    return { ok: false, status: 500, error: `Failed to save delivered credentials: ${formatDbError(deliveryUpdate.error)}` };
+  }
+
   const txUpdate = await supabaseAdmin
     .from("transactions")
     .update({
       status: "completed",
       amount: amountNaira > 0 ? amountNaira : tx.amount,
-      credentials_delivered: hasDeliveredCredentials,
-      delivered_data: deliveredData,
     })
     .eq("id", tx.id);
   if (txUpdate.error) {

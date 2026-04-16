@@ -68,14 +68,26 @@ function CredentialModal({
 }) {
   const [copied, setCopied] = useState(false);
   const credentials = parseDeliveredData(order.deliveredLog || order.credentials || "");
+  const credentialLines = credentials
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const isCompleted = String(order.status ?? "").toLowerCase() === "completed";
   const credentialsDelivered = Boolean(order.credentialsDelivered);
+  const [copiedLine, setCopiedLine] = useState<string | null>(null);
 
   const handleCopy = () => {
     if (!credentials) return;
     navigator.clipboard.writeText(credentials).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleCopyLine = (line: string) => {
+    navigator.clipboard.writeText(line).then(() => {
+      setCopiedLine(line);
+      setTimeout(() => setCopiedLine((prev) => (prev === line ? null : prev)), 2000);
     });
   };
 
@@ -145,13 +157,12 @@ function CredentialModal({
           ) : credentials ? (
             /* ── The "Secret Key" credential box ── */
             <div
-              className="relative rounded-xl overflow-hidden cursor-pointer group"
+              className="relative rounded-xl overflow-hidden"
               style={{
                 background: "#060b14",
                 border: "1px solid rgba(16,185,129,0.20)",
                 boxShadow: "0 0 24px rgba(16,185,129,0.06)",
               }}
-              onClick={handleCopy}
             >
               {/* Top bar */}
               <div
@@ -176,41 +187,48 @@ function CredentialModal({
               </div>
 
               {/* Credential text */}
-              <div className="px-4 py-4 select-all">
-                <p
-                  className="font-mono text-sm break-all leading-relaxed"
-                  style={{ color: "rgba(52,211,153,0.88)" }}
-                >
-                  {credentials}
-                </p>
-              </div>
-
-              {/* Hover overlay — copy affordance */}
-              <div
-                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                style={{ background: "rgba(6,11,20,0.5)" }}
-              >
-                <div
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
-                  style={{
-                    background: "rgba(16,185,129,0.15)",
-                    border: "1px solid rgba(16,185,129,0.3)",
-                    color: "rgba(52,211,153,1)",
-                  }}
-                >
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copied ? "Copied!" : "Click to Copy"}
-                </div>
+              <div className="px-4 py-4 space-y-2">
+                {credentialLines.map((line, index) => (
+                  <div
+                    key={`${line}-${index}`}
+                    className="flex items-start justify-between gap-2 rounded-md border px-2 py-2"
+                    style={{ borderColor: "rgba(16,185,129,0.12)", background: "rgba(16,185,129,0.03)" }}
+                  >
+                    <p
+                      className="font-mono text-sm break-all leading-relaxed flex-1 min-w-0"
+                      style={{ color: "rgba(52,211,153,0.88)" }}
+                    >
+                      {line}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLine(line)}
+                      className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
+                      style={{
+                        background: "rgba(16,185,129,0.15)",
+                        border: "1px solid rgba(16,185,129,0.3)",
+                        color: "rgba(52,211,153,1)",
+                      }}
+                    >
+                      {copiedLine === line ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                {credentialsDelivered
-                  ? "Credentials were marked as delivered but are not visible. Please contact support."
-                  : "No credentials have been delivered yet. Please contact support if this persists."}
-              </p>
-            </div>
+            credentialsDelivered ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                <Loader2 className="h-6 w-6 text-accent animate-spin" />
+                <p className="text-sm text-slate-600 dark:text-slate-300">Fetching credentials...</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  No credentials have been delivered yet. Please contact support if this persists.
+                </p>
+              </div>
+            )
           )}
 
           {/* Copy button (always visible below the box) */}
