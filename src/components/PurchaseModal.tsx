@@ -11,7 +11,6 @@ import {
   formatSupabasePostgrestError,
   isLikelySchemaOrMissingColumnError,
 } from "@/lib/supabaseErrors";
-import { extractPaystackRedirectUrl } from "@/lib/paystackRedirect";
 import { toast as sonnerToast } from "sonner";
 import {
   PlatformLogo,
@@ -102,6 +101,58 @@ function buildPaymentReference(): string {
   return `psk_${Date.now()}_${rand}`;
 }
 
+type PaystackHandler = {
+  openIframe: () => void;
+};
+
+type PaystackPopup = {
+  setup: (options: {
+    key: string;
+    email: string;
+    amount: number;
+    ref: string;
+    metadata?: Record<string, unknown>;
+    callback?: (response: { reference?: string; [key: string]: unknown }) => void;
+    onClose?: () => void;
+  }) => PaystackHandler;
+};
+
+type PaystackWindow = Window & {
+  PaystackPop?: PaystackPopup;
+};
+
+function getPaystackWindow(): PaystackWindow {
+  return window as PaystackWindow;
+}
+
+async function loadPaystackInlineScript(): Promise<PaystackPopup> {
+  const existing = getPaystackWindow().PaystackPop;
+  if (existing) return existing;
+
+  await new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>('script[data-paystack-inline="true"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error("Failed to load Paystack inline script.")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://js.paystack.co/v1/inline.js";
+    script.async = true;
+    script.dataset.paystackInline = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Paystack inline script."));
+    document.body.appendChild(script);
+  });
+
+  const popup = getPaystackWindow().PaystackPop;
+  if (!popup) {
+    throw new Error("Paystack inline popup is unavailable.");
+  }
+  return popup;
+}
+
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const data = (payload.data as Record<string, unknown> | undefined) ?? payload;
   const raw = data.delivered_data;
@@ -141,9 +192,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const availableStock = getAvailableStock(product);
   const maxQty = Math.min(availableStock, 10);
   const totalPrice = qty * product.price;
+  const totalAmountKobo = Math.trunc(totalPrice * 100);
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
+  const paystackPublicKey =
+    (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined)
+    || (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY as string | undefined)
+    || "";
   const hasPurchaseFunds = canAfford || canBypassBalance;
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
@@ -166,6 +222,11 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
       if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
         setPurchaseState({ phase: "error", message: "Invalid purchase amount. Please try again." });
+        setPurchasing(false);
+        return;
+      }
+      if (!Number.isFinite(totalAmountKobo) || totalAmountKobo <= 0) {
+        setPurchaseState({ phase: "error", message: "Invalid Paystack amount. Please try again." });
         setPurchasing(false);
         return;
       }
@@ -207,12 +268,17 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       const naira = Math.trunc(totalPrice);
-      const callbackUrl = `${window.location.origin}/dashboard?payment=success`;
       const metadata = {
-        totalAmount: naira,
-        customerEmail: currentUser.email,
         productId: product.id,
         quantity: qty,
+        buyerEmail: currentUser.email,
+      };
+
+      const callbackUrl = `${window.location.origin}/dashboard?payment=success`;
+      const paystackMetadata = {
+        productId: product.id,
+        quantity: qty,
+        buyerEmail: currentUser.email,
       };
 
       // Pending row in public.transactions (Paystack webhook completes → status completed).
@@ -262,7 +328,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             event: "charge.success",
             data: {
               reference,
-              amount: naira * 100,
+              amount: totalAmountKobo,
               status: "success",
               metadata,
             },
@@ -288,30 +354,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      const payRes = await fetch("/api/pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: naira * 100,
-          email: currentUser.email,
-          reference,
-          callbackUrl,
-          metadata,
-        }),
-      });
-      const payPayload = (await payRes.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!payRes.ok) {
-        const msg = parseInvokeErrorPayload(payPayload);
-        setPurchaseState({ phase: "error", message: msg });
-        sonnerToast.error("Paystack initialization failed", {
-          description: msg,
-        });
-        setPurchasing(false);
-        return;
-      }
-      const payUrl = extractPaystackRedirectUrl(payPayload) ?? "";
-      if (!payUrl) {
-        const msg = "Paystack did not return a checkout URL.";
+      if (!paystackPublicKey.trim()) {
+        const msg = "Paystack public key is missing. Set NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY.";
         setPurchaseState({ phase: "error", message: msg });
         sonnerToast.error("Paystack initialization failed", {
           description: msg,
@@ -320,13 +364,36 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      setPurchaseState({ phase: "idle" });
+      setPurchaseState({ phase: "processing", message: "Initializing Paystack popup..." });
       sonnerToast.success("Success", {
-        description: `Opening Paystack checkout for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
+        description: `Opening Paystack popup for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
       });
-      window.setTimeout(() => {
-        window.location.replace(payUrl);
-      }, 150);
+
+      const PaystackPop = await loadPaystackInlineScript();
+      const handler = PaystackPop.setup({
+        key: paystackPublicKey.trim(),
+        email: currentUser.email,
+        amount: totalAmountKobo,
+        ref: reference,
+        metadata: paystackMetadata,
+        callback: () => {
+          setPurchaseState({
+            phase: "processing",
+            message: "Payment received. Waiting for Paystack webhook fulfillment...",
+          });
+          window.dispatchEvent(new CustomEvent("orders:refresh"));
+          window.setTimeout(() => {
+            window.location.assign(callbackUrl);
+          }, 1200);
+        },
+        onClose: () => {
+          setPurchasing(false);
+          setPurchaseState({ phase: "idle" });
+        },
+      });
+      handler.openIframe();
+      setPurchasing(false);
+      return;
     } catch (e) {
       let msg = "Unable to start payment.";
       if (e instanceof Error) {
@@ -510,7 +577,9 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               {purchasing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin text-white" />
-                  <span className="text-white">Redirecting to Payment...</span>
+                  <span className="text-white">
+                    {purchaseState.phase === "processing" ? "Initializing Paystack..." : "Preparing Payment..."}
+                  </span>
                 </>
               ) : (
                 <>
