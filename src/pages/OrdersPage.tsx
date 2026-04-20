@@ -62,9 +62,15 @@ type ModalOrder = Order & {
 function CredentialModal({
   order,
   onClose,
+  canRetryFulfillment,
+  retryingFulfillment,
+  onRetryFulfillment,
 }: {
   order: ModalOrder;
   onClose: () => void;
+  canRetryFulfillment: boolean;
+  retryingFulfillment: boolean;
+  onRetryFulfillment: (transactionId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
   const credentials = parseDeliveredData(order.deliveredLog || order.credentials || "");
@@ -187,7 +193,14 @@ function CredentialModal({
               </div>
 
               {/* Credential text */}
-              <div className="px-4 py-4 space-y-2">
+              <div className="px-4 py-3">
+                <textarea
+                  readOnly
+                  value={credentials}
+                  className="w-full min-h-[180px] resize-y rounded-lg border border-emerald-500/30 bg-[#040a12] px-3 py-3 font-mono text-sm leading-relaxed text-emerald-300 focus:outline-none"
+                />
+              </div>
+              <div className="px-4 pb-4 space-y-2">
                 {credentialLines.map((line, index) => (
                   <div
                     key={`${line}-${index}`}
@@ -221,12 +234,30 @@ function CredentialModal({
               <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
                 <Loader2 className="h-6 w-6 text-accent animate-spin" />
                 <p className="text-sm text-slate-600 dark:text-slate-300">Fetching credentials...</p>
+                {canRetryFulfillment && (
+                  <button
+                    type="button"
+                    onClick={() => void onRetryFulfillment(order.id)}
+                    disabled={retryingFulfillment}
+                    className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition disabled:opacity-60"
+                  >
+                    {retryingFulfillment ? "Retrying..." : "Retry Fulfillment"}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  No credentials have been delivered yet. Please contact support if this persists.
-                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Credentials are not visible yet for this completed order.</p>
+                {canRetryFulfillment && (
+                  <button
+                    type="button"
+                    onClick={() => void onRetryFulfillment(order.id)}
+                    disabled={retryingFulfillment}
+                    className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition disabled:opacity-60"
+                  >
+                    {retryingFulfillment ? "Retrying..." : "Retry Fulfillment"}
+                  </button>
+                )}
               </div>
             )
           )}
@@ -285,6 +316,41 @@ export default function OrdersPage() {
   const [dbOrders, setDbOrders] = useState<DbOrder[]>([]);
   const [loadingDb, setLoadingDb] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [retryingOrderId, setRetryingOrderId] = useState<string | null>(null);
+  const isAdminUser = Boolean(currentUser?.is_admin || currentUser?.role === "admin");
+
+  const retryFulfillment = async (transactionId: string) => {
+    if (!transactionId || !supabase) return;
+    if (!isAdminUser) return;
+    setRetryingOrderId(transactionId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (!token) throw new Error("Missing auth session.");
+
+      const response = await fetch("/api/admin/retry-fulfillment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ transactionId }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Retry fulfillment failed.");
+      }
+
+      setRefreshNonce((v) => v + 1);
+      window.dispatchEvent(new CustomEvent("orders:refresh"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Retry fulfillment failed.";
+      console.error("[OrdersPage] Retry fulfillment failed", message);
+      window.alert(message);
+    } finally {
+      setRetryingOrderId(null);
+    }
+  };
 
   // User's local orders from AppContext (works offline + immediately after purchase)
   const localOrders = orders.filter((o) => o.userId === currentUser?.id);
@@ -468,6 +534,9 @@ export default function OrdersPage() {
         <CredentialModal
           order={viewing}
           onClose={() => setViewing(null)}
+          canRetryFulfillment={isAdminUser && String(viewing.status ?? "").toLowerCase() === "completed" && !parseDeliveredData(viewing.deliveredLog).trim()}
+          retryingFulfillment={retryingOrderId === viewing.id}
+          onRetryFulfillment={retryFulfillment}
         />
       )}
     </div>

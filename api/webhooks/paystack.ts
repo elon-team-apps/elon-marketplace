@@ -139,20 +139,14 @@ function formatDeliveredLog(row: {
   recovery?: string | null;
   credentials?: string | null;
 }): string {
+  const clean = String(row.credentials ?? "").trim();
+  if (clean) return clean;
+
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
   const recovery = String(row.recovery ?? "").trim();
   if (email && password) return `${email}:${password}:${recovery}`;
-
-  const clean = String(row.credentials ?? "").trim();
-  if (!clean) return "";
-  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
-  if (parts.length < 2) return clean;
-  const e = String(parts[0] ?? "").trim();
-  const p = String(parts[1] ?? "").trim();
-  const r = String(parts.slice(2).join(":") ?? "").trim();
-  if (!e || !p) return clean;
-  return `${e}:${p}:${r}`;
+  return "";
 }
 
 async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, reference: string, amountKoboRaw: unknown) {
@@ -181,10 +175,16 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     .from("log_items")
     .select("id", { count: "exact", head: true })
     .eq("product_id", tx.product_id)
-    .eq("status", "available")
     .eq("is_delivered", false);
   if (countError && manualStock < quantity) return { ok: false, status: 500, error: `Failed to count available logs: ${formatDbError(countError)}` };
   const availableLogCount = countError ? 0 : Math.max(0, Number(rawAvailableLogCount ?? 0));
+  if (availableLogCount + manualStock < quantity) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Insufficient stock. available_logs=${availableLogCount}, manual_stock=${manualStock}, requested=${quantity}`,
+    };
+  }
 
   let logsToDeliver: Array<{
     id: string;
@@ -198,7 +198,6 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
       .from("log_items")
       .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
-      .eq("status", "available")
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
       .limit(quantity);
@@ -218,7 +217,10 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
 
   if (fromLogs > 0) {
     const logIds = logsToDeliver.slice(0, fromLogs).map((row) => row.id);
-    const { error } = await supabaseAdmin.from("log_items").update({ is_delivered: true, status: "delivered" }).in("id", logIds);
+    const { error } = await supabaseAdmin
+      .from("log_items")
+      .update({ is_delivered: true, status: "delivered", buyer_id: tx.user_id })
+      .in("id", logIds);
     if (error) return { ok: false, status: 500, error: `Failed to mark delivered logs: ${formatDbError(error)}` };
   }
 
@@ -238,23 +240,16 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     .filter(Boolean);
   const deliveredData = deliveredDataLines.join("\n");
   const hasDeliveredCredentials = deliveredDataLines.length > 0;
-  const deliveryUpdate = await supabaseAdmin
-    .from("transactions")
-    .update({
-      credentials_delivered: hasDeliveredCredentials,
-      delivered_data: deliveredData,
-    })
-    .eq("id", tx.id);
-  if (deliveryUpdate.error) return { ok: false, status: 500, error: `Failed to save delivered credentials: ${formatDbError(deliveryUpdate.error)}` };
-
   const txUpdate = await supabaseAdmin
     .from("transactions")
     .update({
       status: "completed",
       amount: amountNaira > 0 ? amountNaira : tx.amount,
+      credentials_delivered: hasDeliveredCredentials,
+      delivered_data: deliveredData,
     })
     .eq("id", tx.id);
-  if (txUpdate.error) return { ok: false, status: 500, error: `Failed to mark transaction completed: ${formatDbError(txUpdate.error)}` };
+  if (txUpdate.error) return { ok: false, status: 500, error: `Failed to save delivered transaction update: ${formatDbError(txUpdate.error)}` };
 
   if (fromLogs > 0) {
     const { error } = await supabaseAdmin.from("transactions").update({ log_id: logsToDeliver[fromLogs - 1].id }).eq("id", tx.id);

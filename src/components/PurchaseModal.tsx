@@ -16,8 +16,8 @@ import {
   PlatformLogo,
   PLATFORM_MAP,
   inferPlatformKey,
-  getAvailableStock,
 } from "@/pages/ProductsPage";
+import { calculateStockBreakdown } from "@/lib/stock";
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
@@ -182,6 +182,7 @@ type PurchaseState =
 export function PurchaseModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const { currentUser, refreshProfile } = useApp();
   const [qty, setQty] = useState(1);
+  const [liveStock, setLiveStock] = useState<number | null>(null);
   const [purchaseState, setPurchaseState] = useState<PurchaseState>({ phase: "idle" });
   const [purchasing, setPurchasing] = useState(false);
   const [showPaystackOption, setShowPaystackOption] = useState(false);
@@ -194,7 +195,10 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
     setShowPaystackOption(false);
   }, [product.id]);
 
-  const availableStock = getAvailableStock(product);
+  const stockView = calculateStockBreakdown(product, {
+    liveLogCount: liveStock === null ? undefined : liveStock,
+  });
+  const availableStock = stockView.total;
   const maxQty = Math.min(availableStock, 10);
   const totalPrice = qty * product.price;
   const totalAmountKobo = Math.trunc(totalPrice * 100);
@@ -209,6 +213,60 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
     Boolean(currentUser?.email) && Number.isFinite(totalPrice) && totalPrice > 0 && meetsMinimum;
   const platform = PLATFORM_MAP[inferPlatformKey(product.title)];
   const canAttemptPurchase = availableStock > 0;
+
+  useEffect(() => {
+    if (!supabase || !product?.id) {
+      setLiveStock(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadLiveStock = async () => {
+      const primary = await supabase
+        .from("log_items")
+        .select("id", { count: "exact", head: true })
+        .eq("product_id", product.id)
+        .eq("is_delivered", false);
+      if (!cancelled && !primary.error && typeof primary.count === "number") {
+        setLiveStock(Math.max(0, primary.count));
+        return;
+      }
+
+      const fallback = await supabase
+        .from("log_items")
+        .select("id", { count: "exact", head: true })
+        .eq("product_id", product.id)
+        .eq("status", "available");
+      if (!cancelled && !fallback.error && typeof fallback.count === "number") {
+        setLiveStock(Math.max(0, fallback.count));
+      }
+    };
+
+    void loadLiveStock();
+    const channel = supabase
+      .channel(`purchase-modal-stock-${product.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "log_items", filter: `product_id=eq.${product.id}` },
+        () => {
+          void loadLiveStock();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [product?.id]);
+
+  useEffect(() => {
+    if (maxQty <= 0) {
+      setQty(1);
+      return;
+    }
+    setQty((prev) => Math.max(1, Math.min(prev, maxQty)));
+  }, [maxQty]);
 
   const copyLogLine = async (line: string) => {
     try {

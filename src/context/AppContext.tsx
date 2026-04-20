@@ -546,7 +546,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .from("log_items")
           .select("product_id")
           .in("product_id", allIds)
-          .eq("status", "available");
+          .eq("is_delivered", false);
         if (!live.error && live.data) {
           liveByProduct = {};
           for (const row of live.data as Array<{ product_id?: string }>) {
@@ -559,7 +559,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             .from("log_items")
             .select("product_id")
             .in("product_id", allIds)
-            .eq("is_delivered", false);
+            .eq("status", "available");
           if (!fb.error && fb.data) {
             liveByProduct = {};
             for (const row of fb.data as Array<{ product_id?: string }>) {

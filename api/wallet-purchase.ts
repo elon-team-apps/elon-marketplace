@@ -70,20 +70,14 @@ function formatDeliveredLog(row: {
   recovery?: string | null;
   credentials?: string | null;
 }): string {
+  const clean = String(row.credentials ?? "").trim();
+  if (clean) return clean;
+
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
   const recovery = String(row.recovery ?? "").trim();
   if (email && password) return `${email}:${password}:${recovery}`;
-
-  const clean = String(row.credentials ?? "").trim();
-  if (!clean) return "";
-  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
-  if (parts.length < 2) return clean;
-  const e = String(parts[0] ?? "").trim();
-  const p = String(parts[1] ?? "").trim();
-  const r = String(parts.slice(2).join(":") ?? "").trim();
-  if (!e || !p) return clean;
-  return `${e}:${p}:${r}`;
+  return "";
 }
 
 async function fulfillWalletPurchase(
@@ -118,12 +112,18 @@ async function fulfillWalletPurchase(
     .from("log_items")
     .select("id", { count: "exact", head: true })
     .eq("product_id", tx.product_id)
-    .eq("status", "available")
     .eq("is_delivered", false);
   if (countError && manualStock < quantity) {
     return { ok: false, status: 500, error: `Failed to count available logs: ${formatDbError(countError)}` };
   }
   const availableLogCount = countError ? 0 : Math.max(0, Number(rawAvailableLogCount ?? 0));
+  if (availableLogCount + manualStock < quantity) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Insufficient stock. available_logs=${availableLogCount}, manual_stock=${manualStock}, requested=${quantity}`,
+    };
+  }
 
   let logsToDeliver: Array<{
     id: string;
@@ -137,7 +137,6 @@ async function fulfillWalletPurchase(
       .from("log_items")
       .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
-      .eq("status", "available")
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
       .limit(quantity);
@@ -186,26 +185,17 @@ async function fulfillWalletPurchase(
     .filter(Boolean);
   const deliveredData = deliveredDataLines.join("\n");
   const hasDeliveredCredentials = deliveredDataLines.length > 0;
-  const deliveryUpdate = await supabaseAdmin
-    .from("transactions")
-    .update({
-      credentials_delivered: hasDeliveredCredentials,
-      delivered_data: deliveredData,
-    })
-    .eq("id", tx.id);
-  if (deliveryUpdate.error) {
-    return { ok: false, status: 500, error: `Failed to save wallet delivered credentials: ${formatDbError(deliveryUpdate.error)}` };
-  }
-
   const txUpdate = await supabaseAdmin
     .from("transactions")
     .update({
       status: "completed",
       amount: amountNaira > 0 ? amountNaira : tx.amount,
+      credentials_delivered: hasDeliveredCredentials,
+      delivered_data: deliveredData,
     })
     .eq("id", tx.id);
   if (txUpdate.error) {
-    return { ok: false, status: 500, error: `Failed to mark wallet transaction completed: ${formatDbError(txUpdate.error)}` };
+    return { ok: false, status: 500, error: `Failed to save wallet delivered transaction update: ${formatDbError(txUpdate.error)}` };
   }
 
   if (fromLogs > 0) {

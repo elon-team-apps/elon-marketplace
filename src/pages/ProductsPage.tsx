@@ -444,7 +444,7 @@ function ProductCard({
         .from("log_items")
         .select("id", { count: "exact", head: true })
         .eq("product_id", p.id)
-        .eq("status", "available");
+        .eq("is_delivered", false);
       if (!cancelled && !primary.error && typeof primary.count === "number") {
         setLiveStock(Math.max(0, primary.count));
         return;
@@ -454,7 +454,7 @@ function ProductCard({
         .from("log_items")
         .select("id", { count: "exact", head: true })
         .eq("product_id", p.id)
-        .eq("is_delivered", false);
+        .eq("status", "available");
       if (!cancelled && !fallback.error && typeof fallback.count === "number") {
         setLiveStock(Math.max(0, fallback.count));
       }
