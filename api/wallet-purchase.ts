@@ -70,14 +70,19 @@ function formatDeliveredLog(row: {
   recovery?: string | null;
   credentials?: string | null;
 }): string {
-  const clean = String(row.credentials ?? "").trim();
-  if (clean) return clean;
-
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
   const recovery = String(row.recovery ?? "").trim();
   if (email && password) return `${email}:${password}:${recovery}`;
-  return "";
+
+  const clean = String(row.credentials ?? "").trim();
+  if (!clean) return "";
+  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
+  const first = String(parts[0] ?? "").trim();
+  const second = String(parts[1] ?? "").trim();
+  const third = String(parts.slice(2).join(":") ?? "").trim();
+  if (!first || !second) return clean;
+  return `${first}:${second}:${third}`;
 }
 
 async function fulfillWalletPurchase(

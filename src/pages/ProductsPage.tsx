@@ -498,6 +498,9 @@ function ProductCard({
             {p.title}
           </h3>
         </div>
+        <p className="text-[11px] leading-tight text-slate-600 line-clamp-2">
+          {String(p.description ?? "").trim() || "No description provided."}
+        </p>
 
         {/* Stock line — body black; only “Out of Stock” stays red */}
         <p className="text-[11px] leading-tight text-black">
@@ -514,7 +517,7 @@ function ProductCard({
         {availableStock > 0 && (
           <div className="flex items-center gap-1.5">
             <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              Ready for Delivery
+              {stockLow ? `${availableStock} account${availableStock === 1 ? "" : "s"} left` : "Ready for Delivery"}
             </span>
           </div>
         )}
