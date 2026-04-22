@@ -128,17 +128,15 @@ function formatDeliveredLog(row: {
 }): string {
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
-  const recovery = String(row.recovery ?? "").trim();
-  if (email && password) return `${email}:${password}:${recovery}`;
+  if (email && password) return `${email}:${password}`;
 
   const clean = String(row.credentials ?? "").trim();
   if (!clean) return "";
   const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
   const first = String(parts[0] ?? "").trim();
   const second = String(parts[1] ?? "").trim();
-  const third = String(parts.slice(2).join(":") ?? "").trim();
   if (!first || !second) return clean;
-  return `${first}:${second}:${third}`;
+  return `${first}:${second}`;
 }
 
 async function processDepositFromReference(
@@ -396,9 +394,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const rawBody = JSON.stringify(req.body ?? {});
   const bypassAllowed = await canUseAdminBypass(req);
-  const secret = (process.env.ERCASPAY_SECRET_KEY ?? "").trim();
+  const secret = (process.env.ERCASPAY_WEBHOOK_SECRET ?? "").trim();
   if (!secret && !bypassAllowed) {
-    res.status(500).json({ error: "Server misconfigured: missing ErcasPay secret." });
+    res.status(500).json({ error: "Server misconfigured: missing ERCASPAY_WEBHOOK_SECRET." });
     return;
   }
 
