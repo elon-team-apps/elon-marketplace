@@ -321,16 +321,27 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
   const deliveredDataLines = logsToDeliver.slice(0, fromLogs).map((row) => formatDeliveredLog(row)).filter(Boolean);
   const deliveredData = deliveredDataLines.join("\n");
   const hasDeliveredCredentials = deliveredDataLines.length > 0;
+  const deliveryUpdate = await supabaseAdmin
+    .from("transactions")
+    .update({
+      credentials_delivered: hasDeliveredCredentials,
+      delivered_data: deliveredData,
+    })
+    .eq("id", tx.id);
+  if (deliveryUpdate.error) {
+    return { ok: false, status: 500, error: `Failed to save delivered credentials: ${formatDbError(deliveryUpdate.error)}` };
+  }
+
   const txUpdate = await supabaseAdmin
     .from("transactions")
     .update({
       status: "completed",
       amount: amountNaira > 0 ? amountNaira : tx.amount,
-      credentials_delivered: hasDeliveredCredentials,
-      delivered_data: deliveredData,
     })
     .eq("id", tx.id);
-  if (txUpdate.error) return { ok: false, status: 500, error: `Failed to save delivered transaction update: ${formatDbError(txUpdate.error)}` };
+  if (txUpdate.error) {
+    return { ok: false, status: 500, error: `Failed to mark transaction completed: ${formatDbError(txUpdate.error)}` };
+  }
 
   if (fromLogs > 0) {
     const { error } = await supabaseAdmin.from("transactions").update({ log_id: logsToDeliver[fromLogs - 1].id }).eq("id", tx.id);

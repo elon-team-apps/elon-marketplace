@@ -682,7 +682,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                   </div>
                 ) : (
                   <p className="text-xs text-emerald-700 dark:text-emerald-300">
-                    No log data was returned in webhook response.
+                    Your order is being processed manually. Check back shortly for credentials.
                   </p>
                 )}
               </div>
