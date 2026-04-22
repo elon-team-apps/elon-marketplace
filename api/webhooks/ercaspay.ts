@@ -57,6 +57,18 @@ function formatDbError(error: { message?: string; code?: string; details?: strin
   ].filter(Boolean).join(" | ") || "Unknown database error.";
 }
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return `message=${error.message}`;
+  if (error && typeof error === "object") {
+    try {
+      return `raw=${JSON.stringify(error)}`;
+    } catch {
+      return "raw=[unserializable error object]";
+    }
+  }
+  return `raw=${String(error)}`;
+}
+
 function verifySignature(rawBody: string, headerSignature: string, secret: string): boolean {
   const computed = createHmac("sha512", secret).update(rawBody).digest("hex");
   const provided = headerSignature.trim().toLowerCase();
@@ -171,8 +183,15 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     .from("log_items")
     .select("id", { count: "exact", head: true })
     .eq("product_id", tx.product_id)
+    .eq("status", "available")
     .eq("is_delivered", false);
-  if (countError && manualStock < quantity) return { ok: false, status: 500, error: `Failed to count available logs: ${formatDbError(countError)}` };
+  if (countError && manualStock < quantity) {
+    return {
+      ok: false,
+      status: 500,
+      error: `Failed to count available logs: ${formatDbError(countError)}`,
+    };
+  }
   const availableLogCount = countError ? 0 : Math.max(0, Number(rawAvailableLogCount ?? 0));
   if (availableLogCount + manualStock < quantity) {
     return { ok: false, status: 409, error: `Insufficient stock. available_logs=${availableLogCount}, manual_stock=${manualStock}, requested=${quantity}` };
@@ -182,6 +201,7 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
     .from("log_items")
     .select("id, credentials, email, password, recovery")
     .eq("product_id", tx.product_id)
+    .eq("status", "available")
     .eq("is_delivered", false)
     .order("created_at", { ascending: true })
     .limit(quantity);
@@ -310,7 +330,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     supabaseAdmin = getAdminClient();
   } catch (error) {
     console.error("[ErcasPayWebhook] Supabase admin client setup failed", { error });
-    res.status(500).json({ error: "Server misconfigured for fulfillment." });
+    res.status(500).json({
+      error: "Server misconfigured for fulfillment.",
+      details: formatUnknownError(error),
+    });
     return;
   }
 

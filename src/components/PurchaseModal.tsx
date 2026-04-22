@@ -447,10 +447,20 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           }),
         });
         if (!simulateRes.ok) {
-          const msg = await simulateRes.text();
+          const raw = await simulateRes.text();
+          let detailed = raw;
+          try {
+            const parsed = JSON.parse(raw) as { error?: string; details?: string };
+            detailed = [
+              parsed.error ? `error: ${parsed.error}` : "",
+              parsed.details ? `details: ${parsed.details}` : "",
+            ].filter(Boolean).join("\n");
+          } catch {
+            // keep raw payload text
+          }
           setPurchaseState({
             phase: "error",
-            message: `ErcasPay simulation failed.\n${msg}`,
+            message: `ErcasPay simulation failed.\n${detailed || "Unknown database error."}`,
           });
           setPurchasing(false);
           return;
