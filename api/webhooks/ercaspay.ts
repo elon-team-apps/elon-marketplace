@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type ErcasPayWebhookEvent = {
@@ -70,15 +70,23 @@ function formatUnknownError(error: unknown): string {
 }
 
 function verifySignature(rawBody: string, headerSignature: string, secret: string): boolean {
-  const computed = createHmac("sha512", secret).update(rawBody).digest("hex");
-  const provided = headerSignature.trim().toLowerCase();
-  const expected = computed.trim().toLowerCase();
-  if (!provided || provided.length !== expected.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(provided, "hex"), Buffer.from(expected, "hex"));
-  } catch {
-    return false;
-  }
+  const providedRaw = headerSignature.trim().toLowerCase();
+  if (!providedRaw) return false;
+  const provided = providedRaw.includes("=") ? providedRaw.split("=").slice(-1)[0] : providedRaw;
+  if (!provided) return false;
+
+  const expectedSha512 = createHmac("sha512", secret).update(rawBody).digest("hex").toLowerCase();
+  const expectedSha256 = createHash("sha256").update(`${rawBody}${secret}`).digest("hex").toLowerCase();
+  const candidates = [expectedSha512, expectedSha256];
+
+  return candidates.some((expected) => {
+    if (!expected || provided.length !== expected.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(provided, "hex"), Buffer.from(expected, "hex"));
+    } catch {
+      return false;
+    }
+  });
 }
 
 function resolveServiceEnv() {
@@ -120,38 +128,119 @@ function formatDeliveredLog(row: {
 }): string {
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
-  if (email && password) return `${email}:${password}`;
+  const recovery = String(row.recovery ?? "").trim();
+  if (email && password) return `${email}:${password}:${recovery}`;
 
   const clean = String(row.credentials ?? "").trim();
   if (!clean) return "";
   const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
   const first = String(parts[0] ?? "").trim();
   const second = String(parts[1] ?? "").trim();
+  const third = String(parts.slice(2).join(":") ?? "").trim();
   if (!first || !second) return clean;
-  return `${first}:${second}`;
+  return `${first}:${second}:${third}`;
 }
 
-async function processDepositFromReference(supabaseAdmin: SupabaseClient, reference: string, amountRaw: unknown) {
+async function processDepositFromReference(
+  supabaseAdmin: SupabaseClient,
+  reference: string,
+  amountRaw: unknown,
+  metadata: Record<string, unknown> | undefined,
+) {
   const amountNaira = Math.max(0, asPositiveInt(amountRaw, 0));
-  const { data, error } = await supabaseAdmin.rpc("process_deposit", {
-    p_reference: reference,
-    p_amount_naira: amountNaira,
-  });
-  if (error) return { ok: false, status: 500, error: `Failed to process wallet deposit: ${formatDbError(error)}` };
-
-  const payload = (data ?? {}) as Record<string, unknown>;
-  if (payload.success === false) {
+  const { data: existingTx, error: txError } = await supabaseAdmin
+    .from("transactions")
+    .select("id, user_id, amount, status, type")
+    .eq("reference", reference)
+    .eq("type", "deposit")
+    .maybeSingle();
+  if (txError) {
     return {
       ok: false,
-      status: 409,
-      error: typeof payload.message === "string" && payload.message ? payload.message : "Wallet deposit verification failed.",
+      status: 500,
+      error: `Failed to process wallet deposit: ${formatDbError(txError)}`,
     };
+  }
+  if (existingTx?.status === "completed") {
+    return {
+      ok: true,
+      status: 200,
+      data: { ok: true, processed: true, transaction_type: "deposit", reference, idempotent: true },
+    };
+  }
+
+  const metadataUserId = String(metadata?.userId ?? metadata?.user_id ?? "").trim();
+  const userId = String(existingTx?.user_id ?? metadataUserId).trim();
+  if (!userId) {
+    return { ok: false, status: 400, error: "Deposit metadata missing userId and no pending transaction owner found." };
+  }
+  const creditAmount = Math.max(0, asPositiveInt(existingTx?.amount ?? amountNaira, 0));
+  if (creditAmount <= 0) {
+    return { ok: false, status: 400, error: "Deposit amount is invalid." };
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("wallet_balance")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError || !profile) {
+    return { ok: false, status: 500, error: `Failed to load profile for deposit: ${formatDbError(profileError)}` };
+  }
+  const currentBalance = Math.max(0, asPositiveInt(profile.wallet_balance, 0));
+  const nextBalance = currentBalance + creditAmount;
+
+  const { data: updatedProfiles, error: updateBalanceError } = await supabaseAdmin
+    .from("profiles")
+    .update({ wallet_balance: nextBalance })
+    .eq("id", userId)
+    .eq("wallet_balance", currentBalance)
+    .select("wallet_balance");
+  if (updateBalanceError) {
+    return { ok: false, status: 500, error: `Failed to update wallet balance: ${formatDbError(updateBalanceError)}` };
+  }
+  if (!Array.isArray(updatedProfiles) || updatedProfiles.length === 0) {
+    return { ok: false, status: 409, error: "Wallet balance changed concurrently. Please retry verification." };
+  }
+
+  if (existingTx?.id) {
+    const { error: txUpdateError } = await supabaseAdmin
+      .from("transactions")
+      .update({
+        status: "completed",
+        amount: creditAmount,
+      })
+      .eq("id", existingTx.id);
+    if (txUpdateError) {
+      return { ok: false, status: 500, error: `Failed to mark deposit transaction completed: ${formatDbError(txUpdateError)}` };
+    }
+  } else {
+    const { error: insertTxError } = await supabaseAdmin
+      .from("transactions")
+      .insert({
+        user_id: userId,
+        amount: creditAmount,
+        type: "deposit",
+        status: "completed",
+        reference,
+      });
+    if (insertTxError) {
+      return { ok: false, status: 500, error: `Failed to create completed deposit transaction: ${formatDbError(insertTxError)}` };
+    }
   }
 
   return {
     ok: true,
     status: 200,
-    data: { ok: true, processed: true, transaction_type: "deposit", reference, amount_naira: amountNaira, result: payload },
+    data: {
+      ok: true,
+      processed: true,
+      transaction_type: "deposit",
+      reference,
+      amount_naira: creditAmount,
+      user_id: userId,
+      wallet_balance: nextBalance,
+    },
   };
 }
 
@@ -347,7 +436,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const fulfilled = transaction?.type === "deposit"
-    ? await processDepositFromReference(supabaseAdmin, reference, payload.data?.amount)
+    ? await processDepositFromReference(supabaseAdmin, reference, payload.data?.amount, payload.data?.metadata)
     : await fulfillPurchaseFromReference(supabaseAdmin, reference, payload.data?.amount);
   if (!fulfilled.ok) {
     console.error("[ErcasPayWebhook] Fulfillment failed", { reference, error: fulfilled.error, payload });

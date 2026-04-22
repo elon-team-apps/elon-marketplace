@@ -154,6 +154,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
   const canUseWallet = canAfford;
+  const shortfall = Math.max(0, totalPrice - balance);
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
   const canStartPayment =
@@ -689,8 +690,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
 
             {!canUseWallet && !canBypassBalance && availableStock > 0 && (
               <p className="text-xs text-center text-slate-700 dark:text-slate-200">
-                Insufficient Balance. Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
-                <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold text-slate-900 dark:text-white">
+                Insufficient Balance. Need ₦{shortfall.toLocaleString()} more.{" "}
+                <Link to={`/dashboard/wallet?amount=${Math.max(100, shortfall)}`} onClick={onClose} className="underline underline-offset-2 font-semibold text-slate-900 dark:text-white">
                   Deposit Now →
                 </Link>
               </p>
@@ -754,6 +755,20 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               </div>
             ) : null}
             {(!canUseWallet || showPaystackOption || canBypassBalance) && (
+              !canUseWallet && !canBypassBalance ? (
+                <Link
+                  to={`/dashboard/wallet?amount=${Math.max(100, shortfall)}`}
+                  onClick={onClose}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95"
+                  style={{
+                    background: BTN_NAVY,
+                    boxShadow: "0 4px 14px rgba(15,23,42,0.35)",
+                  }}
+                >
+                  <Wallet className="h-4 w-4 text-white" />
+                  <span className="text-white">Deposit to Buy</span>
+                </Link>
+              ) : (
               <button
                 type="button"
                 onClick={handleErcasPayPurchase}
@@ -780,6 +795,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                   </>
                 )}
               </button>
+              )
             )}
           </div>
         </div>
