@@ -40,6 +40,7 @@ function pickCheckoutUrl(payload: Record<string, unknown>): string {
   const nested = (data.result ?? {}) as Record<string, unknown>;
   return String(
     data.checkout_url ??
+      nested.checkoutUrl ??
       data.authorization_url ??
       data.payment_url ??
       nested.checkout_url ??
@@ -81,6 +82,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (isSuperAdminEmail(email)) {
     res.status(200).json({
       checkoutUrl: callbackUrl,
+      checkout_url: callbackUrl,
       reference,
       simulated: true,
       bypass: true,
@@ -151,6 +153,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   res.status(200).json({
     checkoutUrl,
+    checkout_url: checkoutUrl,
     reference: String(
       (providerJson.data as Record<string, unknown> | undefined)?.reference ?? reference,
     ),

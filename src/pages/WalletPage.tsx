@@ -128,6 +128,7 @@ export default function WalletPage() {
   // ── Start ErcasPay checkout (redirect + webhook verification) ──────────
   const startErcaspayCheckout = async () => {
     if (checkoutLoading) return;
+    let redirecting = false;
     const numeric = Number(amount);
     const naira = Math.trunc(numeric);
     if (isNaN(naira) || naira < 100) {
@@ -172,10 +173,6 @@ export default function WalletPage() {
       if (txError) {
         throw new Error(`Could not create pending transaction: ${txError.message}`);
       }
-      localStorage.setItem(PENDING_REF_KEY, ercasRef);
-      setPendingRef(ercasRef);
-      setPendingStatus("pending");
-
       const callbackUrl = `${window.location.origin}/dashboard/wallet?reference=${encodeURIComponent(ercasRef)}`;
       const initRes = await fetch("/api/ercaspay-init", {
         method: "POST",
@@ -186,7 +183,7 @@ export default function WalletPage() {
           reference: ercasRef,
           callbackUrl,
           metadata: {
-            transactionType: "deposit",
+            type: "wallet_topup",
             buyerEmail: currentUser.email,
             userId: currentUser.id,
             amountNaira: naira,
@@ -194,13 +191,21 @@ export default function WalletPage() {
           },
         }),
       });
-      const initPayload = (await initRes.json().catch(() => ({}))) as { checkoutUrl?: string; error?: string };
-      if (!initRes.ok || !initPayload.checkoutUrl) {
+      const initPayload = (await initRes.json().catch(() => ({}))) as {
+        checkout_url?: string;
+        checkoutUrl?: string;
+        error?: string;
+      };
+      const checkoutUrl = String(initPayload.checkout_url ?? initPayload.checkoutUrl ?? "").trim();
+      if (!initRes.ok || !checkoutUrl) {
         throw new Error(initPayload.error || "Failed to initialize ErcasPay checkout.");
       }
 
-      window.location.assign(initPayload.checkoutUrl);
-      setCheckoutLoading(false);
+      localStorage.setItem(PENDING_REF_KEY, ercasRef);
+      setPendingRef(ercasRef);
+      setPendingStatus("pending");
+      redirecting = true;
+      window.location.href = checkoutUrl;
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start ErcasPay checkout.";
@@ -214,7 +219,8 @@ export default function WalletPage() {
         : msg;
       toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {
-      setCheckoutLoading(false);
+      // Keep "Processing..." state active while redirecting.
+      if (!redirecting) setCheckoutLoading(false);
     }
   };
 
