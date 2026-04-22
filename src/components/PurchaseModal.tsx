@@ -259,7 +259,10 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
       if (!canUseWallet) {
-        setPurchaseState({ phase: "error", message: "Insufficient wallet balance for this purchase." });
+        setPurchaseState({
+          phase: "error",
+          message: `Insufficient Balance.\nDeposit Now: ${window.location.origin}/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`,
+        });
         setPurchasing(false);
         return;
       }
@@ -686,9 +689,9 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
 
             {!canUseWallet && !canBypassBalance && availableStock > 0 && (
               <p className="text-xs text-center text-slate-700 dark:text-slate-200">
-                Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
+                Insufficient Balance. Need ₦{(totalPrice - balance).toLocaleString()} more.{" "}
                 <Link to={`/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`} onClick={onClose} className="underline underline-offset-2 font-semibold text-slate-900 dark:text-white">
-                  Fund Wallet →
+                  Deposit Now →
                 </Link>
               </p>
             )}
