@@ -429,6 +429,8 @@ function ProductCard({
     liveLogCount: liveStock === null ? undefined : liveStock,
   });
   const availableStock = stockView.total;
+  const liveLabelCount = Math.max(0, stockView.live);
+  const hasManualOnlyStock = liveLabelCount === 0 && stockView.manual > 0;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
 
@@ -517,7 +519,9 @@ function ProductCard({
         {availableStock > 0 && (
           <div className="flex items-center gap-1.5">
             <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              {stockLow ? `${availableStock} account${availableStock === 1 ? "" : "s"} left` : "Ready for Delivery"}
+              {hasManualOnlyStock
+                ? "Ready for Delivery"
+                : `${liveLabelCount} account${liveLabelCount === 1 ? "" : "s"} left`}
             </span>
           </div>
         )}

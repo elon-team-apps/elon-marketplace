@@ -98,59 +98,7 @@ function parseInvokeErrorPayload(payload: Record<string, unknown>): string {
 
 function buildPaymentReference(): string {
   const rand = Math.random().toString(36).slice(2, 10);
-  return `psk_${Date.now()}_${rand}`;
-}
-
-type PaystackHandler = {
-  openIframe: () => void;
-};
-
-type PaystackPopup = {
-  setup: (options: {
-    key: string;
-    email: string;
-    amount: number;
-    ref: string;
-    metadata?: Record<string, unknown>;
-    callback?: (response: { reference?: string; [key: string]: unknown }) => void;
-    onClose?: () => void;
-  }) => PaystackHandler;
-};
-
-type PaystackWindow = Window & {
-  PaystackPop?: PaystackPopup;
-};
-
-function getPaystackWindow(): PaystackWindow {
-  return window as PaystackWindow;
-}
-
-async function loadPaystackInlineScript(): Promise<PaystackPopup> {
-  const existing = getPaystackWindow().PaystackPop;
-  if (existing) return existing;
-
-  await new Promise<void>((resolve, reject) => {
-    const existingScript = document.querySelector<HTMLScriptElement>('script[data-paystack-inline="true"]');
-    if (existingScript) {
-      existingScript.addEventListener("load", () => resolve(), { once: true });
-      existingScript.addEventListener("error", () => reject(new Error("Failed to load Paystack inline script.")), { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://js.paystack.co/v1/inline.js";
-    script.async = true;
-    script.dataset.paystackInline = "true";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Paystack inline script."));
-    document.body.appendChild(script);
-  });
-
-  const popup = getPaystackWindow().PaystackPop;
-  if (!popup) {
-    throw new Error("Paystack inline popup is unavailable.");
-  }
-  return popup;
+  return `erc_${Date.now()}_${rand}`;
 }
 
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
@@ -201,11 +149,10 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const availableStock = stockView.total;
   const maxQty = Math.min(availableStock, 10);
   const totalPrice = qty * product.price;
-  const totalAmountKobo = Math.trunc(totalPrice * 100);
+  const totalAmount = Math.trunc(totalPrice);
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
   const canBypassBalance = isSuperAdminEmail(currentUser?.email);
-  const paystackPublicKey = (import.meta.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY as string | undefined) || "";
   const canUseWallet = canAfford;
   const MIN_PAYMENT_NAIRA = 100;
   const meetsMinimum = Number.isFinite(totalPrice) && totalPrice >= MIN_PAYMENT_NAIRA;
@@ -376,7 +323,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
     }
   };
 
-  const handlePaystackPurchase = async () => {
+  const handleErcasPayPurchase = async () => {
     setPurchasing(true);
     setPurchaseState({ phase: "idle" });
     try {
@@ -390,8 +337,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         setPurchasing(false);
         return;
       }
-      if (!Number.isFinite(totalAmountKobo) || totalAmountKobo <= 0) {
-        setPurchaseState({ phase: "error", message: "Invalid Paystack amount. Please try again." });
+      if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+        setPurchaseState({ phase: "error", message: "Invalid payment amount. Please try again." });
         setPurchasing(false);
         return;
       }
@@ -417,7 +364,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       if (!reference) {
         setPurchaseState({
           phase: "error",
-          message: "Paystack did not return a transaction reference. Try again or contact support.",
+          message: "Payment provider did not return a transaction reference. Try again or contact support.",
         });
         setPurchasing(false);
         return;
@@ -439,14 +386,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         buyerEmail: currentUser.email,
       };
 
-      const callbackUrl = `${window.location.origin}/dashboard?payment=success`;
-      const paystackMetadata = {
+      const callbackUrl = `${window.location.origin}/dashboard/products?payment=success&reference=${encodeURIComponent(reference)}`;
+      const ercasMetadata = {
         productId: product.id,
         quantity: qty,
         buyerEmail: currentUser.email,
       };
 
-      // Pending row in public.transactions (Paystack webhook completes → status completed).
+      // Pending row in public.transactions (ErcasPay webhook completes → status completed).
       // Prefer SECURITY DEFINER RPC so reservation works even when direct INSERT is blocked by RLS.
       const { data: reserveData, error: reserveRpcErr } = await supabase.rpc("reserve_purchase_transaction", {
         p_reference: reference,
@@ -482,7 +429,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       if (canBypassBalance) {
-        const simulateRes = await fetch("/api/webhooks/paystack", {
+        const simulateRes = await fetch("/api/webhooks/ercaspay", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -490,10 +437,10 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             "x-admin-bypass": "true",
           },
           body: JSON.stringify({
-            event: "charge.success",
+            event: "payment.success",
             data: {
               reference,
-              amount: totalAmountKobo,
+              amount: totalAmount,
               status: "success",
               metadata,
             },
@@ -503,7 +450,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           const msg = await simulateRes.text();
           setPurchaseState({
             phase: "error",
-            message: `Paystack simulation failed.\n${msg}`,
+            message: `ErcasPay simulation failed.\n${msg}`,
           });
           setPurchasing(false);
           return;
@@ -520,56 +467,45 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      if (!paystackPublicKey.trim()) {
-        const msg = "Paystack public key is missing. Set NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY.";
-        console.error("[PurchaseModal] Paystack init failed: missing NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY");
+      const ercasPublicKey = (import.meta.env.NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY as string | undefined) || "";
+      if (!ercasPublicKey.trim()) {
+        const msg = "ErcasPay public key is missing. Set NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY.";
+        console.error("[PurchaseModal] ErcasPay init failed: missing NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY");
         setPurchaseState({ phase: "error", message: msg });
-        sonnerToast.error("Paystack initialization failed", {
+        sonnerToast.error("ErcasPay initialization failed", {
           description: msg,
         });
         setPurchasing(false);
         return;
       }
 
-      setPurchaseState({ phase: "processing", message: "Initializing Paystack popup..." });
-      sonnerToast.success("Opening Paystack", {
-        description: `Opening Paystack popup for ₦${naira.toLocaleString()} (${qty} item${qty === 1 ? "" : "s"})…`,
+      const initRes = await fetch("/api/ercaspay-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: naira,
+          email: currentUser.email,
+          reference,
+          callbackUrl,
+          metadata: { ...ercasMetadata, ercasPublicKey },
+        }),
       });
+      const initPayload = (await initRes.json().catch(() => ({}))) as {
+        checkoutUrl?: string;
+        error?: string;
+      };
+      if (!initRes.ok || !initPayload.checkoutUrl) {
+        setPurchaseState({
+          phase: "error",
+          message: initPayload.error || "Failed to initialize ErcasPay checkout.",
+        });
+        setPurchasing(false);
+        return;
+      }
 
-      const PaystackPop = await loadPaystackInlineScript();
-      console.log("[PurchaseModal] Paystack popup ready", {
-        hasPopup: Boolean(PaystackPop),
-        keyPrefix: paystackPublicKey.trim().slice(0, 7),
-        reference,
-      });
-      const handler = PaystackPop.setup({
-        key: paystackPublicKey.trim(),
-        email: currentUser.email,
-        amount: totalAmountKobo,
-        ref: reference,
-        metadata: paystackMetadata,
-        callback: () => {
-          setPurchaseState({
-            phase: "processing",
-            message: "Payment received. Fetching your credentials...",
-          });
-          void (async () => {
-            const resolved = await pollTransactionDelivery(reference);
-            if (!resolved) {
-              setPurchaseState({
-                phase: "processing",
-                message: "Payment confirmed. Fetching credentials...",
-              });
-              window.location.assign(callbackUrl);
-            }
-          })();
-        },
-        onClose: () => {
-          setPurchasing(false);
-          setPurchaseState({ phase: "idle" });
-        },
-      });
-      handler.openIframe();
+      setPurchaseState({ phase: "processing", message: "Redirecting to ErcasPay checkout..." });
+      window.open(initPayload.checkoutUrl, "_blank", "noopener,noreferrer");
+      void pollTransactionDelivery(reference);
       setPurchasing(false);
       return;
     } catch (e) {
@@ -585,7 +521,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           msg = String(e);
         }
       }
-      console.error("[PurchaseModal] Paystack initialization error", e);
+      console.error("[PurchaseModal] ErcasPay initialization error", e);
       setPurchaseState({ phase: "error", message: msg });
       setPurchasing(false);
     }
@@ -798,7 +734,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                       onClick={() => setShowPaystackOption(true)}
                       className="font-semibold text-slate-700 underline underline-offset-2 dark:text-slate-200"
                     >
-                      Use Paystack instead
+                      Use ErcasPay instead
                     </button>
                   </div>
                 )}
@@ -807,7 +743,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             {(!canUseWallet || showPaystackOption || canBypassBalance) && (
               <button
                 type="button"
-                onClick={handlePaystackPurchase}
+                onClick={handleErcasPayPurchase}
                 disabled={!canAttemptPurchase || purchasing || (!canStartPayment && !canBypassBalance) || purchaseState.phase === "success"}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
@@ -819,14 +755,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                   <>
                     <Loader2 className="h-4 w-4 animate-spin text-white" />
                     <span className="text-white">
-                      {purchaseState.phase === "processing" ? "Initializing Paystack..." : "Preparing Payment..."}
+                      {purchaseState.phase === "processing" ? "Initializing ErcasPay..." : "Preparing Payment..."}
                     </span>
                   </>
                 ) : (
                   <>
                     <Eye className="h-4 w-4 text-white" />
                     <span className="text-white">
-                      Pay with Paystack · ₦{totalPrice.toLocaleString()}
+                      Pay with ErcasPay · ₦{totalPrice.toLocaleString()}
                     </span>
                   </>
                 )}
