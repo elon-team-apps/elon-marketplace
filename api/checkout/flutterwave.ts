@@ -36,6 +36,13 @@ function formatDbError(error: { message?: string; code?: string; details?: strin
   ].filter(Boolean).join(" | ") || "Unknown database error.";
 }
 
+function isMissingColumnError(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const msg = String(error.message ?? "").toLowerCase();
+  return msg.includes("column") && msg.includes(column.toLowerCase()) && msg.includes("does not exist");
+}
+
 function getClients(token: string): { admin: SupabaseClient; user: SupabaseClient } {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").trim();
   const anon = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY ?? "").trim();
@@ -147,7 +154,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const insert = await admin
+  const primaryInsert = await admin
     .from("transactions")
     .insert({
       user_id: authData.user.id,
@@ -161,6 +168,22 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     })
     .select("id")
     .single();
+  let insert = primaryInsert;
+  if (primaryInsert.error && isMissingColumnError(primaryInsert.error, "product_description")) {
+    insert = await admin
+      .from("transactions")
+      .insert({
+        user_id: authData.user.id,
+        amount,
+        type: "purchase",
+        status: "pending",
+        reference,
+        product_id: productId,
+        quantity,
+      })
+      .select("id")
+      .single();
+  }
   if (insert.error || !insert.data) {
     res.status(500).json({ error: `Failed to create pending transaction: ${formatDbError(insert.error)}` });
     return;

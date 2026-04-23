@@ -404,6 +404,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         setPurchasing(false);
         return;
       }
+      if (!canBypassBalance && !canUseWallet) {
+        setPurchaseState({
+          phase: "error",
+          message: `Insufficient Balance.\nDeposit Now: ${window.location.origin}/dashboard/wallet?amount=${Math.max(100, totalPrice - balance)}`,
+        });
+        setPurchasing(false);
+        return;
+      }
       if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
         setPurchaseState({ phase: "error", message: "Invalid payment amount. Please try again." });
         setPurchasing(false);
@@ -480,7 +488,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           : "Could not reserve your order before payment.";
         setPurchaseState({
           phase: "error",
-          message: `Flutterwave simulation failed.\n${msg}`,
+          message: `Checkout initialization failed.\n${msg}`,
         });
         setPurchasing(false);
         return;

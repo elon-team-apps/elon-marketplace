@@ -41,6 +41,41 @@ function isMissingColumnError(error: { code?: string; message?: string } | null 
   return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
 }
 
+async function insertWalletTransaction(
+  supabaseAdmin: SupabaseClient,
+  payload: {
+    user_id: string;
+    amount: number;
+    type: "wallet_payment";
+    status: "pending";
+    reference: string;
+    product_id: string;
+    quantity: number;
+    product_description: string;
+  },
+) {
+  const first = await supabaseAdmin
+    .from("transactions")
+    .insert(payload)
+    .select("id")
+    .single();
+  if (!first.error || !isMissingColumnError(first.error, "product_description")) return first;
+
+  return supabaseAdmin
+    .from("transactions")
+    .insert({
+      user_id: payload.user_id,
+      amount: payload.amount,
+      type: payload.type,
+      status: payload.status,
+      reference: payload.reference,
+      product_id: payload.product_id,
+      quantity: payload.quantity,
+    })
+    .select("id")
+    .single();
+}
+
 function resolveServiceEnv() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").trim();
   const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY ?? "").trim();
@@ -397,20 +432,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const nextBalance = currentBalance - totalPrice;
 
   const reference = `wlt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  const { data: insertedTx, error: insertError } = await supabaseAdmin
-    .from("transactions")
-    .insert({
-      user_id: authedUser.id,
-      amount: totalPrice,
-      type: "wallet_payment",
-      status: "pending",
-      reference,
-      product_id: productId,
-      product_description: String(product.description ?? ""),
-      quantity,
-    })
-    .select("id")
-    .single();
+  const { data: insertedTx, error: insertError } = await insertWalletTransaction(supabaseAdmin, {
+    user_id: authedUser.id,
+    amount: totalPrice,
+    type: "wallet_payment",
+    status: "pending",
+    reference,
+    product_id: productId,
+    product_description: String(product.description ?? ""),
+    quantity,
+  });
   if (insertError || !insertedTx) {
     res.status(500).json({ error: `Could not create wallet transaction: ${formatDbError(insertError)}` });
     return;
