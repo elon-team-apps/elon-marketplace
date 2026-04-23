@@ -34,6 +34,13 @@ function formatDbError(error: { message?: string; code?: string; details?: strin
   ].filter(Boolean).join(" | ") || "Unknown database error.";
 }
 
+function isMissingColumnError(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = String(error.message ?? "").toLowerCase();
+  return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
+}
+
 function resolveServiceEnv() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").trim();
   const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY ?? "").trim();
@@ -83,6 +90,71 @@ function formatDeliveredLog(row: {
   const third = String(parts.slice(2).join(":") ?? "").trim();
   if (!first || !second) return clean;
   return `${first}:${second}:${third}`;
+}
+
+async function readUserBalance(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+): Promise<{ field: "wallet_balance" | "balance"; current: number } | { error: string }> {
+  const walletProfile = await supabaseAdmin
+    .from("profiles")
+    .select("wallet_balance")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!walletProfile.error && walletProfile.data) {
+    return {
+      field: "wallet_balance",
+      current: Math.max(0, asPositiveInt((walletProfile.data as { wallet_balance?: unknown }).wallet_balance, 0)),
+    };
+  }
+  if (!isMissingColumnError(walletProfile.error, "wallet_balance")) {
+    return { error: `Could not verify wallet balance: ${formatDbError(walletProfile.error)}` };
+  }
+  const legacyProfile = await supabaseAdmin
+    .from("profiles")
+    .select("balance")
+    .eq("id", userId)
+    .maybeSingle();
+  if (legacyProfile.error || !legacyProfile.data) {
+    return { error: `Could not verify wallet balance: ${formatDbError(legacyProfile.error)}` };
+  }
+  return {
+    field: "balance",
+    current: Math.max(0, asPositiveInt((legacyProfile.data as { balance?: unknown }).balance, 0)),
+  };
+}
+
+async function updateUserBalance(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+  field: "wallet_balance" | "balance",
+  current: number,
+  next: number,
+): Promise<{ ok: true } | { ok: false; error: string; conflict?: boolean }> {
+  const attempted = await supabaseAdmin
+    .from("profiles")
+    .update({ [field]: next })
+    .eq("id", userId)
+    .eq(field, current)
+    .select(field);
+
+  if (attempted.error && field === "wallet_balance" && isMissingColumnError(attempted.error, "wallet_balance")) {
+    const retry = await supabaseAdmin
+      .from("profiles")
+      .update({ balance: next })
+      .eq("id", userId)
+      .eq("balance", current)
+      .select("balance");
+    if (retry.error) return { ok: false, error: `Failed to update wallet balance: ${formatDbError(retry.error)}` };
+    const retryCount = Array.isArray(retry.data) ? retry.data.length : 0;
+    if (retryCount === 0) return { ok: false, error: "Wallet balance changed before checkout could complete. Please try again.", conflict: true };
+    return { ok: true };
+  }
+
+  if (attempted.error) return { ok: false, error: `Failed to update wallet balance: ${formatDbError(attempted.error)}` };
+  const updatedCount = Array.isArray(attempted.data) ? attempted.data.length : 0;
+  if (updatedCount === 0) return { ok: false, error: "Wallet balance changed before checkout could complete. Please try again.", conflict: true };
+  return { ok: true };
 }
 
 async function fulfillWalletPurchase(
@@ -308,16 +380,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const { data: profileBefore, error: profileBeforeError } = await supabaseAdmin
-    .from("profiles")
-    .select("wallet_balance")
-    .eq("id", authedUser.id)
-    .maybeSingle();
-  if (profileBeforeError || !profileBefore) {
-    res.status(500).json({ error: `Could not verify wallet balance: ${formatDbError(profileBeforeError)}` });
+  const balanceRead = await readUserBalance(supabaseAdmin, authedUser.id);
+  if ("error" in balanceRead) {
+    res.status(500).json({ error: balanceRead.error });
     return;
   }
-  const currentBalance = Math.max(0, asPositiveInt(profileBefore.wallet_balance, 0));
+  const balanceField = balanceRead.field;
+  const currentBalance = balanceRead.current;
   if (currentBalance < totalPrice) {
     res.status(409).json({
       error: `Insufficient wallet balance. Need ₦${(totalPrice - currentBalance).toLocaleString()} more.`,
@@ -346,35 +415,22 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const { data: updatedProfiles, error: balanceError } = await supabaseAdmin
-    .from("profiles")
-    .update({ wallet_balance: nextBalance })
-    .eq("id", authedUser.id)
-    .eq("wallet_balance", currentBalance)
-    .select("wallet_balance");
-
-  if (balanceError) {
+  const balanceDeduction = await updateUserBalance(
+    supabaseAdmin,
+    authedUser.id,
+    balanceField,
+    currentBalance,
+    nextBalance,
+  );
+  if (!balanceDeduction.ok) {
     await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("id", insertedTx.id);
-    res.status(500).json({ error: `Failed to deduct wallet balance: ${formatDbError(balanceError)}` });
-    return;
-  }
-
-  const { data: profileAfterDeduction, error: fetchProfileError } = await supabaseAdmin
-    .from("profiles")
-    .select("wallet_balance")
-    .eq("id", authedUser.id)
-    .maybeSingle();
-
-  const updatedCount = Array.isArray(updatedProfiles) ? updatedProfiles.length : 0;
-  const balanceAfter = Math.max(0, asPositiveInt(profileAfterDeduction?.wallet_balance, nextBalance));
-  if (fetchProfileError || updatedCount === 0) {
-    await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("id", insertedTx.id);
-    res.status(409).json({
-      error: "Wallet balance changed before checkout could complete. Please try again.",
-      code: "INSUFFICIENT_BALANCE",
+    res.status(balanceDeduction.conflict ? 409 : 500).json({
+      error: balanceDeduction.error,
+      ...(balanceDeduction.conflict ? { code: "INSUFFICIENT_BALANCE" } : {}),
     });
     return;
   }
+  const balanceAfter = nextBalance;
 
   const fulfilled = await fulfillWalletPurchase(supabaseAdmin, insertedTx.id, totalPrice);
   if (!fulfilled.ok) {
@@ -384,7 +440,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     });
     await supabaseAdmin
       .from("profiles")
-      .update({ wallet_balance: balanceAfter + totalPrice })
+      .update({ [balanceField]: balanceAfter + totalPrice })
       .eq("id", authedUser.id);
     await supabaseAdmin
       .from("transactions")

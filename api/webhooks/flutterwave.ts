@@ -47,6 +47,13 @@ function getAdminClient(): SupabaseClient {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+function isMissingColumnError(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = String(error.message ?? "").toLowerCase();
+  return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
+}
+
 async function canUseAdminBypass(req: ApiRequest): Promise<boolean> {
   if (normalize(headerValue(req.headers, "x-admin-bypass")) !== "true") return false;
   const authHeader = headerValue(req.headers, "authorization");
@@ -102,20 +109,48 @@ async function processDeposit(
   const credit = Math.max(0, asPositiveInt(tx?.amount ?? amount, 0));
   if (!credit) return { ok: false, status: 400, error: "Invalid deposit amount." };
 
-  const { data: profile, error: profileError } = await supabaseAdmin
+  const walletProfile = await supabaseAdmin
     .from("profiles")
     .select("wallet_balance")
     .eq("id", userId)
     .maybeSingle();
+  let balanceField: "wallet_balance" | "balance" = "wallet_balance";
+  let profile = walletProfile.data as { wallet_balance?: unknown } | null;
+  let profileError = walletProfile.error;
+
+  if (isMissingColumnError(walletProfile.error, "wallet_balance")) {
+    balanceField = "balance";
+    const legacyProfile = await supabaseAdmin
+      .from("profiles")
+      .select("balance")
+      .eq("id", userId)
+      .maybeSingle();
+    profile = legacyProfile.data as { balance?: unknown } | null;
+    profileError = legacyProfile.error;
+  }
+
   if (profileError || !profile) return { ok: false, status: 500, error: `Profile lookup failed: ${formatDbError(profileError)}` };
-  const current = Math.max(0, asPositiveInt(profile.wallet_balance, 0));
+  const current = Math.max(0, asPositiveInt((profile as Record<string, unknown>)[balanceField], 0));
   const next = current + credit;
-  const { data: updated, error: updateError } = await supabaseAdmin
+  const updateAttempt = await supabaseAdmin
     .from("profiles")
-    .update({ wallet_balance: next })
+    .update({ [balanceField]: next })
     .eq("id", userId)
-    .eq("wallet_balance", current)
-    .select("wallet_balance");
+    .eq(balanceField, current)
+    .select(balanceField);
+  let updated = updateAttempt.data;
+  let updateError = updateAttempt.error;
+  if (balanceField === "wallet_balance" && isMissingColumnError(updateError, "wallet_balance")) {
+    balanceField = "balance";
+    const retry = await supabaseAdmin
+      .from("profiles")
+      .update({ balance: next })
+      .eq("id", userId)
+      .eq("balance", current)
+      .select("balance");
+    updated = retry.data;
+    updateError = retry.error;
+  }
   if (updateError) return { ok: false, status: 500, error: `Balance update failed: ${formatDbError(updateError)}` };
   if (!Array.isArray(updated) || updated.length === 0) {
     return { ok: false, status: 409, error: "Concurrent balance update conflict." };
