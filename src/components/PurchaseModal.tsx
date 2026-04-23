@@ -98,7 +98,53 @@ function parseInvokeErrorPayload(payload: Record<string, unknown>): string {
 
 function buildPaymentReference(): string {
   const rand = Math.random().toString(36).slice(2, 10);
-  return `erc_${Date.now()}_${rand}`;
+  return `flw_${Date.now()}_${rand}`;
+}
+
+type FlutterwaveOptions = {
+  public_key: string;
+  tx_ref: string;
+  amount: number;
+  currency: string;
+  customer: { email: string };
+  customizations?: { title?: string; description?: string };
+  meta?: Record<string, unknown>;
+  callback?: (response: Record<string, unknown>) => void;
+  onclose?: () => void;
+};
+
+type FlutterwaveWindow = Window & {
+  FlutterwaveCheckout?: (options: FlutterwaveOptions) => void;
+};
+
+function getFlutterwaveWindow(): FlutterwaveWindow {
+  return window as FlutterwaveWindow;
+}
+
+async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptions) => void> {
+  const existing = getFlutterwaveWindow().FlutterwaveCheckout;
+  if (existing) return existing;
+
+  await new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>('script[data-flutterwave-inline="true"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error("Failed to load Flutterwave inline script.")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://checkout.flutterwave.com/v3.js";
+    script.async = true;
+    script.dataset.flutterwaveInline = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Flutterwave inline script."));
+    document.body.appendChild(script);
+  });
+
+  const checkout = getFlutterwaveWindow().FlutterwaveCheckout;
+  if (!checkout) throw new Error("FlutterwaveCheckout is unavailable.");
+  return checkout;
 }
 
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
@@ -133,14 +179,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const [liveStock, setLiveStock] = useState<number | null>(null);
   const [purchaseState, setPurchaseState] = useState<PurchaseState>({ phase: "idle" });
   const [purchasing, setPurchasing] = useState(false);
-  const [showPaystackOption, setShowPaystackOption] = useState(false);
+  const [showGatewayOption, setShowGatewayOption] = useState(false);
   const [copiedLog, setCopiedLog] = useState<string | null>(null);
 
   useEffect(() => {
     setQty(1);
     setPurchasing(false);
     setPurchaseState({ phase: "idle" });
-    setShowPaystackOption(false);
+    setShowGatewayOption(false);
   }, [product.id]);
 
   const stockView = calculateStockBreakdown(product, {
@@ -238,7 +284,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       if (!error && data) {
         const status = String(data.status ?? "").toLowerCase();
         const delivered = extractDeliveredData(data as Record<string, unknown>).map(normalizeDeliveredLog);
-        if (status === "completed" && delivered.length > 0) {
+        if ((status === "completed" || status === "finalized") && delivered.length > 0) {
           setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
           window.dispatchEvent(new CustomEvent("orders:refresh"));
           await refreshProfile();
@@ -327,7 +373,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
     }
   };
 
-  const handleErcasPayPurchase = async () => {
+  const handleFlutterwavePurchase = async () => {
     setPurchasing(true);
     setPurchaseState({ phase: "idle" });
     try {
@@ -391,13 +437,13 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       };
 
       const callbackUrl = `${window.location.origin}/dashboard/products?payment=success&reference=${encodeURIComponent(reference)}`;
-      const ercasMetadata = {
+      const flutterwaveMetadata = {
         productId: product.id,
         quantity: qty,
         buyerEmail: currentUser.email,
       };
 
-      // Pending row in public.transactions (ErcasPay webhook completes → status completed).
+      // Pending row in public.transactions (Flutterwave webhook completes → status finalized).
       // Prefer SECURITY DEFINER RPC so reservation works even when direct INSERT is blocked by RLS.
       const { data: reserveData, error: reserveRpcErr } = await supabase.rpc("reserve_purchase_transaction", {
         p_reference: reference,
@@ -433,7 +479,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       if (canBypassBalance) {
-        const simulateRes = await fetch("/api/webhooks/ercaspay", {
+        const simulateRes = await fetch("/api/webhooks/flutterwave", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -441,7 +487,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             "x-admin-bypass": "true",
           },
           body: JSON.stringify({
-            event: "payment.success",
+            event: "charge.completed",
             data: {
               reference,
               amount: totalAmount,
@@ -464,7 +510,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           }
           setPurchaseState({
             phase: "error",
-            message: `ErcasPay simulation failed.\n${detailed || "Unknown database error."}`,
+            message: `Flutterwave simulation failed.\n${detailed || "Unknown database error."}`,
           });
           setPurchasing(false);
           return;
@@ -481,45 +527,47 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         return;
       }
 
-      const ercasPublicKey = (import.meta.env.NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY as string | undefined) || "";
-      if (!ercasPublicKey.trim()) {
-        const msg = "ErcasPay public key is missing. Set NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY.";
-        console.error("[PurchaseModal] ErcasPay init failed: missing NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY");
+      const flutterwavePublicKey = (import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) || "";
+      if (!flutterwavePublicKey.trim()) {
+        const msg = "Flutterwave public key is missing. Set NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY.";
+        console.error("[PurchaseModal] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
         setPurchaseState({ phase: "error", message: msg });
-        sonnerToast.error("ErcasPay initialization failed", {
+        sonnerToast.error("Flutterwave initialization failed", {
           description: msg,
         });
         setPurchasing(false);
         return;
       }
 
-      const initRes = await fetch("/api/ercaspay-init", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: naira,
-          email: currentUser.email,
-          reference,
-          callbackUrl,
-          metadata: { ...ercasMetadata, ercasPublicKey },
-        }),
+      setPurchaseState({ phase: "processing", message: "Opening Flutterwave checkout..." });
+      const checkout = await loadFlutterwaveInlineScript();
+      checkout({
+        public_key: flutterwavePublicKey.trim(),
+        tx_ref: reference,
+        amount: naira,
+        currency: "NGN",
+        customer: { email: currentUser.email },
+        meta: flutterwaveMetadata,
+        customizations: {
+          title: "Elon Marketplace",
+          description: `${qty} item${qty === 1 ? "" : "s"} purchase`,
+        },
+        callback: () => {
+          setPurchaseState({
+            phase: "processing",
+            message: "Payment received. Fetching your credentials...",
+          });
+          void (async () => {
+            const resolved = await pollTransactionDelivery(reference);
+            if (!resolved) {
+              window.location.assign(callbackUrl);
+            }
+          })();
+        },
+        onclose: () => {
+          setPurchasing(false);
+        },
       });
-      const initPayload = (await initRes.json().catch(() => ({}))) as {
-        checkoutUrl?: string;
-        error?: string;
-      };
-      if (!initRes.ok || !initPayload.checkoutUrl) {
-        setPurchaseState({
-          phase: "error",
-          message: initPayload.error || "Failed to initialize ErcasPay checkout.",
-        });
-        setPurchasing(false);
-        return;
-      }
-
-      setPurchaseState({ phase: "processing", message: "Redirecting to ErcasPay checkout..." });
-      window.open(initPayload.checkoutUrl, "_blank", "noopener,noreferrer");
-      void pollTransactionDelivery(reference);
       setPurchasing(false);
       return;
     } catch (e) {
@@ -535,7 +583,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           msg = String(e);
         }
       }
-      console.error("[PurchaseModal] ErcasPay initialization error", e);
+      console.error("[PurchaseModal] Flutterwave checkout error", e);
       setPurchaseState({ phase: "error", message: msg });
       setPurchasing(false);
     }
@@ -734,7 +782,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                     </>
                   )}
                 </button>
-                {!showPaystackOption && (
+                {!showGatewayOption && (
                   <div className="flex items-center justify-between gap-3 text-xs">
                     <Link
                       to={`/dashboard/wallet?amount=${Math.max(100, totalPrice)}`}
@@ -745,16 +793,16 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                     </Link>
                     <button
                       type="button"
-                      onClick={() => setShowPaystackOption(true)}
+                      onClick={() => setShowGatewayOption(true)}
                       className="font-semibold text-slate-700 underline underline-offset-2 dark:text-slate-200"
                     >
-                      Use ErcasPay instead
+                      Use Flutterwave instead
                     </button>
                   </div>
                 )}
               </div>
             ) : null}
-            {(!canUseWallet || showPaystackOption || canBypassBalance) && (
+            {(!canUseWallet || showGatewayOption || canBypassBalance) && (
               !canUseWallet && !canBypassBalance ? (
                 <Link
                   to={`/dashboard/wallet?amount=${Math.max(100, shortfall)}`}
@@ -771,7 +819,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               ) : (
               <button
                 type="button"
-                onClick={handleErcasPayPurchase}
+                onClick={handleFlutterwavePurchase}
                 disabled={!canAttemptPurchase || purchasing || (!canStartPayment && !canBypassBalance) || purchaseState.phase === "success"}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm text-white transition-all duration-200 hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
@@ -783,14 +831,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                   <>
                     <Loader2 className="h-4 w-4 animate-spin text-white" />
                     <span className="text-white">
-                      {purchaseState.phase === "processing" ? "Initializing ErcasPay..." : "Preparing Payment..."}
+                      {purchaseState.phase === "processing" ? "Initializing Flutterwave..." : "Preparing Payment..."}
                     </span>
                   </>
                 ) : (
                   <>
                     <Eye className="h-4 w-4 text-white" />
                     <span className="text-white">
-                      Pay with ErcasPay · ₦{totalPrice.toLocaleString()}
+                      Pay with Flutterwave · ₦{totalPrice.toLocaleString()}
                     </span>
                   </>
                 )}

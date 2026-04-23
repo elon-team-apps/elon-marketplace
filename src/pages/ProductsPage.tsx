@@ -510,7 +510,7 @@ function ProductCard({
             <span className="text-red-500 font-semibold">Out of Stock</span>
           ) : stockLow ? (
             <span className="font-semibold text-black">
-              Only {availableStock} account{availableStock === 1 ? "" : "s"} left
+              {availableStock} available
             </span>
           ) : (
             <span className="font-semibold text-black">In Stock</span>
@@ -521,7 +521,7 @@ function ProductCard({
             <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
               {hasManualOnlyStock
                 ? "Ready for Delivery"
-                : `${liveLabelCount} account${liveLabelCount === 1 ? "" : "s"} left`}
+                : `${liveLabelCount} available`}
             </span>
           </div>
         )}

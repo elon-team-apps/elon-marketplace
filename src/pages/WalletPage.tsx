@@ -11,14 +11,59 @@ import { useSearchParams } from "react-router-dom";
 
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
-const PENDING_REF_KEY = "ercaspay_pending_reference";
+const PENDING_REF_KEY = "flutterwave_pending_reference";
 const LEGACY_PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
 
 function buildPaymentReference(): string {
   const rand = Math.random().toString(36).slice(2, 10);
-  return `erc_wallet_${Date.now()}_${rand}`;
+  return `flw_wallet_${Date.now()}_${rand}`;
+}
+
+type FlutterwaveOptions = {
+  public_key: string;
+  tx_ref: string;
+  amount: number;
+  currency: string;
+  customer: { email: string };
+  customizations?: { title?: string; description?: string };
+  meta?: Record<string, unknown>;
+  callback?: (response: Record<string, unknown>) => void;
+  onclose?: () => void;
+};
+
+type FlutterwaveWindow = Window & {
+  FlutterwaveCheckout?: (options: FlutterwaveOptions) => void;
+};
+
+function getFlutterwaveWindow(): FlutterwaveWindow {
+  return window as FlutterwaveWindow;
+}
+
+async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptions) => void> {
+  const existing = getFlutterwaveWindow().FlutterwaveCheckout;
+  if (existing) return existing;
+
+  await new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>('script[data-flutterwave-inline="true"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error("Failed to load Flutterwave inline script.")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.flutterwave.com/v3.js";
+    script.async = true;
+    script.dataset.flutterwaveInline = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Flutterwave inline script."));
+    document.body.appendChild(script);
+  });
+
+  const checkout = getFlutterwaveWindow().FlutterwaveCheckout;
+  if (!checkout) throw new Error("FlutterwaveCheckout is unavailable.");
+  return checkout;
 }
 
 type PaymentMethodSettingsRow = {
@@ -27,13 +72,13 @@ type PaymentMethodSettingsRow = {
 };
 
 type PaymentMethodSettings = {
-  ercaspayEnabled: boolean;
+  flutterwaveEnabled: boolean;
   manualEnabled: boolean;
 };
 
 function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
   return {
-    ercaspayEnabled: Boolean(row?.pocketfi_enabled),
+    flutterwaveEnabled: Boolean(row?.pocketfi_enabled),
     manualEnabled: Boolean(row?.manual_enabled),
   };
 }
@@ -47,8 +92,8 @@ export default function WalletPage() {
   const [amount, setAmount] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
-  const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | null>(null);
-  const [methods, setMethods] = useState<PaymentMethodSettings>({ ercaspayEnabled: true, manualEnabled: false });
+  const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | "finalized" | null>(null);
+  const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, manualEnabled: false });
 
   useEffect(() => {
     const qAmount = searchParams.get("amount");
@@ -98,10 +143,10 @@ export default function WalletPage() {
 
       if (error || !data) return;
 
-      const status = data.status as "pending" | "completed" | "failed";
+      const status = String(data.status ?? "").toLowerCase() as "pending" | "completed" | "failed" | "finalized";
       setPendingStatus(status);
 
-      if (status === "completed") {
+      if (status === "completed" || status === "finalized") {
         void refreshProfile();
         toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
         localStorage.removeItem(PENDING_REF_KEY);
@@ -125,8 +170,8 @@ export default function WalletPage() {
     };
   }, [pendingRef, currentUser?.id, toast, refreshProfile]);
 
-  // ── Start ErcasPay checkout (redirect + webhook verification) ──────────
-  const startErcaspayCheckout = async () => {
+  // ── Start Flutterwave checkout (inline + webhook verification) ──────────
+  const startFlutterwaveCheckout = async () => {
     if (checkoutLoading) return;
     let redirecting = false;
     const numeric = Number(amount);
@@ -154,68 +199,63 @@ export default function WalletPage() {
         throw new Error("Session mismatch. Refresh the page, then try again.");
       }
 
-      const ercasPublicKey = (import.meta.env.NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY as string | undefined) || "";
-      if (!ercasPublicKey.trim()) {
-        console.error("[WalletPage] ErcasPay init failed: missing NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY");
-        throw new Error("Missing Key: NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY");
+      const flutterwavePublicKey = (import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) || "";
+      if (!flutterwavePublicKey.trim()) {
+        console.error("[WalletPage] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
+        throw new Error("Missing Key: NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
       }
 
-      const ercasRef = buildPaymentReference();
+      const flutterwaveRef = buildPaymentReference();
 
       const { error: txError } = await supabase.from("transactions").insert({
         user_id: currentUser.id,
         amount: naira,
         type: "deposit",
         status: "pending",
-        reference: ercasRef,
+        reference: flutterwaveRef,
       });
 
       if (txError) {
         throw new Error(`Could not create pending transaction: ${txError.message}`);
       }
-      const callbackUrl = `${window.location.origin}/dashboard/wallet?reference=${encodeURIComponent(ercasRef)}`;
-      const initRes = await fetch("/api/ercaspay-init", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: naira,
-          email: currentUser.email,
-          reference: ercasRef,
-          callbackUrl,
-          metadata: {
-            type: "wallet_topup",
-            buyerEmail: currentUser.email,
-            userId: currentUser.id,
-            amountNaira: naira,
-            ercasPublicKey,
-          },
-        }),
-      });
-      const initPayload = (await initRes.json().catch(() => ({}))) as {
-        checkout_url?: string;
-        checkoutUrl?: string;
-        error?: string;
-      };
-      const checkoutUrl = String(initPayload.checkout_url ?? initPayload.checkoutUrl ?? "").trim();
-      if (!initRes.ok || !checkoutUrl) {
-        throw new Error(initPayload.error || "Failed to initialize ErcasPay checkout.");
-      }
-
-      localStorage.setItem(PENDING_REF_KEY, ercasRef);
-      setPendingRef(ercasRef);
+      localStorage.setItem(PENDING_REF_KEY, flutterwaveRef);
+      setPendingRef(flutterwaveRef);
       setPendingStatus("pending");
-      redirecting = true;
-      window.location.href = checkoutUrl;
+      const checkout = await loadFlutterwaveInlineScript();
+      checkout({
+        public_key: flutterwavePublicKey.trim(),
+        tx_ref: flutterwaveRef,
+        amount: naira,
+        currency: "NGN",
+        customer: { email: currentUser.email },
+        meta: {
+          type: "wallet_topup",
+          userId: currentUser.id,
+          amountNaira: naira,
+        },
+        customizations: {
+          title: "Elon Marketplace Wallet",
+          description: "Wallet top-up",
+        },
+        callback: () => {
+          redirecting = true;
+          setPendingRef(flutterwaveRef);
+          setPendingStatus("pending");
+        },
+        onclose: () => {
+          setCheckoutLoading(false);
+        },
+      });
       return;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unable to start ErcasPay checkout.";
-      console.error("[WalletPage] ErcasPay initialization error", err);
+      const msg = err instanceof Error ? err.message : "Unable to start Flutterwave checkout.";
+      console.error("[WalletPage] Flutterwave initialization error", err);
       const friendly = /missing key/i.test(msg)
-        ? "ErcasPay public key is missing. Set `NEXT_PUBLIC_ERCASPAY_PUBLIC_KEY`."
+        ? "Flutterwave public key is missing. Set `NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY`."
         : /load/i.test(msg)
-          ? "ErcasPay is taking too long to respond. Please try again."
+          ? "Flutterwave is taking too long to respond. Please try again."
           : /aborted|timeout|load failed|failed to fetch|networkerror/i.test(msg)
-            ? "ErcasPay is taking too long to respond. Please try again."
+            ? "Flutterwave is taking too long to respond. Please try again."
         : msg;
       toast({ title: "Checkout failed", description: friendly, variant: "destructive" });
     } finally {
@@ -230,7 +270,7 @@ export default function WalletPage() {
       <div>
         <h1 className="font-heading text-2xl font-bold text-black dark:text-white">Wallet</h1>
         <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-          Fund your wallet securely with ErcasPay.
+          Fund your wallet securely with Flutterwave.
         </p>
       </div>
 
@@ -249,15 +289,15 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {pendingRef && pendingStatus !== "completed" && (
+      {pendingRef && pendingStatus !== "completed" && pendingStatus !== "finalized" && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100 dark:border-amber-500/35">
-          Payment pending verification... we are waiting for ErcasPay webhook confirmation.
+          Payment pending verification... we are waiting for Flutterwave webhook confirmation.
         </div>
       )}
 
       <div className="glass-card p-6 space-y-5">
         <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
-          Fund Wallet with ErcasPay
+          Fund Wallet with Flutterwave
         </h2>
         <div>
           <Label className="mb-2 block font-medium text-black dark:text-white">Amount</Label>
@@ -291,12 +331,12 @@ export default function WalletPage() {
             Minimum funding amount: ₦100
           </p>
         </div>
-        {methods.ercaspayEnabled ? (
+        {methods.flutterwaveEnabled ? (
           <button
             type="button"
             className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
             style={{ background: BTN_NAVY }}
-            onClick={startErcaspayCheckout}
+            onClick={startFlutterwaveCheckout}
             disabled={checkoutLoading || !amount || parseInt(amount) < 100}
           >
             {checkoutLoading ? (
@@ -307,13 +347,13 @@ export default function WalletPage() {
             ) : (
               <>
                 <Wallet className="h-4 w-4 shrink-0 text-white" />
-                <span className="text-white">Continue to ErcasPay</span>
+                <span className="text-white">Continue to Flutterwave</span>
               </>
             )}
           </button>
         ) : (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 dark:border-amber-500/35">
-            ErcasPay checkout is currently disabled by admin.
+            Flutterwave checkout is currently disabled by admin.
           </div>
         )}
 
@@ -338,7 +378,7 @@ export default function WalletPage() {
         <ol className="space-y-3">
           {[
             "Enter your preferred amount.",
-            "Click Continue to ErcasPay to complete payment.",
+            "Click Continue to Flutterwave to complete payment.",
             "After successful payment, your wallet updates automatically.",
             "Return to products and complete your purchase.",
           ].map((step, i) => (
@@ -356,7 +396,7 @@ export default function WalletPage() {
       <div className="flex items-start gap-3 bg-amber-500/8 border border-amber-500/20 rounded-xl px-5 py-4">
         <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
         <p className="text-xs text-slate-600 dark:text-slate-300">
-          Manual receipt uploads are disabled. Use ErcasPay for all wallet funding transactions.
+          Manual receipt uploads are disabled. Use Flutterwave for all wallet funding transactions.
         </p>
       </div>
     </div>

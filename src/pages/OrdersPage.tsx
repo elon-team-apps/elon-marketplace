@@ -78,7 +78,8 @@ function CredentialModal({
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const isCompleted = String(order.status ?? "").toLowerCase() === "completed";
+  const statusValue = String(order.status ?? "").toLowerCase();
+  const isCompleted = statusValue === "completed" || statusValue === "finalized";
   const credentialsDelivered = Boolean(order.credentialsDelivered);
   const [copiedLine, setCopiedLine] = useState<string | null>(null);
 
