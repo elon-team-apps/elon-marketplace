@@ -366,7 +366,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const { data: product, error: productError } = await supabaseAdmin
     .from("products")
-    .select("id, title, price")
+    .select("id, title, price, description")
     .eq("id", productId)
     .maybeSingle();
   if (productError || !product) {
@@ -406,6 +406,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       status: "pending",
       reference,
       product_id: productId,
+      product_description: String(product.description ?? ""),
       quantity,
     })
     .select("id")

@@ -114,7 +114,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const { data: product, error: productError } = await admin
     .from("products")
-    .select("id, price, manual_stock")
+    .select("id, price, manual_stock, description")
     .eq("id", productId)
     .maybeSingle();
   if (productError || !product) {
@@ -156,6 +156,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       status: "pending",
       reference,
       product_id: productId,
+      product_description: String(product.description ?? ""),
       quantity,
     })
     .select("id")
