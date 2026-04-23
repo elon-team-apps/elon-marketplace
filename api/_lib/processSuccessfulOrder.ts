@@ -120,7 +120,7 @@ export async function processSuccessfulTransaction(
     const logIds = logsToDeliver.slice(0, fromLogs).map((row) => row.id);
     const { error } = await supabaseAdmin
       .from("log_items")
-      .update({ is_delivered: true, status: "distributed", buyer_id: tx.user_id })
+      .update({ is_delivered: true, status: "delivered", buyer_id: tx.user_id })
       .in("id", logIds);
     if (error) return { ok: false, status: 500, error: `Failed to mark sold logs: ${formatDbError(error)}` };
   }
@@ -154,7 +154,7 @@ export async function processSuccessfulTransaction(
   const completeTx = await supabaseAdmin
     .from("transactions")
     .update({
-      status: "finalized",
+      status: "completed",
       amount: amountNaira > 0 ? amountNaira : tx.amount,
     })
     .eq("id", tx.id);

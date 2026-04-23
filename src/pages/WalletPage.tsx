@@ -161,7 +161,7 @@ export default function WalletPage() {
         return;
       }
 
-      timer = window.setTimeout(checkStatus, 8000);
+      timer = window.setTimeout(checkStatus, 5000);
     };
 
     checkStatus();

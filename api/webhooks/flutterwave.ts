@@ -15,6 +15,7 @@ type FlutterwaveEvent = {
     amount?: number | string;
     status?: string;
     meta?: Record<string, unknown>;
+    customer?: { email?: string };
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -70,6 +71,7 @@ async function processDeposit(
   meta: Record<string, unknown> | undefined,
 ) {
   const amount = Math.max(0, asPositiveInt(amountRaw, 0));
+  const fallbackEmail = String(meta?.buyerEmail ?? "").trim().toLowerCase();
   const { data: tx, error: txError } = await supabaseAdmin
     .from("transactions")
     .select("id, user_id, amount, status")
@@ -80,7 +82,22 @@ async function processDeposit(
   if (tx?.status === "finalized" || tx?.status === "completed") {
     return { ok: true, status: 200, data: { ok: true, idempotent: true } };
   }
-  const userId = String(tx?.user_id ?? meta?.userId ?? "").trim();
+  let userId = String(tx?.user_id ?? meta?.userId ?? "").trim();
+  if (!userId && fallbackEmail) {
+    const { data: profileByEmail, error: profileByEmailError } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("email", fallbackEmail)
+      .maybeSingle();
+    if (profileByEmailError) {
+      return { ok: false, status: 500, error: `Profile lookup by email failed: ${formatDbError(profileByEmailError)}` };
+    }
+    userId = String(profileByEmail?.id ?? "").trim();
+    if (!userId) {
+      console.error(`[FlutterwaveWebhook] Webhook Error: User ${fallbackEmail} not found in profiles`);
+      return { ok: false, status: 404, error: `Webhook Error: User ${fallbackEmail} not found in profiles` };
+    }
+  }
   if (!userId) return { ok: false, status: 400, error: "Missing deposit userId." };
   const credit = Math.max(0, asPositiveInt(tx?.amount ?? amount, 0));
   if (!credit) return { ok: false, status: 400, error: "Invalid deposit amount." };
@@ -107,7 +124,7 @@ async function processDeposit(
   if (tx?.id) {
     const { error: txUpdateError } = await supabaseAdmin
       .from("transactions")
-      .update({ status: "finalized", amount: credit })
+      .update({ status: "completed", amount: credit })
       .eq("id", tx.id);
     if (txUpdateError) return { ok: false, status: 500, error: `Deposit completion failed: ${formatDbError(txUpdateError)}` };
   }
@@ -131,13 +148,24 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const bypassAllowed = await canUseAdminBypass(req);
   const webhookHash = (process.env.FLW_WEBHOOK_HASH ?? "").trim();
-  const headerHash = headerValue(req.headers, "verif-hash");
+  const headerHash = headerValue(req.headers, "verif-hash") || headerValue(req.headers, "verif_hash");
   if (!bypassAllowed && (!webhookHash || headerHash !== webhookHash)) {
+    console.error("[FlutterwaveWebhook] Hash mismatch", {
+      headerHash,
+      webhookHash,
+      hasHeader: Boolean(headerHash),
+      hasEnv: Boolean(webhookHash),
+    });
     res.status(401).json({ error: "Invalid Flutterwave webhook signature." });
     return;
   }
 
   const payload = (req.body ?? {}) as FlutterwaveEvent;
+  console.log("[FlutterwaveWebhook] Incoming event", {
+    event: payload.event,
+    status: payload.data?.status,
+    tx_ref: payload.data?.tx_ref,
+  });
   const status = normalize(payload.data?.status as string | undefined);
   const event = normalize(payload.event);
   if (!(event === "charge.completed" || event === "payment.success" || status === "successful")) {
@@ -170,7 +198,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const result = tx?.type === "deposit"
-    ? await processDeposit(supabaseAdmin, txRef, payload.data?.amount, payload.data?.meta)
+    ? await processDeposit(
+      supabaseAdmin,
+      txRef,
+      payload.data?.amount,
+      {
+        ...(payload.data?.meta ?? {}),
+        buyerEmail: payload.data?.customer?.email ?? (payload.data?.meta as Record<string, unknown> | undefined)?.buyerEmail,
+      },
+    )
     : tx?.id
       ? await processSuccessfulTransaction(supabaseAdmin, tx.id, payload.data?.amount)
       : { ok: false, status: 404, error: "No transaction found for tx_ref." };
