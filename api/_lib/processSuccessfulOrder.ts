@@ -72,7 +72,7 @@ export async function processSuccessfulTransaction(
   if (isFulfilledStatus && allowRecovery && !existingDeliveredData) {
     const soldLogsPrimary = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials, email, password, recovery")
+      .select("id, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("buyer_id", tx.user_id)
       .eq("is_delivered", true)
@@ -86,7 +86,7 @@ export async function processSuccessfulTransaction(
         ? soldLogsPrimary
         : await supabaseAdmin
             .from("log_items")
-            .select("id, credentials, email, password, recovery")
+            .select("id, email, password, recovery")
             .eq("product_id", tx.product_id)
             .eq("buyer_id", tx.user_id)
             .in("status", ["sold", "delivered"])
@@ -204,7 +204,7 @@ export async function processSuccessfulTransaction(
 
   const { data: availableLogs, error: logFetchError } = await supabaseAdmin
     .from("log_items")
-    .select("id, credentials, email, password, recovery")
+    .select("id, email, password, recovery")
     .eq("product_id", tx.product_id)
     .eq("status", "available")
     .eq("is_delivered", false)
@@ -215,7 +215,6 @@ export async function processSuccessfulTransaction(
   }
   const logsToDeliver = (availableLogs ?? []) as Array<{
     id: string;
-    credentials: string | null;
     email: string | null;
     password: string | null;
     recovery: string | null;

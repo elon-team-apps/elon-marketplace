@@ -240,7 +240,6 @@ async function fulfillWalletPurchase(
 
   let logsToDeliver: Array<{
     id: string;
-    credentials: string | null;
     email: string | null;
     password: string | null;
     recovery: string | null;
@@ -248,7 +247,7 @@ async function fulfillWalletPurchase(
   if (availableLogCount > 0) {
     const { data: availableLogs, error: logFetchError } = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials, email, password, recovery")
+      .select("id, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("status", "available")
       .eq("is_delivered", false)
@@ -259,7 +258,6 @@ async function fulfillWalletPurchase(
     }
     logsToDeliver = (availableLogs ?? []) as Array<{
       id: string;
-      credentials: string | null;
       email: string | null;
       password: string | null;
       recovery: string | null;
