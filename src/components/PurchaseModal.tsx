@@ -274,10 +274,11 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
 
   const pollTransactionDelivery = async (reference: string) => {
     if (!supabase || !currentUser?.id) return;
+    let recoveryAttempted = false;
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const { data, error } = await supabase
         .from("transactions")
-        .select("status, delivered_data")
+        .select("id, status, delivered_data")
         .eq("reference", reference)
         .eq("user_id", currentUser.id)
         .maybeSingle();
@@ -289,6 +290,22 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           window.dispatchEvent(new CustomEvent("orders:refresh"));
           await refreshProfile();
           return true;
+        }
+        if ((status === "completed" || status === "success" || status === "finalized") && delivered.length === 0 && !recoveryAttempted) {
+          recoveryAttempted = true;
+          const txId = String((data as { id?: string }).id ?? "").trim();
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData.session?.access_token ?? "";
+          if (txId && token) {
+            await fetch("/api/orders/recover-delivery", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ transactionId: txId }),
+            });
+          }
         }
       }
       await new Promise<void>((resolve) => window.setTimeout(resolve, 1500));

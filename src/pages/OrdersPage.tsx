@@ -64,13 +64,17 @@ function CredentialModal({
   onClose,
   canRetryFulfillment,
   retryingFulfillment,
+  recoveringDelivery,
   onRetryFulfillment,
+  onRecoverDelivery,
 }: {
   order: ModalOrder;
   onClose: () => void;
   canRetryFulfillment: boolean;
   retryingFulfillment: boolean;
+  recoveringDelivery: boolean;
   onRetryFulfillment: (transactionId: string) => Promise<void>;
+  onRecoverDelivery: (transactionId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
   const credentials = parseDeliveredData(order.deliveredLog || order.credentials || "");
@@ -251,6 +255,14 @@ function CredentialModal({
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   Processing your accounts...
                 </p>
+                <button
+                  type="button"
+                  onClick={() => void onRecoverDelivery(order.id)}
+                  disabled={recoveringDelivery}
+                  className="mt-3 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition disabled:opacity-60"
+                >
+                  {recoveringDelivery ? "Refreshing..." : "Refresh Credentials"}
+                </button>
                 {canRetryFulfillment && (
                   <button
                     type="button"
@@ -320,6 +332,7 @@ export default function OrdersPage() {
   const [loadingDb, setLoadingDb] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [retryingOrderId, setRetryingOrderId] = useState<string | null>(null);
+  const [recoveringOrderId, setRecoveringOrderId] = useState<string | null>(null);
   const [retryingMissingBulk, setRetryingMissingBulk] = useState(false);
   const isAdminUser = Boolean(currentUser?.is_admin || currentUser?.role === "admin");
 
@@ -392,6 +405,37 @@ export default function OrdersPage() {
       window.alert(message);
     } finally {
       setRetryingMissingBulk(false);
+    }
+  };
+
+  const recoverDelivery = async (transactionId: string) => {
+    if (!transactionId || !supabase) return;
+    setRecoveringOrderId(transactionId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (!token) throw new Error("Missing auth session.");
+
+      const response = await fetch("/api/orders/recover-delivery", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ transactionId }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not refresh credentials yet.");
+      }
+      setRefreshNonce((v) => v + 1);
+      window.dispatchEvent(new CustomEvent("orders:refresh"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not refresh credentials yet.";
+      console.error("[OrdersPage] Recover delivery failed", message);
+      window.alert(message);
+    } finally {
+      setRecoveringOrderId(null);
     }
   };
 
@@ -591,7 +635,9 @@ export default function OrdersPage() {
           onClose={() => setViewing(null)}
           canRetryFulfillment={isAdminUser && String(viewing.status ?? "").toLowerCase() === "completed" && !parseDeliveredData(viewing.deliveredLog).trim()}
           retryingFulfillment={retryingOrderId === viewing.id}
+          recoveringDelivery={recoveringOrderId === viewing.id}
           onRetryFulfillment={retryFulfillment}
+          onRecoverDelivery={recoverDelivery}
         />
       )}
     </div>
