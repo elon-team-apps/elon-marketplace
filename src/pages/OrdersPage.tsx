@@ -320,6 +320,7 @@ export default function OrdersPage() {
   const [loadingDb, setLoadingDb] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [retryingOrderId, setRetryingOrderId] = useState<string | null>(null);
+  const [retryingMissingBulk, setRetryingMissingBulk] = useState(false);
   const isAdminUser = Boolean(currentUser?.is_admin || currentUser?.role === "admin");
 
   const retryFulfillment = async (transactionId: string) => {
@@ -352,6 +353,45 @@ export default function OrdersPage() {
       window.alert(message);
     } finally {
       setRetryingOrderId(null);
+    }
+  };
+
+  const retryMissingFulfillment = async () => {
+    if (!supabase || !isAdminUser) return;
+    setRetryingMissingBulk(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (!token) throw new Error("Missing auth session.");
+
+      const response = await fetch("/api/admin/retry-missing-fulfillment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ limit: 50 }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        scanned?: number;
+        retried_successfully?: number;
+        failed?: number;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "Bulk retry failed.");
+      }
+      setRefreshNonce((v) => v + 1);
+      window.dispatchEvent(new CustomEvent("orders:refresh"));
+      window.alert(
+        `Bulk retry complete.\nScanned: ${Number(payload.scanned ?? 0)}\nRecovered: ${Number(payload.retried_successfully ?? 0)}\nFailed: ${Number(payload.failed ?? 0)}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Bulk retry failed.";
+      console.error("[OrdersPage] Bulk retry fulfillment failed", message);
+      window.alert(message);
+    } finally {
+      setRetryingMissingBulk(false);
     }
   };
 
@@ -428,6 +468,18 @@ export default function OrdersPage() {
         <p className="text-sm text-muted-foreground mt-1">
           Your purchase history and delivered account credentials
         </p>
+        {isAdminUser && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => void retryMissingFulfillment()}
+              disabled={retryingMissingBulk}
+              className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition disabled:opacity-60"
+            >
+              {retryingMissingBulk ? "Retrying missing credentials..." : "Retry Missing Credentials"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Table card */}
