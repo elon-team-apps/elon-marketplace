@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ClipboardList,
   Eye,
@@ -334,6 +334,7 @@ export default function OrdersPage() {
   const [retryingOrderId, setRetryingOrderId] = useState<string | null>(null);
   const [recoveringOrderId, setRecoveringOrderId] = useState<string | null>(null);
   const [retryingMissingBulk, setRetryingMissingBulk] = useState(false);
+  const attemptedAutoRecoverRef = useRef<Set<string>>(new Set());
   const isAdminUser = Boolean(currentUser?.is_admin || currentUser?.role === "admin");
 
   const retryFulfillment = async (transactionId: string) => {
@@ -438,6 +439,17 @@ export default function OrdersPage() {
       setRecoveringOrderId(null);
     }
   };
+
+  useEffect(() => {
+    if (!viewing) return;
+    const status = String(viewing.status ?? "").toLowerCase();
+    const isFulfilled = status === "completed" || status === "success" || status === "finalized";
+    const hasCredentials = Boolean(parseDeliveredData(viewing.deliveredLog).trim());
+    if (!isFulfilled || hasCredentials) return;
+    if (attemptedAutoRecoverRef.current.has(viewing.id)) return;
+    attemptedAutoRecoverRef.current.add(viewing.id);
+    void recoverDelivery(viewing.id);
+  }, [viewing]);
 
   // User's local orders from AppContext (works offline + immediately after purchase)
   const localOrders = orders.filter((o) => o.userId === currentUser?.id);

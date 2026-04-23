@@ -60,7 +60,8 @@ export async function processSuccessfulTransaction(
   const existingDeliveredData = String(tx.delivered_data ?? "").trim();
   const statusValue = String(tx.status ?? "").toLowerCase();
   const allowRecovery = options?.allowRecoveryForCompletedWithoutDelivery === true;
-  if ((statusValue === "completed" || statusValue === "success") && (!allowRecovery || existingDeliveredData)) {
+  const isFulfilledStatus = statusValue === "completed" || statusValue === "success" || statusValue === "finalized";
+  if (isFulfilledStatus && (!allowRecovery || existingDeliveredData)) {
     return { ok: true, status: 200, data: { ok: true, message: "Already fulfilled.", idempotent: true } };
   }
   if (!tx.product_id) return { ok: false, status: 400, error: "Transaction has no product_id." };
@@ -68,19 +69,33 @@ export async function processSuccessfulTransaction(
   const quantity = Math.max(1, asPositiveInt(tx.quantity, 1));
   const amountNaira = Math.max(0, asPositiveInt(amountNairaRaw, 0)) || asPositiveInt(tx.amount, 0);
 
-  if ((statusValue === "completed" || statusValue === "success") && allowRecovery && !existingDeliveredData) {
-    const { data: soldLogs, error: soldLogsError } = await supabaseAdmin
+  if (isFulfilledStatus && allowRecovery && !existingDeliveredData) {
+    const soldLogsPrimary = await supabaseAdmin
       .from("log_items")
       .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("buyer_id", tx.user_id)
-      .in("status", ["sold", "delivered"])
+      .eq("is_delivered", true)
       .order("created_at", { ascending: true })
       .limit(quantity);
-    if (soldLogsError) {
-      return { ok: false, status: 500, error: `Failed to recover sold logs: ${formatDbError(soldLogsError)}` };
+    if (soldLogsPrimary.error) {
+      return { ok: false, status: 500, error: `Failed to recover sold logs: ${formatDbError(soldLogsPrimary.error)}` };
     }
-    const recoveredLines = (soldLogs ?? [])
+    const soldLogsFallback =
+      (soldLogsPrimary.data?.length ?? 0) > 0
+        ? soldLogsPrimary
+        : await supabaseAdmin
+            .from("log_items")
+            .select("id, credentials, email, password, recovery")
+            .eq("product_id", tx.product_id)
+            .eq("buyer_id", tx.user_id)
+            .in("status", ["sold", "delivered"])
+            .order("created_at", { ascending: true })
+            .limit(quantity);
+    if (soldLogsFallback.error) {
+      return { ok: false, status: 500, error: `Failed to recover fallback sold logs: ${formatDbError(soldLogsFallback.error)}` };
+    }
+    const recoveredLines = (soldLogsFallback.data ?? [])
       .map((row) => formatDeliveredLog(row as {
         email?: string | null;
         password?: string | null;
