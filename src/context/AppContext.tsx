@@ -145,7 +145,7 @@ const seedUsers: User[] = [
     id: "user-2",
     name: "John Doe",
     email: "john@example.com",
-    wallet_balance: 10000,
+    wallet_balance: 0,
     role: "user" as const,
     is_admin: false,
     createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
@@ -154,7 +154,7 @@ const seedUsers: User[] = [
     id: "user-3",
     name: "Jane Smith",
     email: "jane@example.com",
-    wallet_balance: 3500,
+    wallet_balance: 0,
     role: "user" as const,
     is_admin: false,
     createdAt: new Date(Date.now() - 86400000 * 8).toISOString(),
@@ -386,7 +386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           id: String(profile.id ?? authUser.id),
           name: fallbackName,
           email,
-          wallet_balance: (profile.wallet_balance as number) ?? 0,
+          wallet_balance: Number(profile.wallet_balance ?? profile.balance ?? 0),
           role: resolvedRole,
           is_admin: resolvedAdmin,
           createdAt: (profile.created_at as string) ?? "",
@@ -646,6 +646,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (payload) => {
           const next = payload.new as {
             wallet_balance?: number;
+            balance?: number;
             role?: string;
             email?: string;
             is_admin?: boolean | string;
@@ -658,7 +659,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
               col === true || col === "true" || col === "t" || roleNorm === "admin";
             return {
               ...prev,
-              wallet_balance: typeof next.wallet_balance === "number" ? next.wallet_balance : prev.wallet_balance,
+              wallet_balance:
+                typeof next.wallet_balance === "number"
+                  ? next.wallet_balance
+                  : typeof next.balance === "number"
+                    ? next.balance
+                    : prev.wallet_balance,
               role: adminFlag ? "admin" : "user",
               is_admin: adminFlag,
               email: next.email ?? prev.email,
