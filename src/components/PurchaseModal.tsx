@@ -460,39 +460,30 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         buyerEmail: currentUser.email,
       };
 
-      // Pending row in public.transactions (Flutterwave webhook completes → status finalized).
-      // Prefer SECURITY DEFINER RPC so reservation works even when direct INSERT is blocked by RLS.
-      const { data: reserveData, error: reserveRpcErr } = await supabase.rpc("reserve_purchase_transaction", {
-        p_reference: reference,
-        p_amount: naira,
-        p_product_id: product.id,
-        p_quantity: qty,
-      });
-
-      const reservePayload = (reserveData ?? null) as Record<string, unknown> | null;
-      const rpcOk = !reserveRpcErr && reservePayload?.success === true;
-
-      if (!rpcOk) {
-        const txInsertPayload = {
-          user_id: currentUser.id,
-          amount: naira,
-          type: "purchase" as const,
-          status: "pending" as const,
-          reference,
-          product_id: product.id,
+      const reserveRes = await fetch("/api/checkout/flutterwave", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          productId: product.id,
           quantity: qty,
-        };
-        const { error: txError } = await supabase.from("transactions").insert(txInsertPayload);
-
-        if (txError) {
-          await logTransactionsInsertDebug(supabase, txInsertPayload, txError);
-          setPurchaseState({
-            phase: "error",
-            message: formatReserveFailure(reserveRpcErr, reservePayload, txError),
-          });
-          setPurchasing(false);
-          return;
-        }
+          amount: naira,
+          reference,
+        }),
+      });
+      const reservePayload = (await reserveRes.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!reserveRes.ok) {
+        const msg = typeof reservePayload.error === "string"
+          ? reservePayload.error
+          : "Could not reserve your order before payment.";
+        setPurchaseState({
+          phase: "error",
+          message: `Flutterwave simulation failed.\n${msg}`,
+        });
+        setPurchasing(false);
+        return;
       }
 
       if (canBypassBalance) {
