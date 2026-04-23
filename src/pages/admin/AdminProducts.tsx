@@ -78,6 +78,16 @@ function isIgnorableInventoryDeleteError(err: PostgrestError | null): boolean {
   return /does not exist|not find|schema cache|PGRST205|Could not find the table/i.test(err.message ?? "");
 }
 
+/** Keep order history rows valid by detaching transactions.product_id before deleting a product. */
+async function detachTransactionsForProduct(productId: string): Promise<{ error: PostgrestError | null }> {
+  if (!supabase) return { error: null };
+  const { error } = await supabase
+    .from("transactions")
+    .update({ product_id: null })
+    .eq("product_id", productId);
+  return { error };
+}
+
 /** Remove all inventory rows for this product (both table names) before deleting the product row — avoids FK issues. */
 async function deleteInventoryForProduct(productId: string): Promise<{ error: PostgrestError | null }> {
   if (!supabase) return { error: null };
@@ -1217,6 +1227,16 @@ export default function AdminProducts() {
     setDeleting(true);
     try {
       if (supabase) {
+        const txDetach = await detachTransactionsForProduct(id);
+        if (txDetach.error) {
+          toast({
+            title: "We couldn't detach order history",
+            description: formatSupabasePostgrestError(txDetach.error),
+            variant: "destructive",
+          });
+          return;
+        }
+
         const invDel = await deleteInventoryForProduct(id);
         if (invDel.error) {
           toast({
