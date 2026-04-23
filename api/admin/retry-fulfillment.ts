@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { isSuperAdminEmail } from "../../src/lib/adminAccess";
+import { processSuccessfulTransaction } from "../_lib/processSuccessfulOrder";
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
 type ApiRequest = { method?: string; headers: ApiHeaders; body?: unknown };
@@ -12,32 +13,6 @@ function headerValue(headers: ApiHeaders, key: string): string {
   const raw = headers[key];
   if (Array.isArray(raw)) return String(raw[0] ?? "");
   return String(raw ?? "");
-}
-
-function formatDbError(error: { message?: string; code?: string; details?: string; hint?: string } | null | undefined): string {
-  if (!error) return "Unknown database error.";
-  return [
-    error.message ? `message=${error.message}` : "",
-    error.code ? `code=${error.code}` : "",
-    error.details ? `details=${error.details}` : "",
-    error.hint ? `hint=${error.hint}` : "",
-  ].filter(Boolean).join(" | ") || "Unknown database error.";
-}
-
-function formatDeliveredLog(row: {
-  email?: string | null;
-  password?: string | null;
-  recovery?: string | null;
-  credentials?: string | null;
-}): string {
-  const clean = String(row.credentials ?? "").trim();
-  if (clean) return clean;
-
-  const email = String(row.email ?? "").trim();
-  const password = String(row.password ?? "").trim();
-  const recovery = String(row.recovery ?? "").trim();
-  if (email && password) return `${email}:${password}:${recovery}`;
-  return "";
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -91,63 +66,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-  const { data: tx, error: txError } = await adminClient
-    .from("transactions")
-    .select("id, user_id, product_id, quantity, status, delivered_data")
-    .eq("id", transactionId)
-    .maybeSingle();
-  if (txError || !tx) {
-    res.status(404).json({ error: `Transaction not found: ${formatDbError(txError)}` });
+  const result = await processSuccessfulTransaction(adminClient, transactionId, 0, {
+    allowRecoveryForCompletedWithoutDelivery: true,
+  });
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error ?? "Retry fulfillment failed." });
     return;
   }
-
-  const existingDelivered = String(tx.delivered_data ?? "").trim();
-  if (existingDelivered) {
-    res.status(200).json({ ok: true, delivered_data: existingDelivered.split(/\r?\n/).filter(Boolean), already_present: true });
-    return;
-  }
-
-  const quantity = Math.max(1, Math.trunc(Number(tx.quantity ?? 1)));
-  const { data: soldLogs, error: soldLogsError } = await adminClient
-    .from("log_items")
-    .select("id, email, password, recovery, credentials")
-    .eq("buyer_id", tx.user_id)
-    .eq("product_id", tx.product_id)
-    .eq("status", "delivered")
-    .order("created_at", { ascending: false })
-    .limit(quantity);
-  if (soldLogsError) {
-    res.status(500).json({ error: `Failed to load sold logs: ${formatDbError(soldLogsError)}` });
-    return;
-  }
-
-  const lines = (soldLogs ?? [])
-    .map((row) => formatDeliveredLog(row as {
-      email?: string | null;
-      password?: string | null;
-      recovery?: string | null;
-      credentials?: string | null;
-    }))
-    .filter(Boolean)
-    .reverse();
-  if (lines.length === 0) {
-    res.status(404).json({ error: "No delivered logs found for this transaction." });
-    return;
-  }
-
-  const deliveredData = lines.join("\n");
-  const { error: updateError } = await adminClient
-    .from("transactions")
-    .update({
-      status: "completed",
-      credentials_delivered: true,
-      delivered_data: deliveredData,
-    })
-    .eq("id", transactionId);
-  if (updateError) {
-    res.status(500).json({ error: `Failed to update transaction delivery: ${formatDbError(updateError)}` });
-    return;
-  }
-
-  res.status(200).json({ ok: true, delivered_data: lines, retried: true });
+  res.status(result.status).json(result.data ?? { ok: true, retried: true });
 }

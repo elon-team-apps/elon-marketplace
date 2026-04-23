@@ -249,7 +249,7 @@ function CredentialModal({
             ) : (
               <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Your order is being processed manually. Check back shortly for credentials.
+                  Processing your accounts...
                 </p>
                 {canRetryFulfillment && (
                   <button

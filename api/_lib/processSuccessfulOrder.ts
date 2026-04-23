@@ -48,21 +48,77 @@ export async function processSuccessfulTransaction(
   supabaseAdmin: SupabaseClient,
   transactionId: string,
   amountNairaRaw: unknown,
+  options?: { allowRecoveryForCompletedWithoutDelivery?: boolean },
 ) {
   const { data: tx, error: txError } = await supabaseAdmin
     .from("transactions")
-    .select("id, user_id, product_id, amount, status, quantity, reference")
+    .select("id, user_id, product_id, amount, status, quantity, reference, delivered_data")
     .eq("id", transactionId)
     .maybeSingle();
   if (txError) return { ok: false, status: 500, error: `Failed to fetch transaction: ${formatDbError(txError)}` };
   if (!tx) return { ok: false, status: 404, error: "Transaction was not found." };
-  if (tx.status === "completed" || tx.status === "success") {
+  const existingDeliveredData = String(tx.delivered_data ?? "").trim();
+  const statusValue = String(tx.status ?? "").toLowerCase();
+  const allowRecovery = options?.allowRecoveryForCompletedWithoutDelivery === true;
+  if ((statusValue === "completed" || statusValue === "success") && (!allowRecovery || existingDeliveredData)) {
     return { ok: true, status: 200, data: { ok: true, message: "Already fulfilled.", idempotent: true } };
   }
   if (!tx.product_id) return { ok: false, status: 400, error: "Transaction has no product_id." };
 
   const quantity = Math.max(1, asPositiveInt(tx.quantity, 1));
   const amountNaira = Math.max(0, asPositiveInt(amountNairaRaw, 0)) || asPositiveInt(tx.amount, 0);
+
+  if ((statusValue === "completed" || statusValue === "success") && allowRecovery && !existingDeliveredData) {
+    const { data: soldLogs, error: soldLogsError } = await supabaseAdmin
+      .from("log_items")
+      .select("id, credentials, email, password, recovery")
+      .eq("product_id", tx.product_id)
+      .eq("buyer_id", tx.user_id)
+      .in("status", ["sold", "delivered"])
+      .order("created_at", { ascending: true })
+      .limit(quantity);
+    if (soldLogsError) {
+      return { ok: false, status: 500, error: `Failed to recover sold logs: ${formatDbError(soldLogsError)}` };
+    }
+    const recoveredLines = (soldLogs ?? [])
+      .map((row) => formatDeliveredLog(row as {
+        email?: string | null;
+        password?: string | null;
+        recovery?: string | null;
+        credentials?: string | null;
+      }))
+      .filter(Boolean);
+    if (recoveredLines.length > 0) {
+      const recoveredData = recoveredLines.join("\n");
+      const recoverTx = await supabaseAdmin
+        .from("transactions")
+        .update({
+          delivered_data: recoveredData,
+          credentials_delivered: true,
+          status: "completed",
+          amount: amountNaira > 0 ? amountNaira : tx.amount,
+        })
+        .eq("id", tx.id);
+      if (recoverTx.error) {
+        return { ok: false, status: 500, error: `Failed to save recovered delivered_data: ${formatDbError(recoverTx.error)}` };
+      }
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          ok: true,
+          processed: true,
+          recovered: true,
+          transactionId: tx.id,
+          reference: tx.reference,
+          delivered_logs: recoveredLines.length,
+          manual_units_used: Math.max(0, quantity - recoveredLines.length),
+          delivered_data: recoveredLines,
+        },
+      };
+    }
+  }
+
   const { data: product, error: productError } = await supabaseAdmin
     .from("products")
     .select("id, stock, status, manual_stock")
@@ -88,6 +144,46 @@ export async function processSuccessfulTransaction(
       ok: false,
       status: 409,
       error: `Insufficient stock. available_logs=${availableLogCount}, manual_stock=${manualStock}, requested=${quantity}`,
+    };
+  }
+
+  if (availableLogCount === 0 && manualStock >= quantity) {
+    const pendingManual = await supabaseAdmin
+      .from("transactions")
+      .update({
+        status: "pending_manual",
+        credentials_delivered: false,
+        delivered_data: "",
+        amount: amountNaira > 0 ? amountNaira : tx.amount,
+      })
+      .eq("id", tx.id);
+    if (pendingManual.error) {
+      return { ok: false, status: 500, error: `Failed to set pending manual fulfillment: ${formatDbError(pendingManual.error)}` };
+    }
+    const manualOnlyStock = Math.max(0, manualStock - quantity);
+    const currentStock = Math.max(0, asPositiveInt(product.stock, 0));
+    const nextStock = Math.max(0, currentStock - quantity);
+    const nextStatus = manualOnlyStock > 0 ? "available" : "sold_out";
+    const manualProductUpdate = await supabaseAdmin
+      .from("products")
+      .update({ manual_stock: manualOnlyStock, stock: nextStock, status: nextStatus })
+      .eq("id", tx.product_id);
+    if (manualProductUpdate.error) {
+      return { ok: false, status: 500, error: `Failed to decrement manual stock: ${formatDbError(manualProductUpdate.error)}` };
+    }
+    return {
+      ok: true,
+      status: 200,
+      data: {
+        ok: true,
+        processed: true,
+        transactionId: tx.id,
+        reference: tx.reference,
+        delivered_logs: 0,
+        manual_units_used: quantity,
+        pending_manual: true,
+        delivered_data: [],
+      },
     };
   }
 
@@ -120,7 +216,7 @@ export async function processSuccessfulTransaction(
     const logIds = logsToDeliver.slice(0, fromLogs).map((row) => row.id);
     const { error } = await supabaseAdmin
       .from("log_items")
-      .update({ is_delivered: true, status: "delivered", buyer_id: tx.user_id })
+      .update({ is_delivered: true, status: "sold", buyer_id: tx.user_id })
       .in("id", logIds);
     if (error) return { ok: false, status: 500, error: `Failed to mark sold logs: ${formatDbError(error)}` };
   }
