@@ -29,19 +29,14 @@ function formatDeliveredLog(row: {
   recovery?: string | null;
   credentials?: string | null;
 }): string {
+  const raw = String(row.credentials ?? "").trim();
+  if (raw) return raw;
+
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
   const recovery = String(row.recovery ?? "").trim();
   if (email && password) return `${email}:${password}:${recovery}`;
-
-  const clean = String(row.credentials ?? "").trim();
-  if (!clean) return "";
-  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
-  const first = String(parts[0] ?? "").trim();
-  const second = String(parts[1] ?? "").trim();
-  const third = String(parts.slice(2).join(":") ?? "").trim();
-  if (!first || !second) return clean;
-  return `${first}:${second}:${third}`;
+  return "";
 }
 
 export async function processSuccessfulTransaction(
@@ -72,7 +67,7 @@ export async function processSuccessfulTransaction(
   if (isFulfilledStatus && allowRecovery && !existingDeliveredData) {
     const soldLogsPrimary = await supabaseAdmin
       .from("log_items")
-      .select("id, email, password, recovery")
+      .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("buyer_id", tx.user_id)
       .eq("is_delivered", true)
@@ -86,7 +81,7 @@ export async function processSuccessfulTransaction(
         ? soldLogsPrimary
         : await supabaseAdmin
             .from("log_items")
-            .select("id, email, password, recovery")
+            .select("id, credentials, email, password, recovery")
             .eq("product_id", tx.product_id)
             .eq("buyer_id", tx.user_id)
             .in("status", ["sold", "delivered"])
@@ -204,7 +199,7 @@ export async function processSuccessfulTransaction(
 
   const { data: availableLogs, error: logFetchError } = await supabaseAdmin
     .from("log_items")
-    .select("id, email, password, recovery")
+    .select("id, credentials, email, password, recovery")
     .eq("product_id", tx.product_id)
     .eq("status", "available")
     .eq("is_delivered", false)
@@ -215,6 +210,7 @@ export async function processSuccessfulTransaction(
   }
   const logsToDeliver = (availableLogs ?? []) as Array<{
     id: string;
+    credentials: string | null;
     email: string | null;
     password: string | null;
     recovery: string | null;

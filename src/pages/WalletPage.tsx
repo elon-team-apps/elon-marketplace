@@ -94,6 +94,7 @@ export default function WalletPage() {
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | "finalized" | null>(null);
   const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, manualEnabled: false });
+  const [pendingStartBalance, setPendingStartBalance] = useState<number | null>(null);
 
   useEffect(() => {
     const qAmount = searchParams.get("amount");
@@ -125,8 +126,9 @@ export default function WalletPage() {
     if (ref) {
       setPendingRef(ref);
       localStorage.setItem(PENDING_REF_KEY, ref);
+      setPendingStartBalance(currentUser?.wallet_balance ?? 0);
     }
-  }, [searchParams]);
+  }, [searchParams, currentUser?.wallet_balance]);
 
   useEffect(() => {
     if (!pendingRef || !currentUser?.id || !supabase) return;
@@ -151,6 +153,7 @@ export default function WalletPage() {
         toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
         localStorage.removeItem(PENDING_REF_KEY);
         setPendingRef(null);
+        setPendingStartBalance(null);
         return;
       }
 
@@ -158,6 +161,7 @@ export default function WalletPage() {
         toast({ title: "Payment failed", description: "Transaction verification failed.", variant: "destructive" });
         localStorage.removeItem(PENDING_REF_KEY);
         setPendingRef(null);
+        setPendingStartBalance(null);
         return;
       }
 
@@ -169,6 +173,35 @@ export default function WalletPage() {
       if (timer) window.clearTimeout(timer);
     };
   }, [pendingRef, currentUser?.id, toast, refreshProfile]);
+
+  useEffect(() => {
+    if (!pendingRef || pendingStartBalance === null) return;
+    const latest = currentUser?.wallet_balance ?? 0;
+    if (latest > pendingStartBalance) {
+      setPendingStatus("completed");
+      localStorage.removeItem(PENDING_REF_KEY);
+      setPendingRef(null);
+      setPendingStartBalance(null);
+    }
+  }, [currentUser?.wallet_balance, pendingRef, pendingStartBalance]);
+
+  useEffect(() => {
+    if (!supabase || !currentUser?.id || !pendingRef) return;
+    const channel = supabase
+      .channel(`wallet-balance-live-${currentUser.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${currentUser.id}` },
+        () => {
+          void refreshProfile();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id, pendingRef, refreshProfile]);
 
   // ── Start Flutterwave checkout (inline + webhook verification) ──────────
   const startFlutterwaveCheckout = async () => {
@@ -241,6 +274,8 @@ export default function WalletPage() {
           redirecting = true;
           setPendingRef(flutterwaveRef);
           setPendingStatus("pending");
+          setPendingStartBalance(currentUser?.wallet_balance ?? 0);
+          void refreshProfile();
         },
         onclose: () => {
           setCheckoutLoading(false);

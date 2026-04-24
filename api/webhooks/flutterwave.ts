@@ -289,7 +289,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const result = tx?.type === "deposit"
+  const metaType = String((payload.data?.meta as Record<string, unknown> | undefined)?.type ?? "").trim().toLowerCase();
+  const isWalletTopupMeta = metaType === "wallet_topup" || metaType === "deposit";
+  console.log("[FlutterwaveWebhook] tx_ref verification", {
+    tx_ref: txRef,
+    matched_transaction_type: tx?.type ?? null,
+    wallet_topup_meta: isWalletTopupMeta,
+    tx_found: Boolean(tx?.id),
+  });
+
+  const result = tx?.type === "deposit" || (!tx?.id && isWalletTopupMeta)
     ? await processDeposit(
       supabaseAdmin,
       txRef,

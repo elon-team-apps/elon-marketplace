@@ -112,19 +112,14 @@ function formatDeliveredLog(row: {
   recovery?: string | null;
   credentials?: string | null;
 }): string {
+  const raw = String(row.credentials ?? "").trim();
+  if (raw) return raw;
+
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
   const recovery = String(row.recovery ?? "").trim();
   if (email && password) return `${email}:${password}:${recovery}`;
-
-  const clean = String(row.credentials ?? "").trim();
-  if (!clean) return "";
-  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
-  const first = String(parts[0] ?? "").trim();
-  const second = String(parts[1] ?? "").trim();
-  const third = String(parts.slice(2).join(":") ?? "").trim();
-  if (!first || !second) return clean;
-  return `${first}:${second}:${third}`;
+  return "";
 }
 
 async function readUserBalance(
@@ -240,6 +235,7 @@ async function fulfillWalletPurchase(
 
   let logsToDeliver: Array<{
     id: string;
+    credentials: string | null;
     email: string | null;
     password: string | null;
     recovery: string | null;
@@ -247,7 +243,7 @@ async function fulfillWalletPurchase(
   if (availableLogCount > 0) {
     const { data: availableLogs, error: logFetchError } = await supabaseAdmin
       .from("log_items")
-      .select("id, email, password, recovery")
+      .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("status", "available")
       .eq("is_delivered", false)
@@ -258,6 +254,7 @@ async function fulfillWalletPurchase(
     }
     logsToDeliver = (availableLogs ?? []) as Array<{
       id: string;
+      credentials: string | null;
       email: string | null;
       password: string | null;
       recovery: string | null;

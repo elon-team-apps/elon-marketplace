@@ -132,6 +132,20 @@ async function syncProductStockFromLogs(productId: string): Promise<number> {
   return count;
 }
 
+async function insertRawLogsForProduct(productId: string, rawLines: string[]): Promise<{ inserted: number; newStock: number }> {
+  if (!supabase || rawLines.length === 0) return { inserted: 0, newStock: 0 };
+  const rows = rawLines.map((line) => ({
+    product_id: productId,
+    credentials: line,
+    status: "available",
+    is_delivered: false,
+  }));
+  const { error } = await supabase.from("log_items").insert(rows);
+  if (error) throw error;
+  const newStock = await syncProductStockFromLogs(productId);
+  return { inserted: rows.length, newStock };
+}
+
 /** Live stock = count of log_items per product where status = 'available' (not products.stock). */
 async function fetchLiveStockByProductIds(productIds: string[]): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
@@ -811,7 +825,6 @@ function EditProductModal({
   const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
   const editRawLogLines = parseLogLines(logsText);
-  const editPasteRes = validatePastedLogs(logsText);
 
   useEffect(() => {
     setTitle(product.title);
@@ -843,13 +856,7 @@ function EditProductModal({
       return;
     }
     const rawLogLines = editRawLogLines;
-    const pasteRes = editPasteRes;
-    if (rawLogLines.length > 0 && !pasteRes.ok) {
-      toast({ title: "Fix pasted logs", description: pasteRes.message, variant: "destructive" });
-      return;
-    }
-    const uploadEntries = pasteRes.ok ? pasteRes.entries : [];
-    const hasRealLogUpload = uploadEntries.length > 0;
+    const hasRealLogUpload = rawLogLines.length > 0;
     const effectiveManualStock = hasRealLogUpload ? 0 : parsedManualStock;
 
     setSaving(true);
@@ -896,9 +903,17 @@ function EditProductModal({
         }
         mergeProductRowFromDb(data as Record<string, unknown>);
         if (hasRealLogUpload) {
-          const rpcRes = await rpcBulkUploadLogs(product.id, uploadEntries);
-          if (!rpcRes.ok) {
-            const details = rpcRes.details;
+          try {
+            const inserted = await insertRawLogsForProduct(product.id, rawLogLines);
+            mergeProductRowFromDb({
+              ...(data as Record<string, unknown>),
+              stock: inserted.newStock,
+              stock_count: inserted.newStock,
+              manual_stock: 0,
+            });
+            patchProductLocal(product.id, { stock_count: inserted.newStock, stock: inserted.newStock, manual_stock: 0 });
+          } catch (insertErr) {
+            const details = insertErr instanceof Error ? insertErr.message : String(insertErr);
             setErrorMsg(details);
             toast({
               title: "Product updated, but log upload failed",
@@ -907,13 +922,6 @@ function EditProductModal({
             });
             return;
           }
-          mergeProductRowFromDb({
-            ...(data as Record<string, unknown>),
-            stock: rpcRes.newStock,
-            stock_count: rpcRes.newStock,
-            manual_stock: 0,
-          });
-          patchProductLocal(product.id, { stock_count: rpcRes.newStock, stock: rpcRes.newStock, manual_stock: 0 });
         }
         didRemoteUpdate = true;
       } else {
@@ -933,7 +941,7 @@ function EditProductModal({
       toast({
         title: "You're all set",
         description: hasRealLogUpload
-          ? `Product saved and ${uploadEntries.length} log line(s) uploaded.`
+          ? `Product saved and ${rawLogLines.length} raw log line(s) uploaded.`
           : "Product details saved.",
       });
       if (didRemoteUpdate) {
@@ -1007,9 +1015,7 @@ function EditProductModal({
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Paste Logs (One account per line)</Label>
               <span className={`text-xs font-semibold ${editPasteRes.ok ? "text-slate-500" : "text-amber-700 dark:text-amber-400"}`}>
-                {editPasteRes.ok
-                  ? `${editPasteRes.entries.length} valid line${editPasteRes.entries.length === 1 ? "" : "s"}${editPasteRes.skipped > 0 ? ` · Skipped ${editPasteRes.skipped}` : ""}`
-                  : `${editRawLogLines.length} line(s)`}
+                {`${editRawLogLines.length} line${editRawLogLines.length === 1 ? "" : "s"} ready`}
               </span>
             </div>
             <textarea
@@ -1022,7 +1028,7 @@ function EditProductModal({
             />
             <div className="mt-2 flex items-center justify-between gap-3">
               <p className="text-xs text-slate-500">
-                Parsed preview: {editPasteRes.ok ? `${editPasteRes.entries.length} account${editPasteRes.entries.length === 1 ? "" : "s"} ready` : "Fix invalid lines before save."}
+                Raw preview: {editRawLogLines.length} line{editRawLogLines.length === 1 ? "" : "s"} will be stored exactly as pasted.
               </p>
               <button
                 type="button"
