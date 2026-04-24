@@ -35,8 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
-import { parseLogLines, validatePastedLogs } from "@/lib/logParser";
-import { rpcBulkUploadLogs } from "@/lib/bulkUploadLogs";
+import { parseLogLines } from "@/lib/logParser";
 import { calculateStock, calculateStockBreakdown } from "@/lib/stock";
 
 const BTN_NAVY = "#0f172a";
@@ -225,9 +224,8 @@ function BulkUploadModal({
     }
   }, [initialProductId, products]);
 
-  const pasteValidation = validatePastedLogs(logsText);
-  const lineCount = pasteValidation.ok ? pasteValidation.entries.length : parseLogLines(logsText).length;
-  const skippedCount = pasteValidation.ok ? pasteValidation.skipped : 0;
+  const rawLogLines = parseLogLines(logsText);
+  const lineCount = rawLogLines.length;
   const selectedProduct = products.find((p) => p.id === selectedId);
 
   const handleUpload = async () => {
@@ -236,14 +234,7 @@ function BulkUploadModal({
       setStatus("error");
       return;
     }
-    const validated = validatePastedLogs(logsText);
-    if (!validated.ok) {
-      setErrorMsg(validated.message);
-      setStatus("error");
-      return;
-    }
-    const entries = validated.entries;
-    if (entries.length === 0) {
+    if (rawLogLines.length === 0) {
       setErrorMsg("Paste at least one non-empty line.");
       setStatus("error");
       return;
@@ -260,39 +251,32 @@ function BulkUploadModal({
         setStatus("error");
         return;
       }
-      const rpcRes = await rpcBulkUploadLogs(selectedId, entries);
-      if (!rpcRes.ok) {
-        console.error("[bulk_upload_logs] failed", {
-          productId: selectedId,
-          lineCount: entries.length,
-          error: rpcRes.error,
-          payload: rpcRes.payload,
+      try {
+        const inserted = await insertRawLogsForProduct(selectedId, rawLogLines);
+        setResult({ inserted: inserted.inserted, newStock: inserted.newStock });
+        setStatus("success");
+        sonnerToast.success("Upload complete", {
+          description: `${inserted.inserted} log line(s) added · Stock now ${inserted.newStock}`,
         });
-        setErrorMsg(rpcRes.details);
+        await Promise.resolve(onSuccess(selectedId, inserted.inserted, inserted.newStock));
+        return;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrorMsg(msg);
         setStatus("error");
         return;
       }
-
-      const inserted = rpcRes.inserted;
-      const newStock = rpcRes.newStock;
-      setResult({ inserted, newStock });
-      setStatus("success");
-      sonnerToast.success("Upload complete", {
-        description: `${inserted} log line(s) added · Stock now ${newStock}`,
-      });
-      await Promise.resolve(onSuccess(selectedId, inserted, newStock));
-      return;
     }
 
     const prevStock = selectedProduct?.stock_count ?? selectedProduct?.stock ?? 0;
-    const newStockOffline = prevStock + entries.length;
-    await Promise.resolve(onSuccess(selectedId, entries.length, newStockOffline));
+    const newStockOffline = prevStock + rawLogLines.length;
+    await Promise.resolve(onSuccess(selectedId, rawLogLines.length, newStockOffline));
     setResult({
-      inserted: entries.length,
+      inserted: rawLogLines.length,
       newStock: newStockOffline,
     });
     setStatus("success");
-    sonnerToast.success("Upload complete", { description: `${entries.length} line(s) recorded (offline).` });
+    sonnerToast.success("Upload complete", { description: `${rawLogLines.length} line(s) recorded (offline).` });
   };
 
   const handleReset = () => {
@@ -387,20 +371,16 @@ function BulkUploadModal({
                 <div className="flex items-center justify-between mb-1.5 gap-2">
                   <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Paste logs</Label>
                   <span
-                    className={`text-xs font-semibold shrink-0 ${
-                      pasteValidation.ok ? "text-slate-600 dark:text-slate-300" : "text-amber-700 dark:text-amber-400"
-                    }`}
+                    className="text-xs font-semibold shrink-0 text-slate-600 dark:text-slate-300"
                   >
-                    {pasteValidation.ok
-                      ? `${lineCount} valid line${lineCount === 1 ? "" : "s"}${skippedCount > 0 ? ` · Skipped ${skippedCount} invalid line${skippedCount === 1 ? "" : "s"}` : ""}`
-                      : `${parseLogLines(logsText).length} line(s) — need email:password[:recovery[:extra]]`}
+                    {`${lineCount} line${lineCount === 1 ? "" : "s"} ready`}
                   </span>
                 </div>
                 <textarea
                   rows={10}
                   disabled={status === "uploading"}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-                  placeholder={"email@domain.com:YourPassword:recovery@backup.com\nor\nemail@domain.com|YourPassword|recovery@backup.com"}
+                  placeholder={"Paste one full account per line.\nExample:\nID:Pass:2FA:Email\nor any raw line format you use."}
                   value={logsText}
                   onChange={(e) => {
                     setLogsText(e.target.value);
@@ -418,9 +398,7 @@ function BulkUploadModal({
               <button
                 type="button"
                 onClick={handleUpload}
-                disabled={
-                  status === "uploading" || !pasteValidation.ok || lineCount === 0 || !selectedId
-                }
+                  disabled={status === "uploading" || lineCount === 0 || !selectedId}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
                 style={{ background: BTN_NAVY }}
               >
@@ -498,10 +476,7 @@ function CreateProductModal({
   if (!open) return null;
 
   const rawLogLines = parseLogLines(form.logsText);
-  const pasteRes = validatePastedLogs(form.logsText);
-  const uploadEntries = pasteRes.ok ? pasteRes.entries : [];
-  const skippedLogs = pasteRes.ok ? pasteRes.skipped : 0;
-  const logCount = uploadEntries.length;
+  const logCount = rawLogLines.length;
 
   const handleSubmit = async () => {
     setCreateErrorMsg("");
@@ -524,15 +499,6 @@ function CreateProductModal({
     ) {
       setCreateErrorMsg("Manual stock count must be a whole number 0 or greater.");
       toast({ title: "Invalid manual stock count", variant: "destructive" });
-      return;
-    }
-    if (rawLogLines.length > 0 && !pasteRes.ok) {
-      setCreateErrorMsg(pasteRes.message);
-      toast({
-        title: "Fix account lines",
-        description: pasteRes.message,
-        variant: "destructive",
-      });
       return;
     }
 
@@ -595,44 +561,37 @@ function CreateProductModal({
         mergeProductRowFromDb(inserted as Record<string, unknown>);
 
         // 2) Unified upload: bulk_upload_logs(p_product_id, p_logs JSON array of {email,password,recovery})
-        const rpcRes = await rpcBulkUploadLogs(newId, uploadEntries);
-        console.log("[CreateProduct] bulk_upload_logs response", {
-          productId: newId,
-          lineCount: uploadEntries.length,
-          response: rpcRes,
-        });
-        if (!rpcRes.ok) {
-          const details = rpcRes.details;
-          setCreateErrorMsg(details);
-          console.error("[CreateProduct] bulk_upload_logs failed after product insert", {
-            productId: newId,
-            lineCount: uploadEntries.length,
-            error: rpcRes.error,
-            payload: rpcRes.payload,
-          });
-          toast({
-            title: "Product created but log upload failed",
-            description: details,
-            variant: "destructive",
-          });
-          window.alert(`Log upload failed: ${details}`);
-          await refreshProducts();
-          await onAfterSave?.();
-          onClose();
-          return;
+        let newStock = 0;
+        if (rawLogLines.length > 0) {
+          try {
+            const insertedRaw = await insertRawLogsForProduct(newId, rawLogLines);
+            newStock = insertedRaw.newStock;
+            updateProduct(newId, { stock_count: newStock, stock: newStock });
+            mergeProductRowFromDb({
+              ...(inserted as Record<string, unknown>),
+              stock: newStock,
+              stock_count: newStock,
+            });
+          } catch (insertErr) {
+            const details = insertErr instanceof Error ? insertErr.message : String(insertErr);
+            setCreateErrorMsg(details);
+            toast({
+              title: "Product created but log upload failed",
+              description: details,
+              variant: "destructive",
+            });
+            window.alert(`Log upload failed: ${details}`);
+            await refreshProducts();
+            await onAfterSave?.();
+            onClose();
+            return;
+          }
         }
-        const newStock = rpcRes.newStock;
-        updateProduct(newId, { stock_count: newStock, stock: newStock });
-        mergeProductRowFromDb({
-          ...(inserted as Record<string, unknown>),
-          stock: newStock,
-          stock_count: newStock,
-        });
 
         await refreshProducts();
         await onAfterSave?.();
-        const desc = uploadEntries.length > 0
-          ? `“${form.title.trim()}” is live with ${uploadEntries.length} account${uploadEntries.length === 1 ? "" : "s"}${skippedLogs > 0 ? ` (Skipped ${skippedLogs} invalid line${skippedLogs === 1 ? "" : "s"})` : ""}.`
+        const desc = rawLogLines.length > 0
+          ? `“${form.title.trim()}” is live with ${rawLogLines.length} account${rawLogLines.length === 1 ? "" : "s"}.`
           : `“${form.title.trim()}” is live. Add logs anytime from inventory.`;
         sonnerToast.success("Product saved", { description: desc });
         onClose();
@@ -645,12 +604,12 @@ function CreateProductModal({
         price,
         description: form.description.trim(),
         manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
-        logs: uploadEntries.map((e) => `${e.email}:${e.password}:${e.recovery}`),
-        stock_count: uploadEntries.length,
-        stock: uploadEntries.length,
+        logs: rawLogLines,
+        stock_count: rawLogLines.length,
+        stock: rawLogLines.length,
         logo_url: autoLogoUrl,
       });
-      const offDesc = `“${form.title.trim()}” added with ${uploadEntries.length} log line(s)${skippedLogs > 0 ? ` (Skipped ${skippedLogs} invalid line${skippedLogs === 1 ? "" : "s"})` : ""}.`;
+      const offDesc = `“${form.title.trim()}” added with ${rawLogLines.length} log line(s).`;
       sonnerToast.success("Product saved", { description: offDesc });
       onClose();
     } finally {
@@ -751,31 +710,21 @@ function CreateProductModal({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Accounts (paste list)</Label>
-              <span
-                className={`text-xs font-semibold ${
-                  pasteRes.ok ? "text-slate-500" : "text-amber-700 dark:text-amber-400"
-                }`}
-              >
-                {pasteRes.ok
-                  ? `${logCount} valid line${logCount === 1 ? "" : "s"}${skippedLogs > 0 ? ` · Skipped ${skippedLogs} invalid line${skippedLogs === 1 ? "" : "s"}` : ""}`
-                  : `${rawLogLines.length} line(s) — need Email:Password[:Recovery]`}
+              <span className="text-xs font-semibold text-slate-500">
+                {`${logCount} line${logCount === 1 ? "" : "s"} ready`}
               </span>
             </div>
             <textarea
               rows={8}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-              placeholder={"email@domain.com:Password123:recovery@email.com\nor\nemail@domain.com|Password123|recovery@email.com"}
+              placeholder={"Paste one full account per line.\nExample:\nID:Pass:2FA:Email\n(Stored exactly as pasted)"}
               value={form.logsText}
               onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, logsText: e.target.value })); }}
               disabled={saving}
             />
             <p className="text-xs text-slate-500 mt-1.5">
-              Each line maps to <span className="font-semibold">email</span>, <span className="font-semibold">password</span>, and{" "}
-              <span className="font-semibold">recovery</span> (supports <code className="text-[11px]">:</code> or <code className="text-[11px]">|</code>; extra segments are ignored).
+              Each non-empty line is stored exactly as one row in <code className="text-[11px]">log_items.credentials</code>.
             </p>
-            {!pasteRes.ok && rawLogLines.length > 0 && (
-              <p className="text-xs text-red-700 dark:text-red-400 mt-1">{pasteRes.message}</p>
-            )}
           </div>
         </div>
 
@@ -783,7 +732,7 @@ function CreateProductModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={saving || (rawLogLines.length > 0 && !pasteRes.ok)}
+            disabled={saving}
             className="inline-flex flex-1 items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
             style={{ background: BTN_NAVY }}
           >
@@ -1014,14 +963,14 @@ function EditProductModal({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Paste Logs (One account per line)</Label>
-              <span className={`text-xs font-semibold ${editPasteRes.ok ? "text-slate-500" : "text-amber-700 dark:text-amber-400"}`}>
+              <span className="text-xs font-semibold text-slate-500">
                 {`${editRawLogLines.length} line${editRawLogLines.length === 1 ? "" : "s"} ready`}
               </span>
             </div>
             <textarea
               rows={7}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-              placeholder={"email@domain.com:Password123:recovery@email.com\nemail2@domain.com|Password456|recovery2@email.com"}
+              placeholder={"Paste one full account per line.\nExample:\nID:Pass:2FA:Email\n(Stored exactly as pasted)"}
               value={logsText}
               onChange={(e) => setLogsText(e.target.value)}
               disabled={saving}
