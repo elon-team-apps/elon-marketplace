@@ -151,20 +151,16 @@ function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const data = (payload.data as Record<string, unknown> | undefined) ?? payload;
   const raw = data.delivered_data;
   if (typeof raw === "string") {
-    return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    return raw.split(/\r?\n/).filter((line) => line.length > 0);
   }
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item) => String(item ?? "").trim())
-    .filter(Boolean);
+    .map((item) => String(item ?? ""))
+    .filter((line) => line.length > 0);
 }
 
 function normalizeDeliveredLog(entry: string): string {
-  return String(entry ?? "")
-    .split(":")
-    .map((part) => part.trim())
-    .join(":")
-    .trim();
+  return String(entry ?? "");
 }
 
 type PurchaseState =

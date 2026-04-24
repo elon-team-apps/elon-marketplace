@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate, Navigate } from "react-router-dom";
-import { Component, ReactNode, useState } from "react";
+import { Component, ReactNode, useEffect, useState } from "react";
 import logo from "@/assets/logo-transparent.png";
 import {
   LayoutDashboard,
@@ -27,6 +27,9 @@ import {
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
 import { isSuperAdminEmail } from "@/lib/adminAccess";
+import { supabase } from "@/lib/supabaseClient";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ── Nav items ──────────────────────────────────────────────────────────────
 const userNav = [
@@ -144,6 +147,24 @@ const DashboardLayout = () => {
     await refreshProfile();
     setRefreshing(false);
   };
+
+  useEffect(() => {
+    if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
+    const channel = supabase
+      .channel(`nav-profile-balance-${currentUser.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${currentUser.id}` },
+        () => {
+          void refreshProfile();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id, refreshProfile]);
 
   // Loading gate — wait for Supabase auth to resolve
   if (!profileLoaded) {

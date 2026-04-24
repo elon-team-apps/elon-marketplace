@@ -133,16 +133,27 @@ async function syncProductStockFromLogs(productId: string): Promise<number> {
 
 async function insertRawLogsForProduct(productId: string, rawLines: string[]): Promise<{ inserted: number; newStock: number }> {
   if (!supabase || rawLines.length === 0) return { inserted: 0, newStock: 0 };
-  const rows = rawLines.map((line) => ({
+  const rowsWithContent = rawLines.map((line) => ({
     product_id: productId,
+    content: line,
     credentials: line,
     status: "available",
     is_delivered: false,
   }));
-  const { error } = await supabase.from("log_items").insert(rows);
+  let { error } = await supabase.from("log_items").insert(rowsWithContent);
+  if (error && /column .*content/i.test(String(error.message ?? ""))) {
+    const rowsLegacy = rawLines.map((line) => ({
+      product_id: productId,
+      credentials: line,
+      status: "available",
+      is_delivered: false,
+    }));
+    const legacy = await supabase.from("log_items").insert(rowsLegacy);
+    error = legacy.error;
+  }
   if (error) throw error;
   const newStock = await syncProductStockFromLogs(productId);
-  return { inserted: rows.length, newStock };
+  return { inserted: rawLines.length, newStock };
 }
 
 /** Live stock = count of log_items per product where status = 'available' (not products.stock). */
@@ -1256,12 +1267,7 @@ export default function AdminProducts() {
       if (supabase) {
         const txDetach = await detachTransactionsForProduct(id);
         if (txDetach.error) {
-          toast({
-            title: "We couldn't detach order history",
-            description: formatSupabasePostgrestError(txDetach.error),
-            variant: "destructive",
-          });
-          return;
+          console.warn("[AdminProducts] detach transactions before delete (non-fatal)", txDetach.error);
         }
 
         const invDel = await deleteInventoryForProduct(id);

@@ -107,13 +107,17 @@ function getUserClient(token: string): SupabaseClient {
 }
 
 function formatDeliveredLog(row: {
+  content?: string | null;
   email?: string | null;
   password?: string | null;
   recovery?: string | null;
   credentials?: string | null;
 }): string {
-  const raw = String(row.credentials ?? "").trim();
-  if (raw) return raw;
+  const content = String(row.content ?? "");
+  if (content.trim()) return content;
+
+  const cred = String(row.credentials ?? "");
+  if (cred.trim()) return cred;
 
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
@@ -235,25 +239,39 @@ async function fulfillWalletPurchase(
 
   let logsToDeliver: Array<{
     id: string;
+    content: string | null;
     credentials: string | null;
     email: string | null;
     password: string | null;
     recovery: string | null;
   }> = [];
   if (availableLogCount > 0) {
-    const { data: availableLogs, error: logFetchError } = await supabaseAdmin
+    let availableLogsRes = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials, email, password, recovery")
+      .select("id, content, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("status", "available")
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
       .limit(quantity);
+    if (availableLogsRes.error && isMissingColumnError(availableLogsRes.error, "content")) {
+      availableLogsRes = await supabaseAdmin
+        .from("log_items")
+        .select("id, credentials, email, password, recovery")
+        .eq("product_id", tx.product_id)
+        .eq("status", "available")
+        .eq("is_delivered", false)
+        .order("created_at", { ascending: true })
+        .limit(quantity);
+    }
+    const logFetchError = availableLogsRes.error;
+    const availableLogs = availableLogsRes.data;
     if (logFetchError && manualStock < quantity) {
       return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
     }
     logsToDeliver = (availableLogs ?? []) as Array<{
       id: string;
+      content: string | null;
       credentials: string | null;
       email: string | null;
       password: string | null;

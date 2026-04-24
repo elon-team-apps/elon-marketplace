@@ -23,14 +23,25 @@ export function formatDbError(error: DbError | null | undefined): string {
   ].filter(Boolean).join(" | ") || "Unknown database error.";
 }
 
+function isMissingColumnError(error: DbError | null | undefined, column: string): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = String(error.message ?? "").toLowerCase();
+  return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
+}
+
 function formatDeliveredLog(row: {
+  content?: string | null;
   email?: string | null;
   password?: string | null;
   recovery?: string | null;
   credentials?: string | null;
 }): string {
-  const raw = String(row.credentials ?? "").trim();
-  if (raw) return raw;
+  const content = String(row.content ?? "");
+  if (content.trim()) return content;
+
+  const cred = String(row.credentials ?? "");
+  if (cred.trim()) return cred;
 
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
@@ -65,33 +76,54 @@ export async function processSuccessfulTransaction(
   const amountNaira = Math.max(0, asPositiveInt(amountNairaRaw, 0)) || asPositiveInt(tx.amount, 0);
 
   if (isFulfilledStatus && allowRecovery && !existingDeliveredData) {
-    const soldLogsPrimary = await supabaseAdmin
+    let soldLogsPrimary = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials, email, password, recovery")
+      .select("id, content, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("buyer_id", tx.user_id)
       .eq("is_delivered", true)
       .order("created_at", { ascending: true })
       .limit(quantity);
+    if (soldLogsPrimary.error && isMissingColumnError(soldLogsPrimary.error, "content")) {
+      soldLogsPrimary = await supabaseAdmin
+        .from("log_items")
+        .select("id, credentials, email, password, recovery")
+        .eq("product_id", tx.product_id)
+        .eq("buyer_id", tx.user_id)
+        .eq("is_delivered", true)
+        .order("created_at", { ascending: true })
+        .limit(quantity);
+    }
     if (soldLogsPrimary.error) {
       return { ok: false, status: 500, error: `Failed to recover sold logs: ${formatDbError(soldLogsPrimary.error)}` };
     }
-    const soldLogsFallback =
+    let soldLogsFallback =
       (soldLogsPrimary.data?.length ?? 0) > 0
         ? soldLogsPrimary
         : await supabaseAdmin
             .from("log_items")
-            .select("id, credentials, email, password, recovery")
+            .select("id, content, credentials, email, password, recovery")
             .eq("product_id", tx.product_id)
             .eq("buyer_id", tx.user_id)
             .in("status", ["sold", "delivered"])
             .order("created_at", { ascending: true })
             .limit(quantity);
+    if (soldLogsFallback.error && isMissingColumnError(soldLogsFallback.error, "content")) {
+      soldLogsFallback = await supabaseAdmin
+        .from("log_items")
+        .select("id, credentials, email, password, recovery")
+        .eq("product_id", tx.product_id)
+        .eq("buyer_id", tx.user_id)
+        .in("status", ["sold", "delivered"])
+        .order("created_at", { ascending: true })
+        .limit(quantity);
+    }
     if (soldLogsFallback.error) {
       return { ok: false, status: 500, error: `Failed to recover fallback sold logs: ${formatDbError(soldLogsFallback.error)}` };
     }
     const recoveredLines = (soldLogsFallback.data ?? [])
       .map((row) => formatDeliveredLog(row as {
+        content?: string | null;
         email?: string | null;
         password?: string | null;
         recovery?: string | null;
@@ -197,19 +229,32 @@ export async function processSuccessfulTransaction(
     };
   }
 
-  const { data: availableLogs, error: logFetchError } = await supabaseAdmin
+  let availableLogsRes = await supabaseAdmin
     .from("log_items")
-    .select("id, credentials, email, password, recovery")
+    .select("id, content, credentials, email, password, recovery")
     .eq("product_id", tx.product_id)
     .eq("status", "available")
     .eq("is_delivered", false)
     .order("created_at", { ascending: true })
     .limit(quantity);
+  if (availableLogsRes.error && isMissingColumnError(availableLogsRes.error, "content")) {
+    availableLogsRes = await supabaseAdmin
+      .from("log_items")
+      .select("id, credentials, email, password, recovery")
+      .eq("product_id", tx.product_id)
+      .eq("status", "available")
+      .eq("is_delivered", false)
+      .order("created_at", { ascending: true })
+      .limit(quantity);
+  }
+  const logFetchError = availableLogsRes.error;
+  const availableLogs = availableLogsRes.data;
   if (logFetchError && manualStock < quantity) {
     return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
   }
   const logsToDeliver = (availableLogs ?? []) as Array<{
     id: string;
+    content: string | null;
     credentials: string | null;
     email: string | null;
     password: string | null;

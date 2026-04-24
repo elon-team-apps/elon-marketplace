@@ -64,23 +64,30 @@ function formatDbError(error: {
   return parts.join(" | ") || "Unknown database error.";
 }
 
+function isMissingColumnError(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = String(error.message ?? "").toLowerCase();
+  return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
+}
+
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const raw = payload.delivered_data ?? payload.credentials_delivered;
   if (typeof raw === "string") {
-    return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    return raw.split(/\r?\n/).filter((line) => line.length > 0);
   }
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item) => String(item ?? "").trim())
-    .filter(Boolean);
+    .map((item) => String(item ?? ""))
+    .filter((line) => line.length > 0);
 }
 
-function toEmailPassword(credentials: string): string {
-  const clean = String(credentials ?? "").trim();
-  if (!clean) return "";
-  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
-  if (parts.length < 2) return clean;
-  return `${String(parts[0] ?? "").trim()}:${String(parts[1] ?? "").trim()}`;
+function formatDeliveredInventoryLine(row: { content?: string | null; credentials?: string | null }): string {
+  const content = String(row.content ?? "");
+  if (content.trim()) return content;
+  const cred = String(row.credentials ?? "");
+  if (cred.trim()) return cred;
+  return "";
 }
 
 function verifySignature(rawBody: string, signatureHeader: string, secret: string): boolean {
@@ -216,16 +223,28 @@ async function fulfillPurchaseFromReference(
   }
   const availableLogCount = countError ? 0 : Math.max(0, Number(rawAvailableLogCount ?? 0));
 
-  let logsToDeliver: Array<{ id: string; credentials: string }> = [];
+  let logsToDeliver: Array<{ id: string; content: string | null; credentials: string | null }> = [];
   if (availableLogCount > 0) {
-    const { data: availableLogs, error: logFetchError } = await supabaseAdmin
+    let availableLogsRes = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials")
+      .select("id, content, credentials")
       .eq("product_id", tx.product_id)
       .eq("status", "available")
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
       .limit(quantity);
+    if (availableLogsRes.error && isMissingColumnError(availableLogsRes.error, "content")) {
+      availableLogsRes = await supabaseAdmin
+        .from("log_items")
+        .select("id, credentials")
+        .eq("product_id", tx.product_id)
+        .eq("status", "available")
+        .eq("is_delivered", false)
+        .order("created_at", { ascending: true })
+        .limit(quantity);
+    }
+    const logFetchError = availableLogsRes.error;
+    const availableLogs = availableLogsRes.data;
     if (logFetchError && !canSatisfyFromManualOnly) {
       return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
     }
@@ -238,7 +257,7 @@ async function fulfillPurchaseFromReference(
         quantity,
       });
     } else {
-      logsToDeliver = (availableLogs ?? []) as Array<{ id: string; credentials: string }>;
+      logsToDeliver = (availableLogs ?? []) as Array<{ id: string; content: string | null; credentials: string | null }>;
     }
   }
 
@@ -270,8 +289,10 @@ async function fulfillPurchaseFromReference(
     .eq("id", tx.product_id);
   if (updateProductError) return { ok: false, status: 500, error: `Failed to update product inventory: ${formatDbError(updateProductError)}` };
 
-  const deliveredCredentials = logsToDeliver.slice(0, fromLogs).map((row) => row.credentials);
-  const deliveredDataLines = deliveredCredentials.map(toEmailPassword).filter(Boolean);
+  const deliveredDataLines = logsToDeliver
+    .slice(0, fromLogs)
+    .map((row) => formatDeliveredInventoryLine(row))
+    .filter(Boolean);
   const deliveredData = deliveredDataLines.join("\n");
   const sharedTxUpdate = {
     status: "completed",

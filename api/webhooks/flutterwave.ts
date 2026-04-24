@@ -134,13 +134,16 @@ async function processDeposit(
 ) {
   const amount = Math.max(0, asPositiveInt(amountRaw, 0));
   const fallbackEmail = String(meta?.buyerEmail ?? "").trim().toLowerCase();
-  let { data: tx, error: txError } = await supabaseAdmin
+  const primaryDepositLookup = await supabaseAdmin
     .from("transactions")
     .select("id, user_id, amount, status")
     .eq("reference", txRef)
     .eq("type", "deposit")
     .maybeSingle();
-  if (txError) return { ok: false, status: 500, error: `Failed deposit lookup: ${formatDbError(txError)}` };
+  if (primaryDepositLookup.error) {
+    return { ok: false, status: 500, error: `Failed deposit lookup: ${formatDbError(primaryDepositLookup.error)}` };
+  }
+  let tx = primaryDepositLookup.data as { id: string; user_id: string; amount: number; status: string } | null;
   if (!tx && fallbackEmail) {
     const profileByEmail = await supabaseAdmin
       .from("profiles")

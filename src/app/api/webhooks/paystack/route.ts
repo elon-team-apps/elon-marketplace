@@ -42,32 +42,38 @@ function formatDbError(error: { message?: string; code?: string; details?: strin
   ].filter(Boolean).join(" | ") || "Unknown database error.";
 }
 
+function isMissingColumnError(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = String(error.message ?? "").toLowerCase();
+  return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
+}
+
 function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const raw = payload.delivered_data ?? payload.credentials_delivered;
-  if (typeof raw === "string") return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (typeof raw === "string") return raw.split(/\r?\n/).filter((line) => line.length > 0);
   if (!Array.isArray(raw)) return [];
-  return raw.map((item) => String(item ?? "").trim()).filter(Boolean);
+  return raw.map((item) => String(item ?? "")).filter((line) => line.length > 0);
 }
 
 function formatDeliveredLog(row: {
+  content?: string | null;
   email?: string | null;
   password?: string | null;
   recovery?: string | null;
   credentials?: string | null;
 }): string {
+  const content = String(row.content ?? "");
+  if (content.trim()) return content;
+
+  const cred = String(row.credentials ?? "");
+  if (cred.trim()) return cred;
+
   const email = String(row.email ?? "").trim();
   const password = String(row.password ?? "").trim();
   const recovery = String(row.recovery ?? "").trim();
   if (email && password) return `${email}:${password}:${recovery}`;
-
-  const clean = String(row.credentials ?? "").trim();
-  if (!clean) return "";
-  const parts = clean.includes("|") ? clean.split("|") : clean.split(":");
-  const first = String(parts[0] ?? "").trim();
-  const second = String(parts[1] ?? "").trim();
-  const third = String(parts.slice(2).join(":") ?? "").trim();
-  if (!first || !second) return clean;
-  return `${first}:${second}:${third}`;
+  return "";
 }
 
 function verifySignature(rawBody: string, headerSignature: string, secret: string): boolean {
@@ -200,24 +206,37 @@ async function fulfillPurchaseFromReference(supabaseAdmin: SupabaseClient, refer
 
   let logsToDeliver: Array<{
     id: string;
+    content: string | null;
     credentials: string | null;
     email: string | null;
     password: string | null;
     recovery: string | null;
   }> = [];
   if (availableLogCount > 0) {
-    const { data: availableLogs, error: logFetchError } = await supabaseAdmin
+    let availableLogsRes = await supabaseAdmin
       .from("log_items")
-      .select("id, credentials, email, password, recovery")
+      .select("id, content, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
       .limit(quantity);
+    if (availableLogsRes.error && isMissingColumnError(availableLogsRes.error, "content")) {
+      availableLogsRes = await supabaseAdmin
+        .from("log_items")
+        .select("id, credentials, email, password, recovery")
+        .eq("product_id", tx.product_id)
+        .eq("is_delivered", false)
+        .order("created_at", { ascending: true })
+        .limit(quantity);
+    }
+    const logFetchError = availableLogsRes.error;
+    const availableLogs = availableLogsRes.data;
     if (logFetchError && manualStock < quantity) {
       return { ok: false, status: 500, error: `Failed to fetch logs for fulfillment: ${formatDbError(logFetchError)}` };
     }
     logsToDeliver = (availableLogs ?? []) as Array<{
       id: string;
+      content: string | null;
       credentials: string | null;
       email: string | null;
       password: string | null;

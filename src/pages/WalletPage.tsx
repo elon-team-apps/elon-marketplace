@@ -186,9 +186,9 @@ export default function WalletPage() {
   }, [currentUser?.wallet_balance, pendingRef, pendingStartBalance]);
 
   useEffect(() => {
-    if (!supabase || !currentUser?.id || !pendingRef) return;
+    if (!supabase || !currentUser?.id) return;
     const channel = supabase
-      .channel(`wallet-balance-live-${currentUser.id}`)
+      .channel(`wallet-profile-live-${currentUser.id}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${currentUser.id}` },
@@ -201,7 +201,7 @@ export default function WalletPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUser?.id, pendingRef, refreshProfile]);
+  }, [currentUser?.id, refreshProfile]);
 
   // ── Start Flutterwave checkout (inline + webhook verification) ──────────
   const startFlutterwaveCheckout = async () => {

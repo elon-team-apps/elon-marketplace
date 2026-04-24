@@ -123,64 +123,64 @@ export default function PaymentsPage() {
     .reduce((sum, d) => sum + d.amount, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6 text-slate-900 shadow-sm space-y-6 dark:border-slate-200">
       {/* Header */}
       <div>
-        <h1 className="font-heading text-2xl font-bold flex items-center gap-2.5">
+        <h1 className="font-heading text-2xl font-bold flex items-center gap-2.5 text-slate-900">
           <CreditCard className="h-6 w-6 text-accent" />
           Payment History
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">All wallet top-ups and deposit records</p>
+        <p className="text-sm text-slate-600 mt-1">All wallet top-ups and deposit records</p>
       </div>
 
       {/* Summary stat */}
       {!loading && deposits.length > 0 && (
         <div className="grid sm:grid-cols-3 gap-4">
-          <div className="glass-card p-5 flex items-center gap-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 flex items-center gap-4">
             <div className="h-10 w-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
               <ArrowDownLeft className="h-5 w-5 text-accent" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Total Deposited</p>
+              <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold">Total Deposited</p>
               <p className="font-heading font-bold text-xl text-accent mt-0.5">₦{totalDeposited.toLocaleString()}</p>
             </div>
           </div>
-          <div className="glass-card p-5 flex items-center gap-4">
-            <div className="h-10 w-10 rounded-xl bg-white/6 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
+          <div className="rounded-xl border border-slate-200 bg-white p-5 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-5 w-5 text-slate-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Transactions</p>
-              <p className="font-heading font-bold text-xl mt-0.5">{deposits.length}</p>
+              <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold">Transactions</p>
+              <p className="font-heading font-bold text-xl mt-0.5 text-slate-900">{deposits.length}</p>
             </div>
           </div>
-          <div className="glass-card p-5 flex items-center gap-4">
-            <div className="h-10 w-10 rounded-xl bg-white/6 flex items-center justify-center shrink-0">
-              <Wallet className="h-5 w-5 text-muted-foreground" />
+          <div className="rounded-xl border border-slate-200 bg-white p-5 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+              <Wallet className="h-5 w-5 text-slate-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Current Balance</p>
-              <p className="font-heading font-bold text-xl mt-0.5">₦{(currentUser?.wallet_balance ?? 0).toLocaleString()}</p>
+              <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold">Current Balance</p>
+              <p className="font-heading font-bold text-xl mt-0.5 text-slate-900">₦{(currentUser?.wallet_balance ?? 0).toLocaleString()}</p>
             </div>
           </div>
         </div>
       )}
 
       {/* Table */}
-      <div className="glass-card overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Loader2 className="h-6 w-6 text-accent animate-spin" />
-            <p className="text-sm text-muted-foreground">Loading payment history…</p>
+            <p className="text-sm text-slate-600">Loading payment history…</p>
           </div>
         ) : deposits.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-white/6 flex items-center justify-center">
-              <ArrowDownLeft className="h-7 w-7 text-muted-foreground/40" />
+            <div className="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center">
+              <ArrowDownLeft className="h-7 w-7 text-slate-400" />
             </div>
             <div className="text-center">
-              <p className="font-semibold text-foreground/60">No deposits yet</p>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="font-semibold text-slate-800">No deposits yet</p>
+              <p className="text-sm text-slate-600 mt-1">
                 Top up your wallet to start purchasing accounts.
               </p>
             </div>
@@ -192,26 +192,26 @@ export default function PaymentsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm text-slate-900">
               <thead>
-                <tr className="border-b bg-white/3">
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground">Reference</th>
-                  <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground">Amount</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">Status</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground hidden md:table-cell">Date</th>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-5 py-3.5 text-left font-semibold text-slate-600">Reference</th>
+                  <th className="px-5 py-3.5 text-right font-semibold text-slate-600">Amount</th>
+                  <th className="px-5 py-3.5 text-center font-semibold text-slate-600">Status</th>
+                  <th className="px-5 py-3.5 text-center font-semibold text-slate-600 hidden md:table-cell">Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-slate-200">
                 {deposits.map((dep) => {
                   const cfg = STATUS[dep.status as keyof typeof STATUS] ?? STATUS.pending;
                   const Icon = cfg.icon;
                   return (
-                    <tr key={dep.id} className="hover:bg-white/3 transition-colors">
+                    <tr key={dep.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-5 py-4">
-                        <p className="font-mono text-xs text-foreground/70">
+                        <p className="font-mono text-xs text-slate-800">
                           {dep.reference ?? dep.id.slice(-12).toUpperCase()}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-0.5 md:hidden">
+                        <p className="text-xs text-slate-500 mt-0.5 md:hidden">
                           {new Date(dep.created_at).toLocaleDateString()}
                         </p>
                       </td>
@@ -224,7 +224,7 @@ export default function PaymentsPage() {
                           {cfg.label}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-center text-muted-foreground text-xs hidden md:table-cell whitespace-nowrap">
+                      <td className="px-5 py-4 text-center text-slate-600 text-xs hidden md:table-cell whitespace-nowrap">
                         {new Date(dep.created_at).toLocaleDateString("en-GB", {
                           day: "2-digit", month: "short", year: "numeric",
                         })}

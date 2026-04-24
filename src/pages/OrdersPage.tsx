@@ -79,10 +79,7 @@ function CredentialModal({
 }) {
   const [copied, setCopied] = useState(false);
   const credentials = parseDeliveredData(order.deliveredLog || order.credentials || "");
-  const credentialLines = credentials
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const credentialLines = credentials.split(/\r?\n/).filter((line) => line.length > 0);
   const statusValue = String(order.status ?? "").toLowerCase();
   const isCompleted = statusValue === "completed" || statusValue === "finalized";
   const credentialsDelivered = Boolean(order.credentialsDelivered);
@@ -106,47 +103,47 @@ function CredentialModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.72)" }}
+      style={{ background: "rgba(15,23,42,0.35)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden dark:border-white/10 dark:bg-[#0b1120]">
+      <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl overflow-hidden dark:border-slate-200">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200 dark:border-white/10">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
               <ShieldCheck className="h-4 w-4 text-accent" />
             </div>
             <div>
-              <h2 className="font-heading font-bold text-slate-900 dark:text-white">Order Receipt</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+              <h2 className="font-heading font-bold text-slate-900">Order Receipt</h2>
+              <p className="text-xs text-slate-500 mt-0.5 font-mono">
                 #{order.id.slice(-10).toUpperCase()}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
+            className="text-slate-500 hover:text-slate-900 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Order metadata */}
-        <div className="px-6 py-4 grid grid-cols-3 gap-3 border-b border-slate-200 dark:border-white/10">
-          <div className="rounded-xl bg-slate-100 p-3 dark:bg-white/5">
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Product</p>
-            <p className="text-xs font-semibold text-slate-900 dark:text-white leading-snug line-clamp-2">
+        <div className="px-6 py-4 grid grid-cols-3 gap-3 border-b border-slate-200">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Product</p>
+            <p className="text-xs font-semibold text-slate-900 leading-snug line-clamp-2">
               {order.productTitle}
             </p>
           </div>
-          <div className="rounded-xl bg-slate-100 p-3 dark:bg-white/5">
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Amount</p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Amount</p>
             <p className="text-sm font-bold text-accent">₦{order.amount.toLocaleString()}</p>
           </div>
-          <div className="rounded-xl bg-slate-100 p-3 dark:bg-white/5">
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Date</p>
-            <p className="text-xs font-semibold text-slate-900 dark:text-white">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Date</p>
+            <p className="text-xs font-semibold text-slate-900">
               {new Date(order.createdAt).toLocaleDateString("en-GB", {
                 day: "2-digit",
                 month: "short",
@@ -156,87 +153,59 @@ function CredentialModal({
           </div>
         </div>
 
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-white/5">
-          <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-2">
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">
             Product Details
           </p>
-          <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+          <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
             {String(order.productDescription ?? "").trim() || "No extra instructions provided for this product."}
           </p>
         </div>
 
         {/* Credential block */}
         <div className="px-6 py-5">
-          <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-3">
+          <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">
             Account Credentials
           </p>
 
           {!isCompleted ? (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-700 dark:text-amber-300">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
               Processing: your order is still being fulfilled. Please check back shortly.
             </div>
           ) : credentials ? (
-            /* ── The "Secret Key" credential box ── */
-            <div
-              className="relative rounded-xl overflow-hidden"
-              style={{
-                background: "#060b14",
-                border: "1px solid rgba(16,185,129,0.20)",
-                boxShadow: "0 0 24px rgba(16,185,129,0.06)",
-              }}
-            >
-              {/* Top bar */}
-              <div
-                className="flex items-center justify-between px-4 py-2.5 border-b"
-                style={{ borderColor: "rgba(16,185,129,0.12)", background: "rgba(16,185,129,0.05)" }}
-              >
+            <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-white">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-slate-50">
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-accent/70 animate-pulse" />
-                  <span
-                    className="text-[10px] font-bold uppercase tracking-widest"
-                    style={{ color: "rgba(52,211,153,0.7)" }}
-                  >
-                    Classified · Account Data
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                    Delivered data
                   </span>
                 </div>
-                <span
-                  className="text-[10px] font-mono"
-                  style={{ color: "rgba(52,211,153,0.35)" }}
-                >
+                <span className="text-[10px] font-mono text-slate-400">
                   {order.category}
                 </span>
               </div>
 
-              {/* Credential text */}
               <div className="px-4 py-3">
                 <textarea
                   readOnly
                   value={credentials}
-                  className="w-full min-h-[180px] resize-y rounded-lg border border-emerald-500/30 bg-[#040a12] px-3 py-3 font-mono text-sm leading-relaxed text-emerald-300 focus:outline-none"
+                  className="w-full min-h-[180px] resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm leading-relaxed text-slate-900 whitespace-pre-wrap break-words focus:outline-none"
                 />
               </div>
               <div className="px-4 pb-4 space-y-2">
                 {credentialLines.map((line, index) => (
                   <div
                     key={`${line}-${index}`}
-                    className="flex items-start justify-between gap-2 rounded-md border px-2 py-2"
-                    style={{ borderColor: "rgba(16,185,129,0.12)", background: "rgba(16,185,129,0.03)" }}
+                    className="flex items-start justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-2"
                   >
-                    <p
-                      className="font-mono text-sm break-all leading-relaxed flex-1 min-w-0"
-                      style={{ color: "rgba(52,211,153,0.88)" }}
-                    >
+                    <p className="font-mono text-sm leading-relaxed flex-1 min-w-0 whitespace-pre-wrap break-words text-slate-900">
                       {line}
                     </p>
                     <button
                       type="button"
                       onClick={() => handleCopyLine(line)}
-                      className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold"
-                      style={{
-                        background: "rgba(16,185,129,0.15)",
-                        border: "1px solid rgba(16,185,129,0.3)",
-                        color: "rgba(52,211,153,1)",
-                      }}
+                      className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-100"
                     >
                       {copiedLine === line ? "Copied" : "Copy"}
                     </button>
@@ -248,7 +217,7 @@ function CredentialModal({
             credentialsDelivered ? (
               <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
                 <Loader2 className="h-6 w-6 text-accent animate-spin" />
-                <p className="text-sm text-slate-600 dark:text-slate-300">Fetching credentials...</p>
+                <p className="text-sm text-slate-600">Fetching credentials...</p>
                 {canRetryFulfillment && (
                   <button
                     type="button"
@@ -261,8 +230,8 @@ function CredentialModal({
                 )}
               </div>
             ) : (
-              <div className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-8 text-center dark:border-white/10 dark:bg-white/5">
-                <p className="text-sm text-slate-500 dark:text-slate-400">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-8 text-center">
+                <p className="text-sm text-slate-600">
                   Processing your accounts...
                 </p>
                 <button
@@ -291,12 +260,11 @@ function CredentialModal({
           {credentials && isCompleted && (
             <button
               onClick={handleCopy}
-              className="mt-3 flex items-center gap-2 w-full justify-center py-2.5 rounded-xl text-sm font-semibold transition-all duration-150"
-              style={{
-                background: copied ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${copied ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.08)"}`,
-                color: copied ? "rgba(52,211,153,1)" : "rgba(220,220,230,0.6)",
-              }}
+              className={`mt-3 flex items-center gap-2 w-full justify-center py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 border ${
+                copied
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+              }`}
             >
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? "Copied to clipboard!" : "Copy credentials"}
@@ -306,7 +274,7 @@ function CredentialModal({
 
         {/* Warning footer */}
         <div className="px-6 pb-5">
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center leading-relaxed">
+          <p className="text-[11px] text-slate-500 text-center leading-relaxed">
             These credentials are sensitive. Do not share them. For assistance, visit{" "}
             <Link to="/dashboard/support" className="text-accent/60 underline underline-offset-2 hover:text-accent">
               Support
@@ -526,14 +494,14 @@ export default function OrdersPage() {
   const isEmpty = mergedOrders.length === 0 && !loadingDb;
 
   return (
-    <div className="space-y-6">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6 text-slate-900 shadow-sm space-y-6 dark:border-slate-200">
       {/* Header */}
       <div>
-        <h1 className="font-heading text-2xl font-bold flex items-center gap-2.5">
+        <h1 className="font-heading text-2xl font-bold flex items-center gap-2.5 text-slate-900">
           <ClipboardList className="h-6 w-6 text-accent" />
           My Orders
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm text-slate-600 mt-1">
           Your purchase history and delivered account credentials
         </p>
         {isAdminUser && (
@@ -551,20 +519,20 @@ export default function OrdersPage() {
       </div>
 
       {/* Table card */}
-      <div className="glass-card overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loadingDb && mergedOrders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Loader2 className="h-6 w-6 text-accent animate-spin" />
-            <p className="text-sm text-muted-foreground">Loading your orders…</p>
+            <p className="text-sm text-slate-600">Loading your orders…</p>
           </div>
         ) : isEmpty ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-white/6 flex items-center justify-center">
-              <Package className="h-7 w-7 text-muted-foreground/40" />
+            <div className="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center">
+              <Package className="h-7 w-7 text-slate-400" />
             </div>
             <div className="text-center">
-              <p className="font-semibold text-foreground/60">No orders yet</p>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="font-semibold text-slate-800">No orders yet</p>
+              <p className="text-sm text-slate-600 mt-1">
                 Your purchased accounts will appear here after checkout.
               </p>
             </div>
@@ -577,32 +545,32 @@ export default function OrdersPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm text-slate-900">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-white/3">
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground">Product</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground hidden sm:table-cell">
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-5 py-3.5 text-left font-semibold text-slate-600">Product</th>
+                  <th className="px-5 py-3.5 text-center font-semibold text-slate-600 hidden sm:table-cell">
                     Category
                   </th>
-                  <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground">Amount</th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground hidden md:table-cell">
+                  <th className="px-5 py-3.5 text-right font-semibold text-slate-600">Amount</th>
+                  <th className="px-5 py-3.5 text-center font-semibold text-slate-600 hidden md:table-cell">
                     Date
                   </th>
-                  <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">
+                  <th className="px-5 py-3.5 text-center font-semibold text-slate-600">
                     Credentials
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-slate-200">
                 {mergedOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-white/3 transition-colors">
+                  <tr key={order.id} className="hover:bg-slate-50 transition-colors">
                     {/* Product name */}
                     <td className="px-5 py-4 max-w-[220px]">
-                      <p className="font-medium text-sm leading-snug line-clamp-2">
+                      <p className="font-semibold text-sm leading-snug line-clamp-2 text-slate-900">
                         {order.productTitle}
                       </p>
                       {/* Show date on mobile */}
-                      <p className="text-xs text-muted-foreground mt-0.5 md:hidden">
+                      <p className="text-xs text-slate-500 mt-0.5 md:hidden">
                         {new Date(order.createdAt).toLocaleDateString()}
                       </p>
                     </td>
@@ -616,7 +584,7 @@ export default function OrdersPage() {
                           {order.category}
                         </span>
                       ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
+                        <span className="text-slate-400 text-xs">—</span>
                       )}
                     </td>
 
@@ -626,7 +594,7 @@ export default function OrdersPage() {
                     </td>
 
                     {/* Date */}
-                    <td className="px-5 py-4 text-center text-muted-foreground text-xs hidden md:table-cell whitespace-nowrap">
+                    <td className="px-5 py-4 text-center text-slate-600 text-xs hidden md:table-cell whitespace-nowrap">
                       {new Date(order.createdAt).toLocaleDateString("en-GB", {
                         day: "2-digit",
                         month: "short",
