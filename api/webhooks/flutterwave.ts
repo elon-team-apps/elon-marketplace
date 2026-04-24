@@ -54,6 +54,61 @@ function isMissingColumnError(error: { code?: string; message?: string } | null 
   return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
 }
 
+async function incrementWalletAtomic(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+  amount: number,
+): Promise<{ ok: true; wallet_balance: number } | { ok: false; error: string; status?: number }> {
+  const rpcAttempt = await supabaseAdmin.rpc("increment_wallet_balance", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (!rpcAttempt.error) {
+    const next = Math.max(0, asPositiveInt(rpcAttempt.data, 0));
+    return { ok: true, wallet_balance: next };
+  }
+
+  // Fallback path if RPC is not deployed yet.
+  const walletProfile = await supabaseAdmin
+    .from("profiles")
+    .select("wallet_balance")
+    .eq("id", userId)
+    .maybeSingle();
+  let balanceField: "wallet_balance" | "balance" = "wallet_balance";
+  let profile = walletProfile.data as { wallet_balance?: unknown } | null;
+  let profileError = walletProfile.error;
+
+  if (isMissingColumnError(walletProfile.error, "wallet_balance")) {
+    balanceField = "balance";
+    const legacyProfile = await supabaseAdmin
+      .from("profiles")
+      .select("balance")
+      .eq("id", userId)
+      .maybeSingle();
+    profile = legacyProfile.data as { balance?: unknown } | null;
+    profileError = legacyProfile.error;
+  }
+
+  if (profileError || !profile) {
+    return { ok: false, status: 500, error: `Profile lookup failed: ${formatDbError(profileError)}` };
+  }
+  const current = Math.max(0, asPositiveInt((profile as Record<string, unknown>)[balanceField], 0));
+  const next = current + amount;
+  const updateAttempt = await supabaseAdmin
+    .from("profiles")
+    .update({ [balanceField]: next })
+    .eq("id", userId)
+    .eq(balanceField, current)
+    .select(balanceField);
+  if (updateAttempt.error) {
+    return { ok: false, status: 500, error: `Balance update failed: ${formatDbError(updateAttempt.error)}` };
+  }
+  if (!Array.isArray(updateAttempt.data) || updateAttempt.data.length === 0) {
+    return { ok: false, status: 409, error: "Concurrent balance update conflict." };
+  }
+  return { ok: true, wallet_balance: next };
+}
+
 async function canUseAdminBypass(req: ApiRequest): Promise<boolean> {
   if (normalize(headerValue(req.headers, "x-admin-bypass")) !== "true") return false;
   const authHeader = headerValue(req.headers, "authorization");
@@ -79,14 +134,35 @@ async function processDeposit(
 ) {
   const amount = Math.max(0, asPositiveInt(amountRaw, 0));
   const fallbackEmail = String(meta?.buyerEmail ?? "").trim().toLowerCase();
-  const { data: tx, error: txError } = await supabaseAdmin
+  let { data: tx, error: txError } = await supabaseAdmin
     .from("transactions")
     .select("id, user_id, amount, status")
     .eq("reference", txRef)
     .eq("type", "deposit")
     .maybeSingle();
   if (txError) return { ok: false, status: 500, error: `Failed deposit lookup: ${formatDbError(txError)}` };
-  if (tx?.status === "finalized" || tx?.status === "completed") {
+  if (!tx && fallbackEmail) {
+    const profileByEmail = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("email", fallbackEmail)
+      .maybeSingle();
+    if (!profileByEmail.error && profileByEmail.data?.id) {
+      const fallbackTxLookup = await supabaseAdmin
+        .from("transactions")
+        .select("id, user_id, amount, status")
+        .eq("user_id", profileByEmail.data.id)
+        .eq("type", "deposit")
+        .in("status", ["pending", "initiated"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (!fallbackTxLookup.error && Array.isArray(fallbackTxLookup.data) && fallbackTxLookup.data.length > 0) {
+        tx = fallbackTxLookup.data[0] as { id: string; user_id: string; amount: number; status: string };
+      }
+    }
+  }
+
+  if (tx?.status === "finalized" || tx?.status === "completed" || tx?.status === "success") {
     return { ok: true, status: 200, data: { ok: true, idempotent: true } };
   }
   let userId = String(tx?.user_id ?? meta?.userId ?? "").trim();
@@ -109,52 +185,11 @@ async function processDeposit(
   const credit = Math.max(0, asPositiveInt(tx?.amount ?? amount, 0));
   if (!credit) return { ok: false, status: 400, error: "Invalid deposit amount." };
 
-  const walletProfile = await supabaseAdmin
-    .from("profiles")
-    .select("wallet_balance")
-    .eq("id", userId)
-    .maybeSingle();
-  let balanceField: "wallet_balance" | "balance" = "wallet_balance";
-  let profile = walletProfile.data as { wallet_balance?: unknown } | null;
-  let profileError = walletProfile.error;
-
-  if (isMissingColumnError(walletProfile.error, "wallet_balance")) {
-    balanceField = "balance";
-    const legacyProfile = await supabaseAdmin
-      .from("profiles")
-      .select("balance")
-      .eq("id", userId)
-      .maybeSingle();
-    profile = legacyProfile.data as { balance?: unknown } | null;
-    profileError = legacyProfile.error;
+  const incremented = await incrementWalletAtomic(supabaseAdmin, userId, credit);
+  if (!incremented.ok) {
+    return { ok: false, status: incremented.status ?? 500, error: incremented.error };
   }
-
-  if (profileError || !profile) return { ok: false, status: 500, error: `Profile lookup failed: ${formatDbError(profileError)}` };
-  const current = Math.max(0, asPositiveInt((profile as Record<string, unknown>)[balanceField], 0));
-  const next = current + credit;
-  const updateAttempt = await supabaseAdmin
-    .from("profiles")
-    .update({ [balanceField]: next })
-    .eq("id", userId)
-    .eq(balanceField, current)
-    .select(balanceField);
-  let updated = updateAttempt.data;
-  let updateError = updateAttempt.error;
-  if (balanceField === "wallet_balance" && isMissingColumnError(updateError, "wallet_balance")) {
-    balanceField = "balance";
-    const retry = await supabaseAdmin
-      .from("profiles")
-      .update({ balance: next })
-      .eq("id", userId)
-      .eq("balance", current)
-      .select("balance");
-    updated = retry.data;
-    updateError = retry.error;
-  }
-  if (updateError) return { ok: false, status: 500, error: `Balance update failed: ${formatDbError(updateError)}` };
-  if (!Array.isArray(updated) || updated.length === 0) {
-    return { ok: false, status: 409, error: "Concurrent balance update conflict." };
-  }
+  const next = incremented.wallet_balance;
 
   if (tx?.id) {
     const { error: txUpdateError } = await supabaseAdmin
@@ -162,6 +197,26 @@ async function processDeposit(
       .update({ status: "completed", amount: credit })
       .eq("id", tx.id);
     if (txUpdateError) return { ok: false, status: 500, error: `Deposit completion failed: ${formatDbError(txUpdateError)}` };
+  } else {
+    const createdFallback = await supabaseAdmin
+      .from("transactions")
+      .insert({
+        user_id: userId,
+        amount: credit,
+        type: "deposit",
+        status: "completed",
+        reference: txRef,
+      })
+      .select("id")
+      .maybeSingle();
+    if (createdFallback.error) {
+      // Non-fatal for balance update, but log for reconciliation.
+      console.error("[FlutterwaveWebhook] Could not create fallback deposit transaction row", {
+        txRef,
+        userId,
+        error: formatDbError(createdFallback.error),
+      });
+    }
   }
 
   return { ok: true, status: 200, data: { ok: true, userId, wallet_balance: next, reference: txRef } };
@@ -181,6 +236,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
+  const payload = (req.body ?? {}) as FlutterwaveEvent;
+  console.log("WEBHOOK_RECEIVED", payload);
+
   const bypassAllowed = await canUseAdminBypass(req);
   const webhookHash = (process.env.FLW_WEBHOOK_HASH ?? "").trim();
   const headerHash = headerValue(req.headers, "verif-hash") || headerValue(req.headers, "verif_hash");
@@ -190,12 +248,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       webhookHash,
       hasHeader: Boolean(headerHash),
       hasEnv: Boolean(webhookHash),
+      reason: !webhookHash ? "Missing FLW_WEBHOOK_HASH env" : "Header verif-hash mismatch",
     });
     res.status(401).json({ error: "Invalid Flutterwave webhook signature." });
     return;
   }
-
-  const payload = (req.body ?? {}) as FlutterwaveEvent;
   console.log("[FlutterwaveWebhook] Incoming event", {
     event: payload.event,
     status: payload.data?.status,
