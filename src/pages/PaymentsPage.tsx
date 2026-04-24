@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { CreditCard, ArrowDownLeft, CheckCircle2, Clock, XCircle, Loader2, Wallet } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useApp } from "@/context/AppContext";
@@ -34,20 +34,50 @@ export default function PaymentsPage() {
     searchParams.get("tx_ref")?.trim() ||
     "";
 
+  const refetchDeposits = useCallback(
+    async (options?: { showLoading?: boolean }) => {
+      if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
+      const showLoading = options?.showLoading ?? false;
+      if (showLoading) setLoading(true);
+      const { data } = await supabase
+        .from("transactions")
+        .select("id, amount, status, reference, created_at")
+        .eq("user_id", currentUser.id)
+        .eq("type", "deposit")
+        .order("created_at", { ascending: false });
+      if (data) setDeposits(data as Deposit[]);
+      if (showLoading) setLoading(false);
+    },
+    [currentUser?.id],
+  );
+
+  useEffect(() => {
+    void refetchDeposits({ showLoading: true });
+  }, [refetchDeposits]);
+
+  /** Live updates when a deposit row is inserted or status changes (e.g. webhook completes payment). */
   useEffect(() => {
     if (!supabase || !currentUser?.id || !UUID_REGEX.test(currentUser.id)) return;
-    setLoading(true);
-    supabase
-      .from("transactions")
-      .select("id, amount, status, reference, created_at")
-      .eq("user_id", currentUser.id)
-      .eq("type", "deposit")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data) setDeposits(data as Deposit[]);
-        setLoading(false);
-      });
-  }, [currentUser?.id]);
+    const uid = currentUser.id;
+    const channel = supabase
+      .channel(`payments-deposits-${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${uid}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as { type?: string; status?: string } | undefined;
+          if (String(row?.type ?? "").toLowerCase() !== "deposit") return;
+          void refetchDeposits({ showLoading: false });
+          const st = String((payload.new as { status?: string } | undefined)?.status ?? "").toLowerCase();
+          if (st === "completed") void refreshProfile();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id, refetchDeposits, refreshProfile]);
 
   /** After Paystack redirect (deposits or purchases), poll until the row completes then sync header balance. */
   useEffect(() => {
@@ -90,15 +120,7 @@ export default function PaymentsPage() {
         refreshedForRef.current = paystackRefParam;
         await refreshProfile();
         clearPaystackQueryParams();
-        supabase
-          .from("transactions")
-          .select("id, amount, status, reference, created_at")
-          .eq("user_id", currentUser.id)
-          .eq("type", "deposit")
-          .order("created_at", { ascending: false })
-          .then(({ data: rows }) => {
-            if (rows) setDeposits(rows as Deposit[]);
-          });
+        await refetchDeposits({ showLoading: false });
         return;
       }
 
@@ -116,7 +138,7 @@ export default function PaymentsPage() {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [paystackRefParam, currentUser?.id, refreshProfile, setSearchParams]);
+  }, [paystackRefParam, currentUser?.id, refreshProfile, setSearchParams, refetchDeposits]);
 
   const totalDeposited = deposits
     .filter((d) => d.status === "completed")
