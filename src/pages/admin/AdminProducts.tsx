@@ -806,6 +806,7 @@ function EditProductModal({
   const [manualStock, setManualStock] = useState(
     typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "",
   );
+  const [logsText, setLogsText] = useState("");
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
@@ -816,6 +817,7 @@ function EditProductModal({
     setPrice(product.price.toString());
     setDescription(product.description);
     setManualStock(typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "");
+    setLogsText("");
     setErrorMsg("");
   }, [product.id, product.title, product.category, product.price, product.description, product.manual_stock]);
 
@@ -838,6 +840,15 @@ function EditProductModal({
       toast({ title: "Manual stock must be a whole number", variant: "destructive" });
       return;
     }
+    const rawLogLines = parseLogLines(logsText);
+    const pasteRes = validatePastedLogs(logsText);
+    if (rawLogLines.length > 0 && !pasteRes.ok) {
+      toast({ title: "Fix pasted logs", description: pasteRes.message, variant: "destructive" });
+      return;
+    }
+    const uploadEntries = pasteRes.ok ? pasteRes.entries : [];
+    const hasRealLogUpload = uploadEntries.length > 0;
+    const effectiveManualStock = hasRealLogUpload ? 0 : parsedManualStock;
 
     setSaving(true);
     setErrorMsg("");
@@ -854,7 +865,7 @@ function EditProductModal({
             category: nextCategory,
             price: Math.trunc(n),
             description: description.trim(),
-            manual_stock: parsedManualStock,
+            manual_stock: effectiveManualStock,
             logo_url: autoLogoUrl ?? null,
           })
           .eq("id", product.id)
@@ -882,6 +893,26 @@ function EditProductModal({
           return;
         }
         mergeProductRowFromDb(data as Record<string, unknown>);
+        if (hasRealLogUpload) {
+          const rpcRes = await rpcBulkUploadLogs(product.id, uploadEntries);
+          if (!rpcRes.ok) {
+            const details = rpcRes.details;
+            setErrorMsg(details);
+            toast({
+              title: "Product updated, but log upload failed",
+              description: details,
+              variant: "destructive",
+            });
+            return;
+          }
+          mergeProductRowFromDb({
+            ...(data as Record<string, unknown>),
+            stock: rpcRes.newStock,
+            stock_count: rpcRes.newStock,
+            manual_stock: 0,
+          });
+          patchProductLocal(product.id, { stock_count: rpcRes.newStock, stock: rpcRes.newStock, manual_stock: 0 });
+        }
         didRemoteUpdate = true;
       } else {
         patchProductLocal(product.id, {
@@ -889,7 +920,7 @@ function EditProductModal({
           category: nextCategory,
           price: Math.trunc(n),
           description: description.trim(),
-          manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
+          manual_stock: effectiveManualStock === null ? undefined : effectiveManualStock,
           logo_url: autoLogoUrl,
         });
       }
@@ -897,7 +928,12 @@ function EditProductModal({
       // Vite SPA equivalent of router.refresh(): re-fetch source-of-truth list.
       await refreshProducts();
       await onSaved();
-      toast({ title: "You're all set", description: "Product details saved." });
+      toast({
+        title: "You're all set",
+        description: hasRealLogUpload
+          ? `Product saved and ${uploadEntries.length} log line(s) uploaded.`
+          : "Product details saved.",
+      });
       if (didRemoteUpdate) {
         window.location.reload();
       }
@@ -964,6 +1000,27 @@ function EditProductModal({
               disabled={saving}
               placeholder="Optional fallback stock"
             />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Paste Logs (One account per line)</Label>
+              <span className="text-xs text-slate-500">
+                {validatePastedLogs(logsText).ok
+                  ? `${validatePastedLogs(logsText).entries.length} valid`
+                  : `${parseLogLines(logsText).length} line(s)`}
+              </span>
+            </div>
+            <textarea
+              rows={7}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
+              placeholder={"email@domain.com:Password123:recovery@email.com\nemail2@domain.com|Password456|recovery2@email.com"}
+              value={logsText}
+              onChange={(e) => setLogsText(e.target.value)}
+              disabled={saving}
+            />
+            <p className="text-xs text-slate-500 mt-1.5">
+              If logs are pasted, they are inserted into <code className="text-[11px]">log_items</code> with status <code className="text-[11px]">available</code> and manual stock is set to 0 to avoid double counting.
+            </p>
           </div>
         </div>
         <div className="px-5 py-4 border-t border-slate-100 dark:border-white/10 flex justify-end gap-2">
