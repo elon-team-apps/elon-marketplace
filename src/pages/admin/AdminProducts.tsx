@@ -810,6 +810,8 @@ function EditProductModal({
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
+  const editRawLogLines = parseLogLines(logsText);
+  const editPasteRes = validatePastedLogs(logsText);
 
   useEffect(() => {
     setTitle(product.title);
@@ -840,8 +842,8 @@ function EditProductModal({
       toast({ title: "Manual stock must be a whole number", variant: "destructive" });
       return;
     }
-    const rawLogLines = parseLogLines(logsText);
-    const pasteRes = validatePastedLogs(logsText);
+    const rawLogLines = editRawLogLines;
+    const pasteRes = editPasteRes;
     if (rawLogLines.length > 0 && !pasteRes.ok) {
       toast({ title: "Fix pasted logs", description: pasteRes.message, variant: "destructive" });
       return;
@@ -1004,10 +1006,10 @@ function EditProductModal({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Paste Logs (One account per line)</Label>
-              <span className="text-xs text-slate-500">
-                {validatePastedLogs(logsText).ok
-                  ? `${validatePastedLogs(logsText).entries.length} valid`
-                  : `${parseLogLines(logsText).length} line(s)`}
+              <span className={`text-xs font-semibold ${editPasteRes.ok ? "text-slate-500" : "text-amber-700 dark:text-amber-400"}`}>
+                {editPasteRes.ok
+                  ? `${editPasteRes.entries.length} valid line${editPasteRes.entries.length === 1 ? "" : "s"}${editPasteRes.skipped > 0 ? ` · Skipped ${editPasteRes.skipped}` : ""}`
+                  : `${editRawLogLines.length} line(s)`}
               </span>
             </div>
             <textarea
@@ -1018,6 +1020,19 @@ function EditProductModal({
               onChange={(e) => setLogsText(e.target.value)}
               disabled={saving}
             />
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                Parsed preview: {editPasteRes.ok ? `${editPasteRes.entries.length} account${editPasteRes.entries.length === 1 ? "" : "s"} ready` : "Fix invalid lines before save."}
+              </p>
+              <button
+                type="button"
+                onClick={() => setLogsText("")}
+                disabled={saving || logsText.trim().length === 0}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-40 dark:border-white/20 dark:text-slate-200 dark:hover:bg-white/10"
+              >
+                Clear logs
+              </button>
+            </div>
             <p className="text-xs text-slate-500 mt-1.5">
               If logs are pasted, they are inserted into <code className="text-[11px]">log_items</code> with status <code className="text-[11px]">available</code> and manual stock is set to 0 to avoid double counting.
             </p>
