@@ -59,21 +59,29 @@ async function incrementWalletAtomic(
   userId: string,
   amount: number,
 ): Promise<{ ok: true; wallet_balance: number } | { ok: false; error: string; status?: number }> {
-  const rpcLegacyAttempt = await supabaseAdmin.rpc("increment_balance", {
-    p_user_id: userId,
-    p_amount: amount,
-  });
-  if (!rpcLegacyAttempt.error) {
-    const next = Math.max(0, asPositiveInt(rpcLegacyAttempt.data, 0));
-    return { ok: true, wallet_balance: next };
-  }
-
   const rpcAttempt = await supabaseAdmin.rpc("increment_wallet_balance", {
     p_user_id: userId,
     p_amount: amount,
   });
   if (!rpcAttempt.error) {
     const next = Math.max(0, asPositiveInt(rpcAttempt.data, 0));
+    return { ok: true, wallet_balance: next };
+  }
+
+  const rpcLegacyAttempt = await supabaseAdmin.rpc("increment_balance", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (!rpcLegacyAttempt.error) {
+    const next = Math.max(0, asPositiveInt(rpcLegacyAttempt.data, 0));
+    // Ensure modern UI field always reflects immediately even if legacy RPC only updates balance.
+    const syncWallet = await supabaseAdmin
+      .from("profiles")
+      .update({ wallet_balance: next })
+      .eq("id", userId);
+    if (syncWallet.error && !isMissingColumnError(syncWallet.error, "wallet_balance")) {
+      return { ok: false, status: 500, error: `Wallet sync failed: ${formatDbError(syncWallet.error)}` };
+    }
     return { ok: true, wallet_balance: next };
   }
 
@@ -286,9 +294,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const payload = (req.body ?? {}) as FlutterwaveEvent;
+  const webhookStatus = normalize((payload as { status?: string }).status) || normalize(payload.data?.status as string | undefined);
+  const webhookTxRef = String((payload as { tx_ref?: string }).tx_ref ?? payload.data?.tx_ref ?? payload.data?.reference ?? "").trim();
   console.log("WEBHOOK_RECEIVED", payload);
   console.log("PAYLOAD_SUCCESS", payload);
-  console.log("WEBHOOK_STATUS", payload.data?.status, payload.data?.tx_ref);
+  console.log("WEBHOOK_STATUS", webhookStatus || null, webhookTxRef || null);
   console.log("[FlutterwaveWebhook] FULL_PAYLOAD_JSON", JSON.stringify(payload));
 
   const bypassAllowed = await canUseAdminBypass(req);
@@ -310,14 +320,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     status: payload.data?.status,
     tx_ref: payload.data?.tx_ref,
   });
-  const status = normalize(payload.data?.status as string | undefined);
+  const status = webhookStatus;
   const event = normalize(payload.event);
   if (!(event === "charge.completed" || event === "payment.success" || status === "successful")) {
     res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null, status });
     return;
   }
 
-  const txRef = String(payload.data?.tx_ref ?? payload.data?.reference ?? "").trim();
+  const txRef = webhookTxRef;
   if (!txRef) {
     res.status(400).json({ error: "Missing tx_ref." });
     return;
