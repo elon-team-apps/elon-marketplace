@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import { isSuperAdminEmail } from "../../src/lib/adminAccess.js";
 import { processSuccessfulTransaction } from "../_lib/processSuccessfulOrder.js";
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
@@ -53,7 +52,24 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
   const { data: userData, error: userError } = await userClient.auth.getUser(token);
-  if (userError || !userData.user || !isSuperAdminEmail(userData.user.email)) {
+  if (userError || !userData.user) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+
+  const adminClient = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+  const { data: profile, error: profileError } = await adminClient
+    .from("profiles")
+    .select("role, is_admin")
+    .eq("id", userData.user.id)
+    .maybeSingle();
+  if (profileError || !profile) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+  const role = String(profile.role ?? "").toLowerCase();
+  const adminFlag = profile.is_admin === true || profile.is_admin === "true" || profile.is_admin === "t";
+  if (!adminFlag && role !== "admin") {
     res.status(403).json({ error: "Admin access required." });
     return;
   }
@@ -65,7 +81,6 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const adminClient = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
   const result = await processSuccessfulTransaction(adminClient, transactionId, 0, {
     allowRecoveryForCompletedWithoutDelivery: true,
   });

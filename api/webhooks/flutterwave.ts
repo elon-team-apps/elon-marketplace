@@ -53,15 +53,6 @@ function headerValueCaseInsensitive(headers: ApiHeaders, key: string): string {
   return "";
 }
 
-const SUPERADMIN_EMAILS = new Set([
-  "growthprofesors@gmail.com",
-  "godwindavid199501@gmail.com",
-]);
-
-function isSuperAdminEmail(email: string | null | undefined): boolean {
-  return SUPERADMIN_EMAILS.has(normalize(email));
-}
-
 function getSupabaseServiceClient(): SupabaseClient {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").trim();
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
@@ -275,7 +266,15 @@ async function canUseAdminBypass(req: ApiRequest): Promise<boolean> {
   });
   const { data, error } = await userClient.auth.getUser(token);
   if (error || !data.user) return false;
-  return isSuperAdminEmail(data.user.email);
+  const { data: profile, error: profileError } = await userClient
+    .from("profiles")
+    .select("role, is_admin")
+    .eq("id", data.user.id)
+    .maybeSingle();
+  if (profileError || !profile) return false;
+  const role = String(profile.role ?? "").toLowerCase();
+  const adminFlag = profile.is_admin === true || profile.is_admin === "true" || profile.is_admin === "t";
+  return adminFlag || role === "admin";
 }
 
 async function processDeposit(

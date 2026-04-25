@@ -103,7 +103,7 @@ function AuthRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Admin pages — DB admin, legacy role admin, or superadmin email bypass (see `adminAccess.ts`). */
+/** Admin pages — DB admin from profiles.is_admin or role=admin. */
 function AdminRoute({ children }: { children: ReactNode }) {
   const { profileLoaded, isAdmin } = useAuth();
   if (!profileLoaded) return <RouteLoading />;

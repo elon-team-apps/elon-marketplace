@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
-import { isSuperAdminEmail } from "@/lib/adminAccess";
 import { supabase } from "@/lib/supabaseClient";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -136,9 +135,7 @@ const DashboardLayout = () => {
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
-  const isSuperAdmin = isSuperAdminEmail(currentUser?.email);
-  const canAccessAdmin = isAdmin || isSuperAdmin;
-  const usingEmailAdminFallback = !isAdmin && isSuperAdmin;
+  const canAccessAdmin = isAdmin;
 
   const close = () => setSidebarOpen(false);
 
@@ -165,6 +162,12 @@ const DashboardLayout = () => {
       supabase.removeChannel(channel);
     };
   }, [currentUser?.id, refreshProfile]);
+
+  // Pick up newly granted admin role promptly after profile changes in DB.
+  useEffect(() => {
+    if (!profileLoaded || !currentUser?.id) return;
+    void refreshProfile();
+  }, [profileLoaded, currentUser?.id, refreshProfile]);
 
   // Loading gate — wait for Supabase auth to resolve
   if (!profileLoaded) {
@@ -287,13 +290,8 @@ const DashboardLayout = () => {
             <div className="max-w-4xl mx-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <p className="text-xs sm:text-sm leading-snug min-w-0">
                 <span className="font-semibold">Account data warning.</span>{" "}
-                {profileSyncWarning} You can still use the app; admin tools stay enabled for approved admin email accounts.
+                {profileSyncWarning}
               </p>
-              {usingEmailAdminFallback && (
-                <span className="inline-flex items-center rounded-md border border-amber-700/30 bg-amber-100/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900 dark:border-amber-400/40 dark:bg-amber-900/40 dark:text-amber-200">
-                  Email-based admin fallback
-                </span>
-              )}
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"

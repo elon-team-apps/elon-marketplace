@@ -6,7 +6,6 @@ import { Link } from "react-router-dom";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { useApp, type Product } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
-import { isSuperAdminEmail } from "@/lib/adminAccess";
 import {
   formatSupabasePostgrestError,
   isLikelySchemaOrMissingColumnError,
@@ -194,7 +193,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
   const totalAmount = Math.trunc(totalPrice);
   const balance = currentUser?.wallet_balance ?? 0;
   const canAfford = balance >= totalPrice;
-  const canBypassBalance = isSuperAdminEmail(currentUser?.email);
+  const canBypassBalance = Boolean(currentUser?.is_admin || currentUser?.role === "admin");
   const canUseWallet = canAfford;
   const shortfall = Math.max(0, totalPrice - balance);
   const MIN_PAYMENT_NAIRA = 100;

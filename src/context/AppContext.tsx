@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { resolveLogoUrlFromTitle } from "@/lib/logoResolver";
-import { isSuperAdminEmail } from "@/lib/adminAccess";
 import { toast } from "sonner";
 
 export interface Product {
@@ -49,7 +48,7 @@ export interface Order {
 interface AppContextType {
   currentUser: User;
   profileLoaded: boolean;   // false until Supabase profile has been fetched
-  /** Admin from DB flags, legacy role, or superadmin email bypass (see `adminAccess.ts`). */
+  /** Admin from DB flags and role. */
   isAdmin: boolean;
   isAdminView: boolean;
   /** Non-null when profile fetch failed or threw (e.g. RLS / recursion); UI can show a soft warning. */
@@ -212,7 +211,7 @@ function saveState(data: object) {
 function buildProfileSyncWarning(errorMessage: string | null | undefined, errorCode?: string | null) {
   const message = (errorMessage ?? "").toLowerCase();
   if ((errorCode ?? "").toUpperCase() === "42P17" || message.includes("recursion")) {
-    return "Profile sync hit a recursion error. Basic account mode is active; admin access remains available for whitelisted email accounts.";
+    return "Profile sync hit a recursion error. Basic account mode is active until profile reads recover.";
   }
   return `Could not load profile from Supabase. (${errorCode ?? "unknown"}) ${errorMessage ?? "No details"}`;
 }
@@ -231,8 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const isAdmin =
     currentUser.is_admin === true ||
-    currentUser.role === "admin" ||
-    isSuperAdminEmail(currentUser.email);
+    currentUser.role === "admin";
 
   const clearSessionAndHardRefresh = useCallback(async () => {
     try {
@@ -297,8 +295,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         id: authUser.id,
         email: sessionEmail,
         name: fallbackName,
-        role: isSuperAdminEmail(sessionEmail) ? "admin" : "",
-        is_admin: isSuperAdminEmail(sessionEmail),
+        role: "",
+        is_admin: false,
       });
       setProfileLoaded(true);
       return;
@@ -340,24 +338,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (code === "42P17") {
           const warn = buildProfileSyncWarning(error?.message, code);
           setProfileSyncWarning(warn);
-          if (isSuperAdminEmail(sessionEmail)) {
-            setCurrentUser({
-              id: authUser.id,
-              email: sessionEmail,
-              name: fallbackName,
-              wallet_balance: 0,
-              role: "admin",
-              is_admin: true,
-              createdAt: "",
-            });
-          } else {
-            setCurrentUser({
-              ...loadingUser,
-              id: authUser.id,
-              email: sessionEmail,
-              name: fallbackName,
-            });
-          }
+          setCurrentUser({
+            ...loadingUser,
+            id: authUser.id,
+            email: sessionEmail,
+            name: fallbackName,
+          });
           return;
         }
       }
@@ -378,7 +364,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const roleFromDb = roleRaw === "admin" ? "admin" : "user";
         const flagRaw = profile.is_admin;
         const fromColumn = flagRaw === true || flagRaw === "true" || flagRaw === "t";
-        const resolvedAdmin = fromColumn || roleFromDb === "admin" || isSuperAdminEmail(email);
+        const resolvedAdmin = fromColumn || roleFromDb === "admin";
         const resolvedRole: "admin" | "user" = resolvedAdmin ? "admin" : "user";
 
         setProfileSyncWarning(null);
@@ -405,19 +391,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (isSuperAdminEmail(sessionEmail)) {
-        setCurrentUser({
-          id: authUser.id,
-          email: sessionEmail,
-          name: fallbackName,
-          wallet_balance: 0,
-          role: "admin",
-          is_admin: true,
-          createdAt: "",
-        });
-        return;
-      }
-
       setCurrentUser({
         ...loadingUser,
         id: authUser.id,
@@ -432,24 +405,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.error("[AppContext] syncProfile threw:", err);
       const msg = err instanceof Error ? err.message : String(err);
       setProfileSyncWarning(buildProfileSyncWarning(msg, "thrown"));
-      if (isSuperAdminEmail(sessionEmail)) {
-        setCurrentUser({
-          id: authUser.id,
-          email: sessionEmail,
-          name: fallbackName,
-          wallet_balance: 0,
-          role: "admin",
-          is_admin: true,
-          createdAt: "",
-        });
-      } else {
-        setCurrentUser({
-          ...loadingUser,
-          id: authUser.id,
-          email: sessionEmail,
-          name: fallbackName,
-        });
-      }
+      setCurrentUser({
+        ...loadingUser,
+        id: authUser.id,
+        email: sessionEmail,
+        name: fallbackName,
+      });
     } finally {
       setProfileLoaded(true);
     }
