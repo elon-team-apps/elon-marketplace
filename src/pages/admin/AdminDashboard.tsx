@@ -6,6 +6,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
 import { calculateStock } from "@/lib/stock";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -474,6 +475,7 @@ function UsersTable() {
 
 export default function AdminDashboard() {
   const { products, orders } = useApp();
+  const { isAdmin, profileLoaded } = useAuth();
   const { toast } = useToast();
   const [pmSettings, setPmSettings] = useState<PaymentMethodSettings>({
     paystackEnabled: true,
@@ -486,7 +488,7 @@ export default function AdminDashboard() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
   const fetchAnalytics = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!supabase) {
+    if (!supabase || !profileLoaded || !isAdmin) {
       setAnalyticsLoading(false);
       return;
     }
@@ -513,14 +515,14 @@ export default function AdminDashboard() {
     }
 
     setAnalyticsLoading(false);
-  }, []);
+  }, [isAdmin, profileLoaded]);
 
   useEffect(() => {
     void fetchAnalytics();
   }, [fetchAnalytics]);
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase || !profileLoaded || !isAdmin) return;
     const channel = supabase
       .channel("admin-dashboard-analytics")
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
@@ -533,7 +535,7 @@ export default function AdminDashboard() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [fetchAnalytics]);
+  }, [fetchAnalytics, isAdmin, profileLoaded]);
 
   const resolveTotalStock = (p: (typeof products)[number]) => calculateStock(p);
 
@@ -592,21 +594,21 @@ export default function AdminDashboard() {
   );
 
   const fetchPaymentSettings = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || !profileLoaded || !isAdmin) return;
     const { data, error } = await supabase
       .from("payment_method_settings")
       .select("pocketfi_enabled, manual_enabled")
       .eq("id", 1)
       .maybeSingle();
     if (!error && data) setPmSettings(mapPaymentSettings(data as PaymentMethodSettingsRow));
-  }, []);
+  }, [isAdmin, profileLoaded]);
 
   useEffect(() => {
     fetchPaymentSettings();
   }, [fetchPaymentSettings]);
 
   const togglePaymentMethod = async (field: "paystackEnabled" | "manualEnabled") => {
-    if (!supabase) return;
+    if (!supabase || !profileLoaded || !isAdmin) return;
     setPmLoading(true);
     const next = { ...pmSettings, [field]: !pmSettings[field] };
     const { error } = await supabase
@@ -621,6 +623,22 @@ export default function AdminDashboard() {
     setPmSettings(next);
     setPmLoading(false);
   };
+
+  if (!profileLoaded) {
+    return (
+      <div className="glass-card p-6 text-sm text-muted-foreground">
+        Loading admin profile...
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="glass-card p-6 text-sm text-muted-foreground">
+        Admin role required to view this dashboard.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
