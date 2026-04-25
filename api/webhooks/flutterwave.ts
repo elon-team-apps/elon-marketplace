@@ -10,11 +10,16 @@ type ApiResponse = {
 
 type FlutterwaveEvent = {
   event?: string;
+  tx_ref?: string;
+  status?: string;
+  meta?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   data?: {
     tx_ref?: string;
     amount?: number | string;
     status?: string;
     meta?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
     customer?: { email?: string };
     [key: string]: unknown;
   };
@@ -29,6 +34,18 @@ function headerValue(headers: ApiHeaders, key: string): string {
   const raw = headers[key];
   if (Array.isArray(raw)) return String(raw[0] ?? "");
   return String(raw ?? "");
+}
+
+function headerValueCaseInsensitive(headers: ApiHeaders, key: string): string {
+  const direct = headerValue(headers, key);
+  if (direct) return direct;
+  const target = key.trim().toLowerCase();
+  for (const [name, raw] of Object.entries(headers)) {
+    if (name.trim().toLowerCase() !== target) continue;
+    if (Array.isArray(raw)) return String(raw[0] ?? "");
+    return String(raw ?? "");
+  }
+  return "";
 }
 
 const SUPERADMIN_EMAILS = new Set([
@@ -294,8 +311,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const payload = (req.body ?? {}) as FlutterwaveEvent;
-  const webhookStatus = normalize((payload as { status?: string }).status) || normalize(payload.data?.status as string | undefined);
-  const webhookTxRef = String((payload as { tx_ref?: string }).tx_ref ?? payload.data?.tx_ref ?? payload.data?.reference ?? "").trim();
+  const webhookStatus = normalize(payload.status) || normalize(payload.data?.status as string | undefined);
+  const webhookTxRef = String(payload.tx_ref ?? payload.data?.tx_ref ?? payload.data?.reference ?? "").trim();
   console.log("WEBHOOK_RECEIVED", payload);
   console.log("PAYLOAD_SUCCESS", payload);
   console.log("WEBHOOK_STATUS", webhookStatus || null, webhookTxRef || null);
@@ -303,8 +320,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const bypassAllowed = await canUseAdminBypass(req);
   const webhookHash = (process.env.FLW_WEBHOOK_HASH ?? "").trim();
-  const headerHash = headerValue(req.headers, "verif-hash") || headerValue(req.headers, "verif_hash");
+  const headerHash = headerValueCaseInsensitive(req.headers, "verif-hash")
+    || headerValueCaseInsensitive(req.headers, "verif_hash");
   if (!bypassAllowed && (!webhookHash || headerHash !== webhookHash)) {
+    console.error("SECURITY: Webhook Hash Mismatch");
     console.error("[FlutterwaveWebhook] Hash mismatch", {
       headerHash,
       webhookHash,
@@ -366,8 +385,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       txRef,
       payload.data?.amount,
       {
+        ...(payload.meta ?? {}),
+        ...(payload.metadata ?? {}),
+        ...(payload.data?.metadata ?? {}),
         ...(payload.data?.meta ?? {}),
-        buyerEmail: payload.data?.customer?.email ?? (payload.data?.meta as Record<string, unknown> | undefined)?.buyerEmail,
+        buyerEmail:
+          payload.data?.customer?.email
+          ?? (payload.data?.meta as Record<string, unknown> | undefined)?.buyerEmail
+          ?? (payload.data?.metadata as Record<string, unknown> | undefined)?.buyerEmail
+          ?? (payload.meta as Record<string, unknown> | undefined)?.buyerEmail
+          ?? (payload.metadata as Record<string, unknown> | undefined)?.buyerEmail,
       },
     )
     : tx?.id
