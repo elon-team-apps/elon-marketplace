@@ -288,6 +288,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const payload = (req.body ?? {}) as FlutterwaveEvent;
   console.log("WEBHOOK_RECEIVED", payload);
   console.log("PAYLOAD_SUCCESS", payload);
+  console.log("WEBHOOK_STATUS", payload.data?.status, payload.data?.tx_ref);
   console.log("[FlutterwaveWebhook] FULL_PAYLOAD_JSON", JSON.stringify(payload));
 
   const bypassAllowed = await canUseAdminBypass(req);
