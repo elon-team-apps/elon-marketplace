@@ -30,6 +30,11 @@ function normalize(input: string | null | undefined): string {
   return (input ?? "").trim().toLowerCase();
 }
 
+function isSuccessfulGatewayStatus(value: string | null | undefined): boolean {
+  const status = normalize(value);
+  return status === "successful" || status === "success" || status === "completed";
+}
+
 function headerValue(headers: ApiHeaders, key: string): string {
   const raw = headers[key];
   if (Array.isArray(raw)) return String(raw[0] ?? "");
@@ -417,7 +422,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   });
   const status = webhookStatus;
   const event = normalize(payload.event);
-  if (!(event === "charge.completed" || event === "payment.success" || status === "successful")) {
+  if (!(event === "charge.completed" || event === "payment.success" || isSuccessfulGatewayStatus(status))) {
     res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null, status });
     return;
   }
