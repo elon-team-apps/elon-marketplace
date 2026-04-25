@@ -71,6 +71,53 @@ function isMissingColumnError(error: { code?: string; message?: string } | null 
   return message.includes("column") && message.includes(column.toLowerCase()) && message.includes("does not exist");
 }
 
+type FlutterwaveVerifyResult =
+  | { ok: true; txRef: string; status: string; amount: number }
+  | { ok: false; error: string; status?: number };
+
+async function verifyFlutterwaveByReference(txRef: string): Promise<FlutterwaveVerifyResult> {
+  const secret = (process.env.FLUTTERWAVE_SECRET_KEY ?? "").trim();
+  if (!secret) {
+    return { ok: false, status: 500, error: "Missing FLUTTERWAVE_SECRET_KEY env." };
+  }
+
+  const url = `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(txRef)}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (error) {
+    return { ok: false, status: 502, error: `Flutterwave verify request failed: ${String(error)}` };
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: 502,
+      error: `Flutterwave verify failed. status=${response.status} message=${String(payload.message ?? payload.error ?? "Unknown error")}`,
+    };
+  }
+
+  const data = (payload.data ?? {}) as Record<string, unknown>;
+  const verifiedTxRef = String(data.tx_ref ?? data.reference ?? "").trim();
+  const verifiedStatus = normalize(String(data.status ?? ""));
+  const verifiedAmount = Math.max(0, asPositiveInt(data.amount, 0));
+  if (!verifiedTxRef || verifiedTxRef !== txRef) {
+    return { ok: false, status: 409, error: "Flutterwave verify tx_ref mismatch." };
+  }
+  if (verifiedStatus !== "successful") {
+    return { ok: false, status: 409, error: `Flutterwave verify status is ${verifiedStatus || "unknown"}, not successful.` };
+  }
+
+  return { ok: true, txRef: verifiedTxRef, status: verifiedStatus, amount: verifiedAmount };
+}
+
 async function incrementWalletAtomic(
   supabaseAdmin: SupabaseClient,
   userId: string,
@@ -362,7 +409,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const { data: tx, error: txLookupError } = await supabaseService
     .from("transactions")
-    .select("id, type")
+    .select("id, type, amount, status")
     .eq("reference", txRef)
     .maybeSingle();
   if (txLookupError) {
@@ -378,6 +425,21 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     wallet_topup_meta: isWalletTopupMeta,
     tx_found: Boolean(tx?.id),
   });
+
+  if (!bypassAllowed) {
+    const verified = await verifyFlutterwaveByReference(txRef);
+    if (!verified.ok) {
+      res.status(verified.status ?? 502).json({ error: verified.error });
+      return;
+    }
+    const expectedAmount = Math.max(0, asPositiveInt(tx?.amount ?? payload.data?.amount, 0));
+    if (expectedAmount > 0 && verified.amount > 0 && verified.amount !== expectedAmount) {
+      res.status(409).json({
+        error: `Flutterwave amount mismatch. expected=${expectedAmount}, verified=${verified.amount}`,
+      });
+      return;
+    }
+  }
 
   const result = tx?.type === "deposit" || (!tx?.id && isWalletTopupMeta)
     ? await processDeposit(
