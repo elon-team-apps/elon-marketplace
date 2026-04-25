@@ -40,7 +40,7 @@ function isSuperAdminEmail(email: string | null | undefined): boolean {
   return SUPERADMIN_EMAILS.has(normalize(email));
 }
 
-function getAdminClient(): SupabaseClient {
+function getSupabaseServiceClient(): SupabaseClient {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").trim();
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
   if (!url || !key) throw new Error("Missing Supabase service env.");
@@ -59,6 +59,15 @@ async function incrementWalletAtomic(
   userId: string,
   amount: number,
 ): Promise<{ ok: true; wallet_balance: number } | { ok: false; error: string; status?: number }> {
+  const rpcLegacyAttempt = await supabaseAdmin.rpc("increment_balance", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (!rpcLegacyAttempt.error) {
+    const next = Math.max(0, asPositiveInt(rpcLegacyAttempt.data, 0));
+    return { ok: true, wallet_balance: next };
+  }
+
   const rpcAttempt = await supabaseAdmin.rpc("increment_wallet_balance", {
     p_user_id: userId,
     p_amount: amount,
@@ -69,44 +78,81 @@ async function incrementWalletAtomic(
   }
 
   // Fallback path if RPC is not deployed yet.
-  const walletProfile = await supabaseAdmin
+  const profileRead = await supabaseAdmin
     .from("profiles")
-    .select("wallet_balance")
+    .select("wallet_balance, balance")
     .eq("id", userId)
     .maybeSingle();
-  let balanceField: "wallet_balance" | "balance" = "wallet_balance";
-  let profile = walletProfile.data as { wallet_balance?: unknown } | null;
-  let profileError = walletProfile.error;
 
-  if (isMissingColumnError(walletProfile.error, "wallet_balance")) {
-    balanceField = "balance";
-    const legacyProfile = await supabaseAdmin
+  let profile = profileRead.data as { wallet_balance?: unknown; balance?: unknown } | null;
+  let profileError = profileRead.error;
+  let hasWalletBalance = !isMissingColumnError(profileRead.error, "wallet_balance");
+  let hasLegacyBalance = !isMissingColumnError(profileRead.error, "balance");
+
+  if (profileRead.error && (isMissingColumnError(profileRead.error, "wallet_balance") || isMissingColumnError(profileRead.error, "balance"))) {
+    const fallbackRead = await supabaseAdmin
       .from("profiles")
-      .select("balance")
+      .select("wallet_balance")
       .eq("id", userId)
       .maybeSingle();
-    profile = legacyProfile.data as { balance?: unknown } | null;
-    profileError = legacyProfile.error;
+    if (!fallbackRead.error && fallbackRead.data) {
+      profile = fallbackRead.data as { wallet_balance?: unknown; balance?: unknown };
+      profileError = null;
+      hasWalletBalance = true;
+      hasLegacyBalance = false;
+    } else if (isMissingColumnError(fallbackRead.error, "wallet_balance")) {
+      const legacyRead = await supabaseAdmin
+        .from("profiles")
+        .select("balance")
+        .eq("id", userId)
+        .maybeSingle();
+      profile = legacyRead.data as { wallet_balance?: unknown; balance?: unknown } | null;
+      profileError = legacyRead.error;
+      hasWalletBalance = false;
+      hasLegacyBalance = true;
+    } else {
+      profileError = fallbackRead.error;
+    }
   }
 
   if (profileError || !profile) {
     return { ok: false, status: 500, error: `Profile lookup failed: ${formatDbError(profileError)}` };
   }
-  const current = Math.max(0, asPositiveInt((profile as Record<string, unknown>)[balanceField], 0));
-  const next = current + amount;
+
+  const currentWallet = Math.max(0, asPositiveInt(profile.wallet_balance, 0));
+  const currentLegacy = Math.max(0, asPositiveInt(profile.balance, 0));
+  const nextWallet = currentWallet + amount;
+  const nextLegacy = currentLegacy + amount;
+
+  const updatePayload: Record<string, number> = {};
+  if (hasWalletBalance) updatePayload.wallet_balance = nextWallet;
+  if (hasLegacyBalance) updatePayload.balance = nextLegacy;
+  if (!hasWalletBalance && !hasLegacyBalance) {
+    return { ok: false, status: 500, error: "No balance column available on profiles table." };
+  }
+
   const updateAttempt = await supabaseAdmin
     .from("profiles")
-    .update({ [balanceField]: next })
+    .update(updatePayload)
     .eq("id", userId)
-    .eq(balanceField, current)
-    .select(balanceField);
+    .select("wallet_balance, balance");
   if (updateAttempt.error) {
     return { ok: false, status: 500, error: `Balance update failed: ${formatDbError(updateAttempt.error)}` };
   }
   if (!Array.isArray(updateAttempt.data) || updateAttempt.data.length === 0) {
-    return { ok: false, status: 409, error: "Concurrent balance update conflict." };
+    return { ok: false, status: 409, error: "Balance update conflict." };
   }
-  return { ok: true, wallet_balance: next };
+  const updated = updateAttempt.data[0] as { wallet_balance?: unknown; balance?: unknown };
+  return {
+    ok: true,
+    wallet_balance: Math.max(
+      0,
+      asPositiveInt(
+        hasWalletBalance ? updated.wallet_balance : updated.balance,
+        hasWalletBalance ? nextWallet : nextLegacy,
+      ),
+    ),
+  };
 }
 
 async function canUseAdminBypass(req: ApiRequest): Promise<boolean> {
@@ -241,6 +287,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const payload = (req.body ?? {}) as FlutterwaveEvent;
   console.log("WEBHOOK_RECEIVED", payload);
+  console.log("PAYLOAD_SUCCESS", payload);
+  console.log("[FlutterwaveWebhook] FULL_PAYLOAD_JSON", JSON.stringify(payload));
 
   const bypassAllowed = await canUseAdminBypass(req);
   const webhookHash = (process.env.FLW_WEBHOOK_HASH ?? "").trim();
@@ -274,15 +322,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  let supabaseAdmin: SupabaseClient;
+  let supabaseService: SupabaseClient;
   try {
-    supabaseAdmin = getAdminClient();
+    supabaseService = getSupabaseServiceClient();
   } catch (error) {
     res.status(500).json({ error: `Server misconfigured: ${String(error)}` });
     return;
   }
 
-  const { data: tx, error: txLookupError } = await supabaseAdmin
+  const { data: tx, error: txLookupError } = await supabaseService
     .from("transactions")
     .select("id, type")
     .eq("reference", txRef)
@@ -303,7 +351,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const result = tx?.type === "deposit" || (!tx?.id && isWalletTopupMeta)
     ? await processDeposit(
-      supabaseAdmin,
+      supabaseService,
       txRef,
       payload.data?.amount,
       {
@@ -312,7 +360,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       },
     )
     : tx?.id
-      ? await processSuccessfulTransaction(supabaseAdmin, tx.id, payload.data?.amount)
+      ? await processSuccessfulTransaction(supabaseService, tx.id, payload.data?.amount)
       : { ok: false, status: 404, error: "No transaction found for tx_ref." };
 
   if (!result.ok) {

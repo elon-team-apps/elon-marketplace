@@ -43,10 +43,6 @@ function formatDeliveredLog(row: {
   const cred = String(row.credentials ?? "");
   if (cred.trim()) return cred;
 
-  const email = String(row.email ?? "").trim();
-  const password = String(row.password ?? "").trim();
-  const recovery = String(row.recovery ?? "").trim();
-  if (email && password) return `${email}:${password}:${recovery}`;
   return "";
 }
 

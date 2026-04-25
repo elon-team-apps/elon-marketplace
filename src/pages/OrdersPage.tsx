@@ -187,11 +187,9 @@ function CredentialModal({
               </div>
 
               <div className="px-4 py-3">
-                <textarea
-                  readOnly
-                  value={credentials}
-                  className="w-full min-h-[180px] resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm leading-relaxed text-slate-900 whitespace-pre-wrap break-words focus:outline-none"
-                />
+                <pre className="min-h-[180px] overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm leading-relaxed text-slate-900 whitespace-pre-wrap break-words">
+                  {credentials}
+                </pre>
               </div>
               <div className="px-4 pb-4 space-y-2">
                 {credentialLines.map((line, index) => (

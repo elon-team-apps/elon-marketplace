@@ -35,12 +35,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { formatSupabasePostgrestError } from "@/lib/supabaseErrors";
-import { parseLogLines } from "@/lib/logParser";
 import { calculateStock, calculateStockBreakdown } from "@/lib/stock";
 
 const BTN_NAVY = "#0f172a";
 const BTN_DELETE = "#dc2626";
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseRawLogLines(raw: string): string[] {
+  return raw
+    .replace(/\r/g, "")
+    .split("\n")
+    .filter((line) => line.trim().length > 0);
+}
 
 type LogRow = {
   id: string;
@@ -235,7 +241,7 @@ function BulkUploadModal({
     }
   }, [initialProductId, products]);
 
-  const rawLogLines = parseLogLines(logsText);
+  const rawLogLines = parseRawLogLines(logsText);
   const lineCount = rawLogLines.length;
   const selectedProduct = products.find((p) => p.id === selectedId);
 
@@ -486,7 +492,7 @@ function CreateProductModal({
 
   if (!open) return null;
 
-  const rawLogLines = parseLogLines(form.logsText);
+  const rawLogLines = parseRawLogLines(form.logsText);
   const logCount = rawLogLines.length;
 
   const handleSubmit = async () => {
@@ -784,7 +790,7 @@ function EditProductModal({
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
-  const editRawLogLines = parseLogLines(logsText);
+  const editRawLogLines = parseRawLogLines(logsText);
 
   useEffect(() => {
     setTitle(product.title);
