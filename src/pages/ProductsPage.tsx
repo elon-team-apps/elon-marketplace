@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid,
+  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, EyeOff,
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -284,14 +284,18 @@ export default function ProductsPage() {
   const { products, currentUser } = useApp();
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [buyProduct, setBuyProduct] = useState<Product | null>(null);
+  const [hideOutOfStock, setHideOutOfStock] = useState(false);
 
   const productsWithCategory = products.map((p) => ({ ...p, category: normalizeCategory(p.category, p.title) }));
-  const presentKeys = Array.from(new Set(productsWithCategory.map((p) => p.category)));
+  const visibleProducts = hideOutOfStock
+    ? productsWithCategory.filter((p) => getAvailableStock(p) > 0)
+    : productsWithCategory;
+  const presentKeys = Array.from(new Set(visibleProducts.map((p) => p.category)));
   const displayCategories = CATEGORIES.filter((c) => presentKeys.includes(c));
 
   const filteredProducts = activeCategory
-    ? productsWithCategory.filter((p) => p.category === activeCategory)
-    : productsWithCategory;
+    ? visibleProducts.filter((p) => p.category === activeCategory)
+    : visibleProducts;
 
   const activePlatform = activeCategory ? { label: activeCategory } : null;
 
@@ -328,9 +332,21 @@ export default function ProductsPage() {
         <CategoryDropdown
           categories={displayCategories.length > 0 ? displayCategories : CATEGORIES}
           active={activeCategory}
-          productCount={(key) => productsWithCategory.filter((p) => p.category === key).length}
+          productCount={(key) => visibleProducts.filter((p) => p.category === key).length}
           onChange={setActiveCategory}
         />
+        <button
+          type="button"
+          onClick={() => setHideOutOfStock((v) => !v)}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold ${
+            hideOutOfStock
+              ? "border-slate-900 bg-slate-900 text-white"
+              : "border-slate-200 bg-white text-slate-700"
+          }`}
+        >
+          <EyeOff className="h-3.5 w-3.5" />
+          {hideOutOfStock ? "Showing In-Stock Only" : "Hide Out of Stock"}
+        </button>
         {activeCategory && (
           <button
             onClick={() => setActiveCategory(null)}
@@ -516,15 +532,27 @@ function ProductCard({
             <span className="font-semibold text-black">In Stock</span>
           )}
         </p>
-        {availableStock > 0 && (
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              {hasManualOnlyStock
-                ? "Ready for Delivery"
-                : `${liveLabelCount} available`}
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              availableStock > 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
+            }`}
+          >
+            {availableStock > 0
+              ? `${availableStock} left`
+              : "Out of Stock"}
+          </span>
+          {availableStock > 0 && hasManualOnlyStock && (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              Manual fallback
             </span>
-          </div>
-        )}
+          )}
+          {availableStock > 0 && !hasManualOnlyStock && (
+            <span className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+              {liveLabelCount} realtime
+            </span>
+          )}
+        </div>
 
         {/* Price */}
         <p className="text-[11px] leading-tight text-black">
@@ -544,12 +572,12 @@ function ProductCard({
           disabled={availableStock <= 0}
           className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-opacity duration-150 hover:opacity-95 active:scale-95 disabled:cursor-not-allowed disabled:hover:opacity-100"
           style={{
-            background: BTN_NAVY,
-            opacity: availableStock <= 0 ? 0.45 : 1,
+            background: availableStock <= 0 ? "#9ca3af" : BTN_NAVY,
+            opacity: 1,
           }}
         >
           <ShoppingCart className="h-3 w-3 shrink-0" />
-          {availableStock <= 0 ? "Sold Out" : `Purchase · ₦${p.price.toLocaleString()}`}
+          {availableStock <= 0 ? "Out of Stock" : `Purchase · ₦${p.price.toLocaleString()}`}
         </button>
       </div>
     </div>

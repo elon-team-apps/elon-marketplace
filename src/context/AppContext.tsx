@@ -14,6 +14,8 @@ export interface Product {
   /** Optional admin-entered fallback shown when no live log_items exist yet. */
   manual_stock?: number;
   stock_count: number;
+  /** Authoritative stock from product_stock_levels.real_stock when available. */
+  real_stock?: number;
   // Backward-compat alias while remaining screens migrate.
   stock?: number;
   logs: string[];
@@ -476,6 +478,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshProducts = useCallback(async () => {
     if (!supabase) return;
 
+    const fetchRealStockMap = async (productIds: string[]): Promise<Record<string, number> | null> => {
+      if (productIds.length === 0) return {};
+      const viewQuery = await supabase
+        .from("product_stock_levels")
+        .select("product_id, real_stock")
+        .in("product_id", productIds);
+      if (!viewQuery.error && Array.isArray(viewQuery.data)) {
+        const out: Record<string, number> = {};
+        for (const row of viewQuery.data as Array<{ product_id?: unknown; real_stock?: unknown }>) {
+          const pid = String(row.product_id ?? "").trim();
+          if (!pid) continue;
+          out[pid] = Math.max(0, Number(row.real_stock ?? 0));
+        }
+        return out;
+      }
+      console.warn("[AppContext] product_stock_levels view fetch failed, falling back to log_items counts:", viewQuery.error?.message);
+      return null;
+    };
+
     const applyRows = async (data: Record<string, unknown>[]) => {
       const baseRows = data.map((row) => ({
         id:          String(row.id ?? ""),
@@ -501,8 +522,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
 
       const allIds = baseRows.map((r) => r.id).filter((id) => UUID_REGEX.test(id));
-      let liveByProduct: Record<string, number> | null = null;
-      if (allIds.length > 0) {
+      let liveByProduct: Record<string, number> | null = await fetchRealStockMap(allIds);
+      if (liveByProduct === null && allIds.length > 0) {
         const live = await supabase
           .from("log_items")
           .select("product_id")
@@ -550,6 +571,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             manual_stock: r.manual_stock === null ? undefined : Number(r.manual_stock),
             stock_count: resolvedStock,
             stock: resolvedStock,
+            real_stock: resolvedStock,
             logs: r.logs,
             createdAt: r.createdAt,
             image_url: r.image_url,
@@ -640,6 +662,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [currentUser?.id]);
 
+  // Keep storefront stock labels in sync after admin log uploads/deletions.
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel("products-stock-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "log_items" }, () => {
+        void refreshProducts();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refreshProducts]);
+
   // currentUser intentionally excluded — wallet_balance and role are owned
   // by Supabase. Persisting them to localStorage would create a stale cache
   // that shows wrong values on the next load before the DB responds.
@@ -698,6 +734,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : Math.max(0, Number(row.manual_stock ?? 0)),
       stock_count: resolvedStock,
       stock: resolvedStock,
+      real_stock: resolvedStock,
       logs: [],
       createdAt: String(row.created_at ?? new Date().toISOString()),
       image_url: String(row.image_url ?? ""),
