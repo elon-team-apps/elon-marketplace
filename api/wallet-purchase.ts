@@ -235,7 +235,7 @@ async function fulfillWalletPurchase(
 
   let logsToDeliver: Array<{
     id: string;
-    content: string | null;
+    content?: string | null;
     credentials: string | null;
     email: string | null;
     password: string | null;
@@ -267,7 +267,7 @@ async function fulfillWalletPurchase(
     }
     logsToDeliver = (availableLogs ?? []) as Array<{
       id: string;
-      content: string | null;
+      content?: string | null;
       credentials: string | null;
       email: string | null;
       password: string | null;
@@ -464,10 +464,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     nextBalance,
   );
   if (!balanceDeduction.ok) {
+    const deductionError = balanceDeduction;
     await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("id", insertedTx.id);
-    res.status(balanceDeduction.conflict ? 409 : 500).json({
-      error: balanceDeduction.error,
-      ...(balanceDeduction.conflict ? { code: "INSUFFICIENT_BALANCE" } : {}),
+    res.status(deductionError.conflict ? 409 : 500).json({
+      error: deductionError.error,
+      ...(deductionError.conflict ? { code: "INSUFFICIENT_BALANCE" } : {}),
     });
     return;
   }

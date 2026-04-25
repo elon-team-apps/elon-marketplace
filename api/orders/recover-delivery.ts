@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { processSuccessfulTransaction } from "../_lib/processSuccessfulOrder";
+import { processSuccessfulTransaction } from "../_lib/processSuccessfulOrder.js";
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
 type ApiRequest = { method?: string; headers: ApiHeaders; body?: unknown };

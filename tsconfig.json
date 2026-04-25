@@ -1,5 +1,10 @@
 {
   "compilerOptions": {
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "allowJs": true,
     "noImplicitAny": false,
     "noUnusedLocals": false,

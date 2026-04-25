@@ -250,7 +250,7 @@ export async function processSuccessfulTransaction(
   }
   const logsToDeliver = (availableLogs ?? []) as Array<{
     id: string;
-    content: string | null;
+    content?: string | null;
     credentials: string | null;
     email: string | null;
     password: string | null;

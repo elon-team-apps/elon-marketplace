@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { isSuperAdminEmail } from "../../src/lib/adminAccess";
-import { processSuccessfulTransaction } from "../_lib/processSuccessfulOrder";
+import { isSuperAdminEmail } from "../../src/lib/adminAccess.js";
+import { processSuccessfulTransaction } from "../_lib/processSuccessfulOrder.js";
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
 type ApiRequest = { method?: string; headers: ApiHeaders; body?: unknown };
