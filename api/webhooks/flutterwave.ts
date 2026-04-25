@@ -75,6 +75,35 @@ type FlutterwaveVerifyResult =
   | { ok: true; txRef: string; status: string; amount: number }
   | { ok: false; error: string; status?: number };
 
+async function writeVerificationAudit(
+  supabaseService: SupabaseClient,
+  params: {
+    txRef: string;
+    decision: "accepted" | "rejected";
+    reason?: string;
+    expectedAmount?: number;
+    verifiedAmount?: number;
+    payload?: unknown;
+  },
+): Promise<void> {
+  const { error } = await supabaseService.from("webhook_verifications").insert({
+    provider: "flutterwave",
+    tx_ref: params.txRef,
+    decision: params.decision,
+    reason: params.reason ?? null,
+    expected_amount: params.expectedAmount ?? null,
+    verified_amount: params.verifiedAmount ?? null,
+    payload: (params.payload ?? null) as Record<string, unknown> | null,
+  });
+  if (error) {
+    console.error("[FlutterwaveWebhook] Failed to write webhook verification audit", {
+      tx_ref: params.txRef,
+      decision: params.decision,
+      error: formatDbError(error),
+    });
+  }
+}
+
 async function verifyFlutterwaveByReference(txRef: string): Promise<FlutterwaveVerifyResult> {
   const secret = (process.env.FLUTTERWAVE_SECRET_KEY ?? "").trim();
   if (!secret) {
@@ -429,16 +458,40 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (!bypassAllowed) {
     const verified = await verifyFlutterwaveByReference(txRef);
     if (!verified.ok) {
+      await writeVerificationAudit(supabaseService, {
+        txRef,
+        decision: "rejected",
+        reason: verified.error,
+        expectedAmount: Math.max(0, asPositiveInt(tx?.amount ?? payload.data?.amount, 0)),
+        payload,
+      });
       res.status(verified.status ?? 502).json({ error: verified.error });
       return;
     }
     const expectedAmount = Math.max(0, asPositiveInt(tx?.amount ?? payload.data?.amount, 0));
     if (expectedAmount > 0 && verified.amount > 0 && verified.amount !== expectedAmount) {
+      await writeVerificationAudit(supabaseService, {
+        txRef,
+        decision: "rejected",
+        reason: `Flutterwave amount mismatch. expected=${expectedAmount}, verified=${verified.amount}`,
+        expectedAmount,
+        verifiedAmount: verified.amount,
+        payload,
+      });
       res.status(409).json({
         error: `Flutterwave amount mismatch. expected=${expectedAmount}, verified=${verified.amount}`,
       });
       return;
     }
+
+    await writeVerificationAudit(supabaseService, {
+      txRef,
+      decision: "accepted",
+      reason: "verify_by_reference successful",
+      expectedAmount,
+      verifiedAmount: verified.amount,
+      payload,
+    });
   }
 
   const result = tx?.type === "deposit" || (!tx?.id && isWalletTopupMeta)

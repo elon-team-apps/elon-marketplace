@@ -36,6 +36,17 @@ type PaymentMethodSettings = {
   manualEnabled: boolean;
 };
 
+type WebhookVerificationRow = {
+  id: string;
+  provider: string;
+  tx_ref: string;
+  decision: "accepted" | "rejected" | string;
+  reason: string | null;
+  expected_amount: number | null;
+  verified_amount: number | null;
+  created_at: string;
+};
+
 function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
   return {
     paystackEnabled: Boolean(row?.pocketfi_enabled),
@@ -48,6 +59,150 @@ function toPaymentSettingsUpdate(settings: PaymentMethodSettings): PaymentMethod
     pocketfi_enabled: settings.paystackEnabled,
     manual_enabled: settings.manualEnabled,
   };
+}
+
+function WebhookVerificationsCard() {
+  const [txRef, setTxRef] = useState("");
+  const [rows, setRows] = useState<WebhookVerificationRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [decisionFilter, setDecisionFilter] = useState<"all" | "accepted" | "rejected">("all");
+  const { toast } = useToast();
+
+  const fetchRows = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (!token) throw new Error("Missing auth session.");
+
+      const params = new URLSearchParams();
+      if (txRef.trim()) params.set("tx_ref", txRef.trim());
+      if (decisionFilter !== "all") params.set("decision", decisionFilter);
+      params.set("limit", "25");
+
+      const response = await fetch(`/api/admin/webhook-verifications?${params.toString()}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        records?: WebhookVerificationRow[];
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to load webhook verifications.");
+      }
+
+      setRows(Array.isArray(payload.records) ? payload.records : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load webhook verifications.";
+      toast({ title: "Webhook audit fetch failed", description: message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [decisionFilter, toast, txRef]);
+
+  useEffect(() => {
+    void fetchRows();
+  }, [fetchRows]);
+
+  return (
+    <div className="glass-card p-5 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="font-heading font-semibold text-sm text-foreground">Flutterwave Verification Audit</h2>
+          <p className="text-xs text-muted-foreground mt-1">Search by tx_ref and inspect accepted/rejected webhook decisions.</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => void fetchRows()}
+          disabled={loading}
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-2">
+        <Input
+          placeholder="tx_ref (exact)"
+          value={txRef}
+          onChange={(e) => setTxRef(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void fetchRows();
+          }}
+          className="h-9 text-xs"
+        />
+        <select
+          value={decisionFilter}
+          onChange={(e) => setDecisionFilter(e.target.value as "all" | "accepted" | "rejected")}
+          className="h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground"
+        >
+          <option value="all">All decisions</option>
+          <option value="accepted">Accepted only</option>
+          <option value="rejected">Rejected only</option>
+        </select>
+        <Button
+          className="h-9 text-xs"
+          onClick={() => void fetchRows()}
+          disabled={loading}
+        >
+          Run Search
+        </Button>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 dark:border-white/7 bg-white/60 dark:bg-[rgba(8,11,20,0.5)] overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-8 gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading verification records...
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="py-8 text-center text-xs text-muted-foreground">No matching verification records found.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-white/6">
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase">Time</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase">tx_ref</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase">Decision</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase">Expected</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase">Verified</th>
+                  <th className="px-3 py-2 text-left font-semibold text-muted-foreground uppercase">Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                      {new Date(row.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 font-mono">{row.tx_ref}</td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex rounded-md px-2 py-0.5 font-semibold ${
+                        row.decision === "accepted"
+                          ? "bg-emerald-500/15 text-emerald-500"
+                          : "bg-red-500/15 text-red-500"
+                      }`}
+                      >
+                        {row.decision}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">{row.expected_amount ?? "—"}</td>
+                    <td className="px-3 py-2">{row.verified_amount ?? "—"}</td>
+                    <td className="px-3 py-2 max-w-[380px] truncate" title={row.reason ?? ""}>{row.reason ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── UsersTable ─────────────────────────────────────────────────────────────
@@ -525,6 +680,8 @@ export default function AdminDashboard() {
       <div className="glass-card p-5">
         <UsersTable />
       </div>
+
+      <WebhookVerificationsCard />
 
       {/* Recent orders */}
       <div className="glass-card overflow-hidden">
