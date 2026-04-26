@@ -13,10 +13,10 @@ import { calculateStock, calculateStockBreakdown } from "@/lib/stock";
 export const revalidate = 0;
 
 const CATEGORIES = PRODUCT_CATEGORIES;
-/** Client: all Purchase / primary actions */
+/** Primary brand color — slate-900 */
 const BTN_NAVY = "#0f172a";
-/** Titles & prices — solid black */
-const TEXT_BLACK = "#000000";
+/** Titles & prices — deep black */
+const TEXT_BLACK = "#0f172a";
 /** FB Dating / compact spellings — platform chip + accent */
 const FB_DATING_TITLE_RE = /\bfb[\s._-]*dating\b|fbdating/i;
 
@@ -369,7 +369,7 @@ export default function ProductsPage() {
             <span className="font-bold text-white text-base tracking-wide uppercase">
               {activePlatform?.label ?? activeCategory}
             </span>
-            <span className="text-white/50 text-sm font-normal">— {filteredProducts.length} product{filteredProducts.length !== 1 ? "s" : ""}</span>
+            <span className="text-white/70 text-sm font-medium">— {filteredProducts.length} items</span>
           </div>
 
           {filteredProducts.length === 0 ? (
@@ -512,24 +512,22 @@ function ProductCard({
             size={32}
             accentColor={platform?.color ?? "#1877F2"}
           />
-          <h3 className="font-extrabold text-[12px] leading-tight flex-1 min-w-0 line-clamp-2 text-black">
+          <h3 className="font-bold text-lg leading-tight flex-1 min-w-0 text-slate-900">
             {p.title}
           </h3>
         </div>
-        <p className="text-[11px] leading-tight text-slate-600 line-clamp-2">
+        <p className="text-sm font-medium text-slate-600 line-clamp-2 mt-0.5">
           {String(p.description ?? "").trim() || "No description provided."}
         </p>
 
         {/* Stock line — body black; only “Out of Stock” stays red */}
-        <p className="text-[11px] leading-tight text-black">
+        <p className="text-sm text-slate-500">
           {availableStock <= 0 ? (
-            <span className="text-red-500 font-semibold">Out of Stock</span>
-          ) : stockLow ? (
-            <span className="font-semibold text-black">
-              {availableStock} available
-            </span>
+            <span className="text-red-500 font-bold">Out of Stock</span>
           ) : (
-            <span className="font-semibold text-black">In Stock</span>
+            <span className="text-slate-500">
+              In Stock: <span className="font-bold text-slate-900">{availableStock} qty.</span>
+            </span>
           )}
         </p>
         <div className="flex items-center gap-1.5">
@@ -555,9 +553,9 @@ function ProductCard({
         </div>
 
         {/* Price */}
-        <p className="text-[11px] leading-tight text-black">
+        <p className="text-sm text-slate-500">
           Per Quantity:{" "}
-          <span className="font-bold text-black">
+          <span className="font-bold text-slate-900">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
@@ -570,14 +568,13 @@ function ProductCard({
           type="button"
           onClick={() => onBuy(p)}
           disabled={availableStock <= 0}
-          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1 rounded-lg text-[11px] font-medium text-white transition-opacity duration-150 hover:opacity-95 active:scale-95 disabled:cursor-not-allowed disabled:hover:opacity-100"
+          className="mt-2 flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-bold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
-            background: availableStock <= 0 ? "#9ca3af" : BTN_NAVY,
-            opacity: 1,
+            background: availableStock <= 0 ? undefined : "#0f172a",
           }}
         >
-          <ShoppingCart className="h-3 w-3 shrink-0" />
-          {availableStock <= 0 ? "Out of Stock" : `Purchase · ₦${p.price.toLocaleString()}`}
+          <ShoppingCart className="h-4 w-4 shrink-0" />
+          {availableStock <= 0 ? "Out of Stock" : `Purchase`}
         </button>
       </div>
     </div>

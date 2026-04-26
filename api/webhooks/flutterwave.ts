@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { processSuccessfulTransaction, formatDbError, asPositiveInt } from "../_lib/processSuccessfulOrder.js";
+import { processSuccessfulTransaction, formatDbError, asPositiveInt } from "../_lib/processSuccessfulOrder.ts";
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
 type ApiRequest = { method?: string; headers: ApiHeaders; body?: unknown };
@@ -393,6 +393,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const payload = (req.body ?? {}) as FlutterwaveEvent;
   const webhookStatus = normalize(payload.status) || normalize(payload.data?.status as string | undefined);
   const webhookTxRef = String(payload.tx_ref ?? payload.data?.tx_ref ?? payload.data?.reference ?? "").trim();
+  
+  // 1. EMERGENCY LOGGING (Check this in Vercel Dashboard > Logs)
+  console.log("FLW_WEBHOOK_HIT:", webhookTxRef, webhookStatus);
   console.log("WEBHOOK_RECEIVED", payload);
   console.log("PAYLOAD_SUCCESS", payload);
   console.log("WEBHOOK_STATUS", webhookStatus || null, webhookTxRef || null);
@@ -402,8 +405,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const webhookHash = (process.env.FLW_WEBHOOK_HASH ?? "").trim();
   const headerHash = headerValueCaseInsensitive(req.headers, "verif-hash")
     || headerValueCaseInsensitive(req.headers, "verif_hash");
+    
   if (!bypassAllowed && (!webhookHash || headerHash !== webhookHash)) {
-    console.error("SECURITY: Webhook Hash Mismatch");
+    console.error("HASH_MISMATCH: Check your Vercel Env Variables");
     console.error("[FlutterwaveWebhook] Hash mismatch", {
       headerHash,
       webhookHash,
