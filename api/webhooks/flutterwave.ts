@@ -285,16 +285,42 @@ async function processDeposit(
 ) {
   const amount = Math.max(0, asPositiveInt(amountRaw, 0));
   const fallbackEmail = String(meta?.buyerEmail ?? "").trim().toLowerCase();
-  const primaryDepositLookup = await supabaseAdmin
+  let primaryDepositLookup = await supabaseAdmin
     .from("transactions")
-    .select("id, user_id, amount, status")
+    .select("id, user_id, amount, status, balance_credited")
     .eq("reference", txRef)
     .eq("type", "deposit")
     .maybeSingle();
+  let txMissingBalanceCreditedColumn = false;
+  if (primaryDepositLookup.error && isMissingColumnError(primaryDepositLookup.error, "balance_credited")) {
+    txMissingBalanceCreditedColumn = true;
+    const fallbackDepositLookup = await supabaseAdmin
+      .from("transactions")
+      .select("id, user_id, amount, status")
+      .eq("reference", txRef)
+      .eq("type", "deposit")
+      .maybeSingle();
+    if (fallbackDepositLookup.error) {
+      return { ok: false, status: 500, error: `Failed deposit lookup: ${formatDbError(fallbackDepositLookup.error)}` };
+    }
+    primaryDepositLookup = {
+      data: fallbackDepositLookup.data,
+      error: null,
+      count: null,
+      status: 200,
+      statusText: "OK",
+    };
+  }
   if (primaryDepositLookup.error) {
     return { ok: false, status: 500, error: `Failed deposit lookup: ${formatDbError(primaryDepositLookup.error)}` };
   }
-  let tx = primaryDepositLookup.data as { id: string; user_id: string; amount: number; status: string } | null;
+  let tx = primaryDepositLookup.data as {
+    id: string;
+    user_id: string;
+    amount: number;
+    status: string;
+    balance_credited?: boolean | null;
+  } | null;
   if (!tx && fallbackEmail) {
     const profileByEmail = await supabaseAdmin
       .from("profiles")
@@ -304,16 +330,26 @@ async function processDeposit(
     if (!profileByEmail.error && profileByEmail.data?.id) {
       const fallbackTxLookup = await supabaseAdmin
         .from("transactions")
-        .select("id, user_id, amount, status")
+        .select(txMissingBalanceCreditedColumn ? "id, user_id, amount, status" : "id, user_id, amount, status, balance_credited")
         .eq("user_id", profileByEmail.data.id)
         .eq("type", "deposit")
         .in("status", ["pending", "initiated"])
         .order("created_at", { ascending: false })
         .limit(1);
       if (!fallbackTxLookup.error && Array.isArray(fallbackTxLookup.data) && fallbackTxLookup.data.length > 0) {
-        tx = fallbackTxLookup.data[0] as { id: string; user_id: string; amount: number; status: string };
+        tx = fallbackTxLookup.data[0] as {
+          id: string;
+          user_id: string;
+          amount: number;
+          status: string;
+          balance_credited?: boolean | null;
+        };
       }
     }
+  }
+
+  if (tx?.balance_credited === true) {
+    return { ok: true, status: 200, data: { ok: true, idempotent: true, alreadyCredited: true } };
   }
 
   // Only short-circuit true idempotent retries for finalized/success.
@@ -348,11 +384,26 @@ async function processDeposit(
   const next = incremented.wallet_balance;
 
   if (tx?.id) {
-    const { error: txUpdateError } = await supabaseAdmin
+    const updatePayload: Record<string, unknown> = { status: "completed", amount: credit };
+    if (!txMissingBalanceCreditedColumn) {
+      updatePayload.balance_credited = true;
+    }
+    const txUpdateAttempt = await supabaseAdmin
       .from("transactions")
-      .update({ status: "completed", amount: credit })
+      .update(updatePayload)
       .eq("id", tx.id);
-    if (txUpdateError) return { ok: false, status: 500, error: `Deposit completion failed: ${formatDbError(txUpdateError)}` };
+    if (txUpdateAttempt.error && !isMissingColumnError(txUpdateAttempt.error, "balance_credited")) {
+      return { ok: false, status: 500, error: `Deposit completion failed: ${formatDbError(txUpdateAttempt.error)}` };
+    }
+    if (txUpdateAttempt.error && isMissingColumnError(txUpdateAttempt.error, "balance_credited")) {
+      const fallbackTxUpdate = await supabaseAdmin
+        .from("transactions")
+        .update({ status: "completed", amount: credit })
+        .eq("id", tx.id);
+      if (fallbackTxUpdate.error) {
+        return { ok: false, status: 500, error: `Deposit completion failed: ${formatDbError(fallbackTxUpdate.error)}` };
+      }
+    }
   } else {
     const createdFallback = await supabaseAdmin
       .from("transactions")
@@ -362,16 +413,37 @@ async function processDeposit(
         type: "deposit",
         status: "completed",
         reference: txRef,
+        balance_credited: true,
       })
       .select("id")
       .maybeSingle();
-    if (createdFallback.error) {
+    if (createdFallback.error && !isMissingColumnError(createdFallback.error, "balance_credited")) {
       // Non-fatal for balance update, but log for reconciliation.
       console.error("[FlutterwaveWebhook] Could not create fallback deposit transaction row", {
         txRef,
         userId,
         error: formatDbError(createdFallback.error),
       });
+    }
+    if (createdFallback.error && isMissingColumnError(createdFallback.error, "balance_credited")) {
+      const legacyFallback = await supabaseAdmin
+        .from("transactions")
+        .insert({
+          user_id: userId,
+          amount: credit,
+          type: "deposit",
+          status: "completed",
+          reference: txRef,
+        })
+        .select("id")
+        .maybeSingle();
+      if (legacyFallback.error) {
+        console.error("[FlutterwaveWebhook] Could not create fallback deposit transaction row", {
+          txRef,
+          userId,
+          error: formatDbError(legacyFallback.error),
+        });
+      }
     }
   }
 
