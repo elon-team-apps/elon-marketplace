@@ -455,27 +455,27 @@ async function processDeposit(
 
 async function completeSuccessfulTxRefPayment(
   supabaseService: SupabaseClient,
-  txRef: string,
+  tx_ref: string,
   amountRaw: unknown,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const amount = Math.max(0, asPositiveInt(amountRaw, 0));
-  if (!txRef || amount <= 0) {
+  if (!tx_ref || amount <= 0) {
     return { ok: false, status: 400, error: "Missing tx_ref or amount in webhook data payload." };
   }
 
   let txUpdate = await supabaseService
     .from("transactions")
     .update({ status: "completed" })
-    .eq("tx_ref", txRef)
+    .eq("reference", tx_ref)
     .select("id, user_id")
     .maybeSingle();
 
-  // Backward compatibility for schemas still using `reference`.
+  // Backward compatibility for schemas that might still expose tx_ref.
   if (txUpdate.error || !txUpdate.data) {
     const fallbackTxUpdate = await supabaseService
       .from("transactions")
       .update({ status: "completed" })
-      .eq("reference", txRef)
+      .eq("tx_ref", tx_ref)
       .select("id, user_id")
       .maybeSingle();
     if (fallbackTxUpdate.error || !fallbackTxUpdate.data) {
