@@ -303,7 +303,7 @@ export default function ProductsPage() {
   const grouped: { platform: { label: string } | undefined; key: string; items: Product[] }[] = [];
   if (!activeCategory) {
     presentKeys.forEach((key) => {
-      const items = productsWithCategory.filter((p) => p.category === key);
+      const items = visibleProducts.filter((p) => p.category === key);
       if (items.length > 0) grouped.push({ key, platform: { label: key }, items });
     });
   }
@@ -363,10 +363,10 @@ export default function ProductsPage() {
         <div>
           {/* Section banner */}
           <div
-            className="rounded-xl px-5 py-3.5 mb-4 flex items-center gap-3"
+            className="rounded-xl px-5 py-3 mb-4 flex items-center gap-3 bg-slate-900"
             style={{ background: BTN_NAVY }}
           >
-            <span className="font-bold text-white text-base tracking-wide uppercase">
+            <span className="font-bold text-white text-sm tracking-wide uppercase">
               {activePlatform?.label ?? activeCategory}
             </span>
             <span className="text-white/70 text-sm font-medium">— {filteredProducts.length} items</span>
@@ -392,7 +392,7 @@ export default function ProductsPage() {
               <div key={key}>
                 {/* Section banner */}
                 <div
-                  className="rounded-xl px-5 py-3.5 mb-3 flex items-center gap-3"
+                  className="rounded-xl px-5 py-3 mb-3 flex items-center gap-3 bg-slate-900"
                   style={{ background: BTN_NAVY }}
                 >
                   <span className="font-bold text-white text-sm tracking-wide uppercase">
@@ -445,8 +445,6 @@ function ProductCard({
     liveLogCount: liveStock === null ? undefined : liveStock,
   });
   const availableStock = stockView.total;
-  const liveLabelCount = Math.max(0, stockView.live);
-  const hasManualOnlyStock = liveLabelCount === 0 && stockView.manual > 0;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
 
@@ -498,7 +496,7 @@ function ProductCard({
   }, [p.id]);
 
   return (
-    <div className="flex flex-col rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
+    <div className="flex flex-col rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm transition-shadow duration-200">
       {/* Thin brand accent bar at top */}
       <div className="h-[2px] w-full" style={{ background: platform?.color ?? "#1877F2" }} />
 
@@ -512,50 +510,29 @@ function ProductCard({
             size={32}
             accentColor={platform?.color ?? "#1877F2"}
           />
-          <h3 className="font-bold text-lg leading-tight flex-1 min-w-0 text-slate-900">
+          <h3 className="text-base md:text-lg font-bold text-gray-900 uppercase tracking-tight leading-tight flex-1 min-w-0 line-clamp-2">
             {p.title}
           </h3>
         </div>
-        <p className="text-sm font-medium text-slate-600 line-clamp-2 mt-0.5">
+        <p className="text-sm font-medium text-gray-600 leading-tight mt-1 line-clamp-2">
           {String(p.description ?? "").trim() || "No description provided."}
         </p>
 
-        {/* Stock line — body black; only “Out of Stock” stays red */}
-        <p className="text-sm text-slate-500">
+        {/* Stock + quantity hierarchy */}
+        <p className="text-xs text-gray-500 font-normal">
           {availableStock <= 0 ? (
-            <span className="text-red-500 font-bold">Out of Stock</span>
+            <span className="text-gray-500">In Stock: <span className="text-sm text-gray-900 font-bold">Out of Stock</span></span>
           ) : (
-            <span className="text-slate-500">
-              In Stock: <span className="font-bold text-slate-900">{availableStock} qty.</span>
+            <span className="text-gray-500">
+              In Stock: <span className="text-sm text-gray-900 font-bold">{availableStock} qty</span>
             </span>
           )}
         </p>
-        <div className="flex items-center gap-1.5">
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-              availableStock > 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
-            }`}
-          >
-            {availableStock > 0
-              ? `${availableStock} left`
-              : "Out of Stock"}
-          </span>
-          {availableStock > 0 && hasManualOnlyStock && (
-            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-              Manual fallback
-            </span>
-          )}
-          {availableStock > 0 && !hasManualOnlyStock && (
-            <span className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-              {liveLabelCount} realtime
-            </span>
-          )}
-        </div>
 
         {/* Price */}
-        <p className="text-sm text-slate-500">
+        <p className="text-xs text-gray-500 font-normal">
           Per Quantity:{" "}
-          <span className="font-bold text-slate-900">
+          <span className="text-base font-extrabold text-gray-900">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
@@ -568,9 +545,9 @@ function ProductCard({
           type="button"
           onClick={() => onBuy(p)}
           disabled={availableStock <= 0}
-          className="mt-2 flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-bold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-2 flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
-            background: availableStock <= 0 ? undefined : "#0f172a",
+            background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}
         >
           <ShoppingCart className="h-4 w-4 shrink-0" />

@@ -316,7 +316,9 @@ async function processDeposit(
     }
   }
 
-  if (tx?.status === "finalized" || tx?.status === "completed" || tx?.status === "success") {
+  // Only short-circuit true idempotent retries for finalized/success.
+  // Some deposits were marked completed before crediting, so completed still attempts credit.
+  if (tx?.status === "finalized" || tx?.status === "success") {
     return { ok: true, status: 200, data: { ok: true, idempotent: true } };
   }
   let userId = String(tx?.user_id ?? meta?.userId ?? "").trim();
@@ -396,6 +398,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   
   // 1. EMERGENCY LOGGING (Check this in Vercel Dashboard > Logs)
   console.log("FLW_WEBHOOK_HIT:", webhookTxRef, webhookStatus);
+  console.log("FLW_WEBHOOK_AMOUNT:", payload.data?.amount ?? null);
   console.log("WEBHOOK_RECEIVED", payload);
   console.log("PAYLOAD_SUCCESS", payload);
   console.log("WEBHOOK_STATUS", webhookStatus || null, webhookTxRef || null);
@@ -454,7 +457,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const metaType = String((payload.data?.meta as Record<string, unknown> | undefined)?.type ?? "").trim().toLowerCase();
+  const mergedMeta = {
+    ...(payload.meta ?? {}),
+    ...(payload.metadata ?? {}),
+    ...(payload.data?.meta ?? {}),
+    ...(payload.data?.metadata ?? {}),
+  } as Record<string, unknown>;
+  const metaType = String(mergedMeta.type ?? "").trim().toLowerCase();
   const isWalletTopupMeta = metaType === "wallet_topup" || metaType === "deposit";
   console.log("[FlutterwaveWebhook] tx_ref verification", {
     tx_ref: txRef,
@@ -502,7 +511,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     });
   }
 
-  const result = tx?.type === "deposit" || (!tx?.id && isWalletTopupMeta)
+  const txType = String(tx?.type ?? "").trim().toLowerCase();
+  const isDepositType = txType === "deposit" || txType === "wallet_topup";
+  const result = isDepositType || (!tx?.id && isWalletTopupMeta)
     ? await processDeposit(
       supabaseService,
       txRef,
