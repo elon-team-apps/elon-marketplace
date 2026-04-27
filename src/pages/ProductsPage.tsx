@@ -362,10 +362,7 @@ export default function ProductsPage() {
         /* Filtered by single category */
         <div>
           {/* Section banner */}
-          <div
-            className="rounded-xl px-5 py-3 mb-4 flex items-center gap-3 bg-slate-900"
-            style={{ background: BTN_NAVY }}
-          >
+          <div className="rounded-xl px-5 py-3 mb-4 flex items-center gap-3 bg-slate-950">
             <span className="font-bold text-white text-sm tracking-wide uppercase">
               {activePlatform?.label ?? activeCategory}
             </span>
@@ -391,10 +388,7 @@ export default function ProductsPage() {
             {grouped.map(({ key, platform, items }) => (
               <div key={key}>
                 {/* Section banner */}
-                <div
-                  className="rounded-xl px-5 py-3 mb-3 flex items-center gap-3 bg-slate-900"
-                  style={{ background: BTN_NAVY }}
-                >
+                <div className="rounded-xl px-5 py-3 mb-3 flex items-center gap-3 bg-slate-950">
                   <span className="font-bold text-white text-sm tracking-wide uppercase">
                     {platform?.label ?? key}
                   </span>
@@ -510,7 +504,7 @@ function ProductCard({
             size={32}
             accentColor={platform?.color ?? "#1877F2"}
           />
-          <h3 className="text-base md:text-lg font-bold text-gray-900 uppercase tracking-tight leading-tight flex-1 min-w-0 line-clamp-2">
+          <h3 className="text-lg font-extrabold text-slate-900 uppercase tracking-tight leading-snug flex-1 min-w-0 line-clamp-2">
             {p.title}
           </h3>
         </div>
@@ -519,33 +513,33 @@ function ProductCard({
         </p>
 
         {/* Stock + quantity hierarchy */}
-        <p className="text-xs text-gray-500 font-normal">
+        <p className="text-xs text-slate-500 font-normal leading-5">
           {availableStock <= 0 ? (
-            <span className="text-gray-500">In Stock: <span className="text-sm text-gray-900 font-bold">Out of Stock</span></span>
+            <span className="text-slate-500">In Stock: <span className="font-bold text-black">Out of Stock</span></span>
           ) : (
-            <span className="text-gray-500">
-              In Stock: <span className="text-sm text-gray-900 font-bold">{availableStock} qty</span>
+            <span className="text-slate-500">
+              In Stock: <span className="font-bold text-black">{availableStock} qty</span>
             </span>
           )}
         </p>
 
         {/* Price */}
-        <p className="text-xs text-gray-500 font-normal">
+        <p className="text-xs text-slate-500 font-normal leading-5">
           Per Quantity:{" "}
-          <span className="text-base font-extrabold text-gray-900">
+          <span className="text-xl font-black text-black leading-none break-words">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
 
         {/* Divider — the 'cut' line the client requested */}
-        <hr className="border-slate-200 dark:border-white/10" />
+        <div className="my-2 border-b border-slate-100" />
 
         {/* Purchase button */}
         <button
           type="button"
           onClick={() => onBuy(p)}
           disabled={availableStock <= 0}
-          className="mt-2 flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-2 flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-slate-900 text-white text-sm font-extrabold transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
             background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}

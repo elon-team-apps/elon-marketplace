@@ -450,6 +450,68 @@ async function processDeposit(
   return { ok: true, status: 200, data: { ok: true, userId, wallet_balance: next, reference: txRef } };
 }
 
+async function completeSuccessfulTxRefPayment(
+  supabaseService: SupabaseClient,
+  txRef: string,
+  amountRaw: unknown,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const amount = Math.max(0, asPositiveInt(amountRaw, 0));
+  if (!txRef || amount <= 0) {
+    return { ok: false, status: 400, error: "Missing tx_ref or amount in webhook data payload." };
+  }
+
+  let txUpdate = await supabaseService
+    .from("transactions")
+    .update({ status: "completed" })
+    .eq("tx_ref", txRef)
+    .select("id, user_id")
+    .maybeSingle();
+
+  // Backward compatibility for schemas still using `reference`.
+  if (txUpdate.error || !txUpdate.data) {
+    const fallbackTxUpdate = await supabaseService
+      .from("transactions")
+      .update({ status: "completed" })
+      .eq("reference", txRef)
+      .select("id, user_id")
+      .maybeSingle();
+    if (fallbackTxUpdate.error || !fallbackTxUpdate.data) {
+      return {
+        ok: false,
+        status: 500,
+        error: `tx_ref completion update failed: ${formatDbError(fallbackTxUpdate.error ?? txUpdate.error)}`,
+      };
+    }
+    txUpdate = fallbackTxUpdate;
+  }
+
+  const userId = String((txUpdate.data as { user_id?: string } | null)?.user_id ?? "").trim();
+  if (!userId) {
+    return { ok: false, status: 500, error: "Completed transaction row has no user_id." };
+  }
+
+  let balanceRpc = await supabaseService.rpc("increment_balance", {
+    user_id: userId,
+    amount_to_add: amount,
+  });
+  if (balanceRpc.error) {
+    // Keep existing compatibility with current DB function signatures.
+    balanceRpc = await supabaseService.rpc("increment_balance", {
+      p_user_id: userId,
+      p_amount: amount,
+    });
+  }
+  if (balanceRpc.error) {
+    return {
+      ok: false,
+      status: 500,
+      error: `increment_balance RPC failed: ${formatDbError(balanceRpc.error)}`,
+    };
+  }
+
+  return { ok: true };
+}
+
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -465,21 +527,22 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const payload = (req.body ?? {}) as FlutterwaveEvent;
-  const webhookStatus = normalize(payload.status) || normalize(payload.data?.status as string | undefined);
-  const webhookTxRef = String(payload.tx_ref ?? payload.data?.tx_ref ?? payload.data?.reference ?? "").trim();
+  const webhookData = (payload.data ?? {}) as FlutterwaveEvent["data"];
+  const { status: dataStatus, tx_ref: dataTxRef, amount: dataAmount } = webhookData ?? {};
+  const webhookStatus = normalize(String(dataStatus ?? payload.status ?? ""));
+  const webhookTxRef = String(dataTxRef ?? webhookData?.reference ?? payload.tx_ref ?? "").trim();
   
   // 1. EMERGENCY LOGGING (Check this in Vercel Dashboard > Logs)
   console.log("FLW_WEBHOOK_HIT:", webhookTxRef, webhookStatus);
-  console.log("FLW_WEBHOOK_AMOUNT:", payload.data?.amount ?? null);
+  console.log("FLW_WEBHOOK_AMOUNT:", dataAmount ?? null);
   console.log("WEBHOOK_RECEIVED", payload);
   console.log("PAYLOAD_SUCCESS", payload);
   console.log("WEBHOOK_STATUS", webhookStatus || null, webhookTxRef || null);
   console.log("[FlutterwaveWebhook] FULL_PAYLOAD_JSON", JSON.stringify(payload));
 
   const bypassAllowed = await canUseAdminBypass(req);
-  const webhookHash = (process.env.FLW_WEBHOOK_HASH ?? "").trim();
-  const headerHash = headerValueCaseInsensitive(req.headers, "verif-hash")
-    || headerValueCaseInsensitive(req.headers, "verif_hash");
+  const webhookHash = process.env.FLW_WEBHOOK_HASH;
+  const headerHash = headerValueCaseInsensitive(req.headers, "verif-hash");
     
   if (!bypassAllowed && (!webhookHash || headerHash !== webhookHash)) {
     console.error("HASH_MISMATCH: Check your Vercel Env Variables");
@@ -495,8 +558,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
   console.log("[FlutterwaveWebhook] Incoming event", {
     event: payload.event,
-    status: payload.data?.status,
-    tx_ref: payload.data?.tx_ref,
+    status: dataStatus,
+    tx_ref: dataTxRef,
   });
   const status = webhookStatus;
   const event = normalize(payload.event);
@@ -517,6 +580,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   } catch (error) {
     res.status(500).json({ error: `Server misconfigured: ${String(error)}` });
     return;
+  }
+
+  if (status === "successful") {
+    const directCompletion = await completeSuccessfulTxRefPayment(supabaseService, txRef, dataAmount);
+    if (!directCompletion.ok) {
+      res.status(directCompletion.status).json({ error: directCompletion.error });
+      return;
+    }
   }
 
   const { data: tx, error: txLookupError } = await supabaseService
@@ -551,13 +622,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         txRef,
         decision: "rejected",
         reason: verified.error,
-        expectedAmount: Math.max(0, asPositiveInt(tx?.amount ?? payload.data?.amount, 0)),
+        expectedAmount: Math.max(0, asPositiveInt(tx?.amount ?? dataAmount, 0)),
         payload,
       });
       res.status(verified.status ?? 502).json({ error: verified.error });
       return;
     }
-    const expectedAmount = Math.max(0, asPositiveInt(tx?.amount ?? payload.data?.amount, 0));
+    const expectedAmount = Math.max(0, asPositiveInt(tx?.amount ?? dataAmount, 0));
     if (expectedAmount > 0 && verified.amount > 0 && verified.amount !== expectedAmount) {
       await writeVerificationAudit(supabaseService, {
         txRef,
@@ -589,7 +660,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     ? await processDeposit(
       supabaseService,
       txRef,
-      payload.data?.amount,
+      dataAmount,
       {
         ...(payload.meta ?? {}),
         ...(payload.metadata ?? {}),
@@ -604,7 +675,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       },
     )
     : tx?.id
-      ? await processSuccessfulTransaction(supabaseService, tx.id, payload.data?.amount)
+      ? await processSuccessfulTransaction(supabaseService, tx.id, dataAmount)
       : { ok: false, status: 404, error: "No transaction found for tx_ref." };
 
   if (!result.ok) {
