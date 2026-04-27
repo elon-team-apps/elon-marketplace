@@ -37,6 +37,11 @@ type PaymentMethodSettings = {
   manualEnabled: boolean;
 };
 
+type DailyOrderCount = {
+  dayKey: string;
+  count: number;
+};
+
 type WebhookVerificationRow = {
   id: string;
   provider: string;
@@ -485,6 +490,7 @@ export default function AdminDashboard() {
   const [dbTotalUsers, setDbTotalUsers] = useState<number | null>(null);
   const [dbPurchaseRevenue, setDbPurchaseRevenue] = useState<number | null>(null);
   const [dbLogsSold, setDbLogsSold] = useState<number | null>(null);
+  const [dailyOrderCounts, setDailyOrderCounts] = useState<DailyOrderCount[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
   const fetchAnalytics = useCallback(async (opts?: { silent?: boolean }) => {
@@ -494,11 +500,15 @@ export default function AdminDashboard() {
     }
     if (!opts?.silent) setAnalyticsLoading(true);
 
-    const [profilesRes, purchasesRes] = await Promise.all([
+    const [profilesRes, purchasesRes, dailyOrdersRes] = await Promise.all([
       supabase.from("profiles").select("id", { count: "exact", head: true }),
       supabase
         .from("transactions")
         .select("amount, quantity")
+        .eq("status", "completed"),
+      supabase
+        .from("transactions")
+        .select("created_at, type")
         .eq("status", "completed"),
     ]);
 
@@ -512,6 +522,27 @@ export default function AdminDashboard() {
       const logs = rows.reduce((sum, r) => sum + Math.max(0, Number(r.quantity ?? 0) || 0), 0);
       setDbPurchaseRevenue(revenue);
       setDbLogsSold(logs);
+    }
+
+    if (!dailyOrdersRes.error && dailyOrdersRes.data) {
+      const rows = dailyOrdersRes.data as { created_at: string; type: string | null }[];
+      const isPurchaseType = (value: string | null): boolean => {
+        const txType = String(value ?? "").trim().toLowerCase();
+        if (!txType) return true;
+        return !["deposit", "wallet_topup", "topup"].includes(txType);
+      };
+      const byDay = rows
+        .filter((r) => r.created_at && isPurchaseType(r.type))
+        .reduce<Record<string, number>>((acc, row) => {
+          const dayKey = new Date(row.created_at).toISOString().slice(0, 10);
+          acc[dayKey] = (acc[dayKey] ?? 0) + 1;
+          return acc;
+        }, {});
+      const list = Object.entries(byDay)
+        .map(([dayKey, count]) => ({ dayKey, count }))
+        .sort((a, b) => b.dayKey.localeCompare(a.dayKey))
+        .slice(0, 7);
+      setDailyOrderCounts(list);
     }
 
     setAnalyticsLoading(false);
@@ -544,6 +575,12 @@ export default function AdminDashboard() {
   const totalRevenue = dbPurchaseRevenue ?? 0;
   const totalLogsSold = dbLogsSold ?? 0;
   const totalUsers = dbTotalUsers ?? 0;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayKey = yesterdayDate.toISOString().slice(0, 10);
+  const todayOrderCount = dailyOrderCounts.find((d) => d.dayKey === todayKey)?.count ?? 0;
+  const yesterdayOrderCount = dailyOrderCounts.find((d) => d.dayKey === yesterdayKey)?.count ?? 0;
 
   const stats = useMemo(
     () => [
@@ -663,6 +700,54 @@ export default function AdminDashboard() {
             <p className="text-xs text-muted-foreground/60 mt-1">{s.change}</p>
           </div>
         ))}
+      </div>
+
+      <div className="glass-card p-5 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-heading font-semibold text-sm text-foreground">Daily Orders</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => void fetchAnalytics()}
+            disabled={analyticsLoading}
+          >
+            {analyticsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="rounded-xl border border-slate-200 dark:border-white/8 p-4 bg-white/60 dark:bg-white/3">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Today</p>
+            <p className="text-2xl font-bold text-foreground mt-1">{todayOrderCount}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-white/8 p-4 bg-white/60 dark:bg-white/3">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Yesterday</p>
+            <p className="text-2xl font-bold text-foreground mt-1">{yesterdayOrderCount}</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 dark:border-white/8 overflow-hidden">
+          {dailyOrderCounts.length === 0 ? (
+            <div className="px-4 py-6 text-xs text-muted-foreground text-center">No completed purchase orders yet.</div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-white/6">
+              {dailyOrderCounts.map((entry) => (
+                <div key={entry.dayKey} className="px-4 py-2.5 flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {new Date(`${entry.dayKey}T00:00:00Z`).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <span className="font-bold text-foreground">{entry.count} orders</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div id="payment-methods" className="glass-card p-5 space-y-4">
