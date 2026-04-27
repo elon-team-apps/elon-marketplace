@@ -487,6 +487,7 @@ export default function AdminDashboard() {
     manualEnabled: false,
   });
   const [pmLoading, setPmLoading] = useState(false);
+  const [reconcilingDeposits, setReconcilingDeposits] = useState(false);
   const [dbTotalUsers, setDbTotalUsers] = useState<number | null>(null);
   const [dbPurchaseRevenue, setDbPurchaseRevenue] = useState<number | null>(null);
   const [dbLogsSold, setDbLogsSold] = useState<number | null>(null);
@@ -534,7 +535,9 @@ export default function AdminDashboard() {
       const byDay = rows
         .filter((r) => r.created_at && isPurchaseType(r.type))
         .reduce<Record<string, number>>((acc, row) => {
-          const dayKey = new Date(row.created_at).toISOString().slice(0, 10);
+          const createdAt = new Date(row.created_at);
+          if (Number.isNaN(createdAt.getTime())) return acc;
+          const dayKey = createdAt.toISOString().slice(0, 10);
           acc[dayKey] = (acc[dayKey] ?? 0) + 1;
           return acc;
         }, {});
@@ -661,6 +664,43 @@ export default function AdminDashboard() {
     setPmLoading(false);
   };
 
+  const reconcilePendingDeposits = async () => {
+    if (!supabase || !profileLoaded || !isAdmin || reconcilingDeposits) return;
+    setReconcilingDeposits(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (!token) throw new Error("Missing auth session.");
+      const response = await fetch("/api/admin/reconcile-pending-deposits", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        checked?: number;
+        completed?: number;
+        skipped?: number;
+        failed?: number;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not reconcile pending deposits.");
+      }
+      toast({
+        title: "Pending deposits reconciled",
+        description: `Checked ${payload.checked ?? 0}. Completed ${payload.completed ?? 0}, skipped ${payload.skipped ?? 0}, failed ${payload.failed ?? 0}.`,
+      });
+      await fetchAnalytics();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not reconcile pending deposits.";
+      toast({ title: "Reconciliation failed", description: message, variant: "destructive" });
+    } finally {
+      setReconcilingDeposits(false);
+    }
+  };
+
   if (!profileLoaded) {
     return (
       <div className="glass-card p-6 text-sm text-muted-foreground">
@@ -733,18 +773,22 @@ export default function AdminDashboard() {
             <div className="px-4 py-6 text-xs text-muted-foreground text-center">No completed purchase orders yet.</div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-white/6">
-              {dailyOrderCounts.map((entry) => (
-                <div key={entry.dayKey} className="px-4 py-2.5 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {new Date(`${entry.dayKey}T00:00:00Z`).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </span>
-                  <span className="font-bold text-foreground">{entry.count} orders</span>
-                </div>
-              ))}
+              {dailyOrderCounts.map((entry) => {
+                const dayDate = new Date(`${entry.dayKey}T00:00:00Z`);
+                const label = Number.isNaN(dayDate.getTime())
+                  ? entry.dayKey
+                  : dayDate.toLocaleDateString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  });
+                return (
+                  <div key={entry.dayKey} className="px-4 py-2.5 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-bold text-foreground">{entry.count} orders</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -776,6 +820,17 @@ export default function AdminDashboard() {
             <p className="text-sm font-semibold">Manual Transfer</p>
             <p className="text-xs mt-1">{pmSettings.manualEnabled ? "Enabled" : "Disabled"}</p>
           </button>
+        </div>
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            className="h-9 text-xs gap-2"
+            disabled={pmLoading || reconcilingDeposits}
+            onClick={() => void reconcilePendingDeposits()}
+          >
+            {reconcilingDeposits ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Reconcile Pending Deposits
+          </Button>
         </div>
       </div>
 

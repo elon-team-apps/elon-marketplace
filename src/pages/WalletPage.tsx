@@ -165,6 +165,37 @@ export default function WalletPage() {
         return;
       }
 
+      // Fallback reconciliation: if webhook is delayed/missed, confirm successful payment directly.
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token ?? "";
+        if (token) {
+          const response = await fetch("/api/flutterwave-confirm", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ tx_ref: pendingRef }),
+          });
+          if (response.ok) {
+            const payload = (await response.json().catch(() => ({}))) as { status?: string };
+            const confirmedStatus = String(payload.status ?? "").toLowerCase();
+            if (confirmedStatus === "completed") {
+              setPendingStatus("completed");
+              void refreshProfile();
+              toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
+              localStorage.removeItem(PENDING_REF_KEY);
+              setPendingRef(null);
+              setPendingStartBalance(null);
+              return;
+            }
+          }
+        }
+      } catch {
+        // Silent fallback; normal polling continues.
+      }
+
       timer = window.setTimeout(checkStatus, 5000);
     };
 
