@@ -542,7 +542,7 @@ function ProductCard({
           type="button"
           onClick={() => onBuy(p)}
           disabled={availableStock <= 0}
-          className="mt-2 mx-auto flex h-9 w-1/2 min-w-[180px] items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-sm font-extrabold leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-sm font-extrabold leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
             background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}
