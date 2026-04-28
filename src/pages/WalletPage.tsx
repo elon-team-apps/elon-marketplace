@@ -363,12 +363,6 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {pendingRef && pendingStatus !== "completed" && pendingStatus !== "finalized" && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100 dark:border-amber-500/35">
-          Payment pending verification... we are waiting for Flutterwave webhook confirmation.
-        </div>
-      )}
-
       <div className="glass-card p-6 space-y-5">
         <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
           Fund Wallet with Flutterwave
