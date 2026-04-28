@@ -163,9 +163,7 @@ function normalizeDeliveredLog(entry: string): string {
 }
 
 function getFlutterwavePublicKey(): string {
-  const fromVite = (import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) ?? "";
-  const fromProcess = String((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY ?? "");
-  return String(fromVite || fromProcess || "").trim();
+  return String((import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) ?? "").trim();
 }
 
 type PurchaseState =
@@ -548,6 +546,16 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       if (!flutterwavePublicKey.trim()) {
         const msg = "Flutterwave public key is missing. Set NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY.";
         console.error("[PurchaseModal] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
+        setPurchaseState({ phase: "error", message: msg });
+        sonnerToast.error("Flutterwave initialization failed", {
+          description: msg,
+        });
+        setPurchasing(false);
+        return;
+      }
+      if (/^FLWSECK_/i.test(flutterwavePublicKey)) {
+        const msg = "Invalid Flutterwave key type. Use NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY (FLWPUBK...).";
+        console.error("[PurchaseModal] Flutterwave init failed: secret key was provided as public key");
         setPurchaseState({ phase: "error", message: msg });
         sonnerToast.error("Flutterwave initialization failed", {
           description: msg,
