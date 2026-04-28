@@ -643,14 +643,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from("transactions")
       .select("*")
       .eq("reference", txRef)
-      .single();
+      .maybeSingle();
     if (txLookupError) {
       const lookupMessage = String(txLookupError.message ?? "").toLowerCase();
       if (lookupMessage.includes("no rows")) {
-        res.status(404).json({ error: "No transaction found for tx_ref." });
+        res.status(200).json({ message: "Transaction not found, skipping" });
         return;
       }
       res.status(500).json({ error: `Transaction lookup failed: ${formatDbError(txLookupError)}` });
+      return;
+    }
+    if (!tx) {
+      res.status(200).json({ message: "Transaction not found, skipping" });
       return;
     }
 
