@@ -395,14 +395,17 @@ async function processDeposit(
     }
   }
 
-  if (tx?.balance_credited === true) {
-    return { ok: true, status: 200, data: { ok: true, idempotent: true, alreadyCredited: true } };
+  if (tx?.status) {
+    console.log(`Processing transaction ${txRef}. Current status: ${tx.status}`);
   }
 
-  // Only short-circuit true idempotent retries for finalized/success.
-  // Some deposits were marked completed before crediting, so completed still attempts credit.
-  if (tx?.status === "finalized" || tx?.status === "success") {
-    return { ok: true, status: 200, data: { ok: true, idempotent: true } };
+  if (tx?.balance_credited === true) {
+    return { ok: true, status: 200, data: { ok: true, message: "Transaction already processed", idempotent: true, alreadyCredited: true } };
+  }
+
+  const normalizedStatus = normalize(tx?.status);
+  if (normalizedStatus === "completed" || normalizedStatus === "finalized" || normalizedStatus === "success") {
+    return { ok: true, status: 200, data: { ok: true, message: "Transaction already processed", idempotent: true } };
   }
   let userId = String(tx?.user_id ?? meta?.userId ?? "").trim();
   if (!userId && fallbackEmail) {
@@ -424,6 +427,22 @@ async function processDeposit(
   const credit = Math.max(0, asPositiveInt(tx?.amount ?? amount, 0));
   if (!credit) return { ok: false, status: 400, error: "Invalid deposit amount." };
 
+  if (tx?.id) {
+    const lockTx = await supabaseAdmin
+      .from("transactions")
+      .update({ status: "completed", amount: credit })
+      .eq("id", tx.id)
+      .in("status", ["pending", "initiated"])
+      .select("id")
+      .maybeSingle();
+    if (lockTx.error) {
+      return { ok: false, status: 500, error: `Deposit completion lock failed: ${formatDbError(lockTx.error)}` };
+    }
+    if (!lockTx.data) {
+      return { ok: true, status: 200, data: { ok: true, message: "Transaction already processed", idempotent: true } };
+    }
+  }
+
   const incremented = await incrementWalletAtomic(supabaseAdmin, userId, credit);
   if (!incremented.ok) {
     return { ok: false, status: incremented.status ?? 500, error: incremented.error };
@@ -431,7 +450,7 @@ async function processDeposit(
   const next = incremented.wallet_balance;
 
   if (tx?.id) {
-    const updatePayload: Record<string, unknown> = { status: "completed", amount: credit };
+    const updatePayload: Record<string, unknown> = { amount: credit };
     if (!txMissingBalanceCreditedColumn) {
       updatePayload.balance_credited = true;
     }
@@ -445,7 +464,7 @@ async function processDeposit(
     if (txUpdateAttempt.error && isMissingColumnError(txUpdateAttempt.error, "balance_credited")) {
       const fallbackTxUpdate = await supabaseAdmin
         .from("transactions")
-        .update({ status: "completed", amount: credit })
+        .update({ amount: credit })
         .eq("id", tx.id);
       if (fallbackTxUpdate.error) {
         return { ok: false, status: 500, error: `Deposit completion failed: ${formatDbError(fallbackTxUpdate.error)}` };
@@ -507,19 +526,43 @@ async function completeSuccessfulTxRefPayment(
     return { ok: false, status: 400, error: "Missing tx_ref or amount in webhook data payload." };
   }
 
+  const existingTx = await supabaseService
+    .from("transactions")
+    .select("id, user_id, status")
+    .eq("reference", tx_ref)
+    .maybeSingle();
+  if (existingTx.error) {
+    return {
+      ok: false,
+      status: 500,
+      error: `tx_ref lookup failed: ${formatDbError(existingTx.error)}`,
+    };
+  }
+  if (!existingTx.data) {
+    return { ok: true };
+  }
+  console.log(`Processing transaction ${tx_ref}. Current status: ${String(existingTx.data.status ?? "")}`);
+  if (normalize(String(existingTx.data.status ?? "")) === "completed") {
+    return { ok: true };
+  }
+
   const txUpdate = await supabaseService
     .from("transactions")
     .update({ status: "completed" })
     .eq("reference", tx_ref)
+    .in("status", ["pending", "initiated"])
     .select("id, user_id")
     .maybeSingle();
 
-  if (txUpdate.error || !txUpdate.data) {
+  if (txUpdate.error) {
     return {
       ok: false,
       status: 500,
       error: `tx_ref completion update failed: ${formatDbError(txUpdate.error)}`,
     };
+  }
+  if (!txUpdate.data) {
+    return { ok: true };
   }
 
   const userId = String((txUpdate.data as { user_id?: string } | null)?.user_id ?? "").trim();
