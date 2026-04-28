@@ -505,8 +505,8 @@ function ProductCard({
             accentColor={platform?.color ?? "#1877F2"}
           />
           <h3
-            className="text-lg font-black text-black uppercase !font-[1000] antialiased"
-            style={{ fontWeight: 900, WebkitTextStroke: "0.5px black" }}
+            className="text-lg font-extrabold text-black uppercase antialiased"
+            style={{ fontWeight: 800 }}
           >
             {p.title}
           </h3>
@@ -529,7 +529,7 @@ function ProductCard({
         {/* Price */}
         <p className="text-xs text-slate-700 font-semibold leading-5">
           Per Quantity:{" "}
-          <span className="text-lg font-black text-black !font-[1000]">
+          <span className="text-lg font-extrabold text-black">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
@@ -542,7 +542,7 @@ function ProductCard({
           type="button"
           onClick={() => onBuy(p)}
           disabled={availableStock <= 0}
-          className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-sm font-extrabold leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-sm font-extrabold leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
             background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}
