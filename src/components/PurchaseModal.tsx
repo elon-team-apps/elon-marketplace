@@ -17,6 +17,7 @@ import {
   inferPlatformKey,
 } from "@/pages/ProductsPage";
 import { calculateStockBreakdown } from "@/lib/stock";
+import { resolveFlutterwavePublicKey } from "@/lib/flutterwavePublicKey";
 
 const BTN_NAVY = "#0f172a";
 const TEXT_BLACK = "#000000";
@@ -163,14 +164,7 @@ function normalizeDeliveredLog(entry: string): string {
 }
 
 function getFlutterwavePublicKey(): string {
-  const publicKey = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY : undefined;
-  const windowFallback =
-    typeof window !== "undefined"
-      ? (window as Window & { NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY?: string }).NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY
-      : undefined;
-  console.log("Direct process.env check:", publicKey);
-  console.log("Window fallback check:", windowFallback);
-  return String(publicKey ?? windowFallback ?? "").trim();
+  return resolveFlutterwavePublicKey();
 }
 
 type PurchaseState =

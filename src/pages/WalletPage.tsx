@@ -6,6 +6,7 @@ import { useApp } from "@/context/AppContext";
 import {
   supabase,
 } from "@/lib/supabaseClient";
+import { resolveFlutterwavePublicKey } from "@/lib/flutterwavePublicKey";
 import { useToast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
 
@@ -42,14 +43,7 @@ function getFlutterwaveWindow(): FlutterwaveWindow {
 }
 
 function getFlutterwavePublicKey(): string {
-  const publicKey = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY : undefined;
-  const windowFallback =
-    typeof window !== "undefined"
-      ? (window as Window & { NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY?: string }).NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY
-      : undefined;
-  console.log("Direct process.env check:", publicKey);
-  console.log("Window fallback check:", windowFallback);
-  return String(publicKey ?? windowFallback ?? "").trim();
+  return resolveFlutterwavePublicKey();
 }
 
 async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptions) => void> {
