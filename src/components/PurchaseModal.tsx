@@ -163,7 +163,7 @@ function normalizeDeliveredLog(entry: string): string {
 }
 
 function getFlutterwavePublicKey(): string {
-  return String((import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) ?? "").trim();
+  return String((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY ?? "").trim();
 }
 
 type PurchaseState =
@@ -543,6 +543,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       const flutterwavePublicKey = getFlutterwavePublicKey();
+      console.log("FW Public Key being used:", (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY);
       if (!flutterwavePublicKey.trim()) {
         const msg = "Flutterwave public key is missing. Set NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY.";
         console.error("[PurchaseModal] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");

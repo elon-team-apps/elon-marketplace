@@ -486,6 +486,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(405).json({ error: "Method not allowed." });
     return;
   }
+  const userAgentHeader = req.headers["user-agent"];
+  const userAgent = Array.isArray(userAgentHeader) ? String(userAgentHeader[0] ?? "") : String(userAgentHeader ?? "");
+  if (userAgent.includes("Mozilla")) {
+    res.status(200).json({ message: "Frontend ping ignored" });
+    return;
+  }
   if (!req.body) {
     res.status(400).json({ error: "No data" });
     return;
