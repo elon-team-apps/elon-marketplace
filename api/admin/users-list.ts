@@ -88,8 +88,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const adminClient = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-  const { data: callerProfile, error: callerProfileError } = await adminClient
+  const { data: callerProfile, error: callerProfileError } = await userClient
     .from("profiles")
     .select("role, is_admin")
     .eq("id", userData.user.id)
@@ -105,6 +104,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     res.status(403).json({ error: "Admin access required." });
     return;
   }
+
+  const adminClient = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
 
   const allUsers: Array<{ id: string; email: string | null; created_at: string | null }> = [];
   let page = 1;
