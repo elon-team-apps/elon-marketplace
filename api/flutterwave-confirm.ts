@@ -177,125 +177,6 @@ async function verifyFlutterwaveByReference(txRef: string): Promise<FlutterwaveV
   return { ok: true, txRef: verifiedTxRef, status: verifiedStatus, amount: verifiedAmount };
 }
 
-async function incrementWalletAtomic(
-  supabaseAdmin: SupabaseClient,
-  userId: string,
-  amount: number,
-): Promise<{ ok: true; wallet_balance: number } | { ok: false; error: string; status?: number }> {
-  // Preferred signature for current deployment.
-  const primaryBalanceRpc = await supabaseAdmin.rpc("increment_balance", {
-    user_id: userId,
-    amount_to_add: amount,
-  });
-  if (!primaryBalanceRpc.error) {
-    const next = Math.max(0, asPositiveInt(primaryBalanceRpc.data, 0));
-    return { ok: true, wallet_balance: next };
-  }
-
-  const rpcAttempt = await supabaseAdmin.rpc("increment_wallet_balance", {
-    p_user_id: userId,
-    p_amount: amount,
-  });
-  if (!rpcAttempt.error) {
-    const next = Math.max(0, asPositiveInt(rpcAttempt.data, 0));
-    return { ok: true, wallet_balance: next };
-  }
-
-  const rpcLegacyAttempt = await supabaseAdmin.rpc("increment_balance", {
-    p_user_id: userId,
-    p_amount: amount,
-  });
-  if (!rpcLegacyAttempt.error) {
-    const next = Math.max(0, asPositiveInt(rpcLegacyAttempt.data, 0));
-    // Ensure modern UI field always reflects immediately even if legacy RPC only updates balance.
-    const syncWallet = await supabaseAdmin
-      .from("profiles")
-      .update({ wallet_balance: next })
-      .eq("id", userId);
-    if (syncWallet.error && !isMissingColumnError(syncWallet.error, "wallet_balance")) {
-      return { ok: false, status: 500, error: `Wallet sync failed: ${formatDbError(syncWallet.error)}` };
-    }
-    return { ok: true, wallet_balance: next };
-  }
-
-  // Fallback path if RPC is not deployed yet.
-  const profileRead = await supabaseAdmin
-    .from("profiles")
-    .select("wallet_balance, balance")
-    .eq("id", userId)
-    .maybeSingle();
-
-  let profile = profileRead.data as { wallet_balance?: unknown; balance?: unknown } | null;
-  let profileError = profileRead.error;
-  let hasWalletBalance = !isMissingColumnError(profileRead.error, "wallet_balance");
-  let hasLegacyBalance = !isMissingColumnError(profileRead.error, "balance");
-
-  if (profileRead.error && (isMissingColumnError(profileRead.error, "wallet_balance") || isMissingColumnError(profileRead.error, "balance"))) {
-    const fallbackRead = await supabaseAdmin
-      .from("profiles")
-      .select("wallet_balance")
-      .eq("id", userId)
-      .maybeSingle();
-    if (!fallbackRead.error && fallbackRead.data) {
-      profile = fallbackRead.data as { wallet_balance?: unknown; balance?: unknown };
-      profileError = null;
-      hasWalletBalance = true;
-      hasLegacyBalance = false;
-    } else if (isMissingColumnError(fallbackRead.error, "wallet_balance")) {
-      const legacyRead = await supabaseAdmin
-        .from("profiles")
-        .select("balance")
-        .eq("id", userId)
-        .maybeSingle();
-      profile = legacyRead.data as { wallet_balance?: unknown; balance?: unknown } | null;
-      profileError = legacyRead.error;
-      hasWalletBalance = false;
-      hasLegacyBalance = true;
-    } else {
-      profileError = fallbackRead.error;
-    }
-  }
-
-  if (profileError || !profile) {
-    return { ok: false, status: 500, error: `Profile lookup failed: ${formatDbError(profileError)}` };
-  }
-
-  const currentWallet = Math.max(0, asPositiveInt(profile.wallet_balance, 0));
-  const currentLegacy = Math.max(0, asPositiveInt(profile.balance, 0));
-  const nextWallet = currentWallet + amount;
-  const nextLegacy = currentLegacy + amount;
-
-  const updatePayload: Record<string, number> = {};
-  if (hasWalletBalance) updatePayload.wallet_balance = nextWallet;
-  if (hasLegacyBalance) updatePayload.balance = nextLegacy;
-  if (!hasWalletBalance && !hasLegacyBalance) {
-    return { ok: false, status: 500, error: "No balance column available on profiles table." };
-  }
-
-  const updateAttempt = await supabaseAdmin
-    .from("profiles")
-    .update(updatePayload)
-    .eq("id", userId)
-    .select("wallet_balance, balance");
-  if (updateAttempt.error) {
-    return { ok: false, status: 500, error: `Balance update failed: ${formatDbError(updateAttempt.error)}` };
-  }
-  if (!Array.isArray(updateAttempt.data) || updateAttempt.data.length === 0) {
-    return { ok: false, status: 409, error: "Balance update conflict." };
-  }
-  const updated = updateAttempt.data[0] as { wallet_balance?: unknown; balance?: unknown };
-  return {
-    ok: true,
-    wallet_balance: Math.max(
-      0,
-      asPositiveInt(
-        hasWalletBalance ? updated.wallet_balance : updated.balance,
-        hasWalletBalance ? nextWallet : nextLegacy,
-      ),
-    ),
-  };
-}
-
 async function canUseAdminBypass(req: NextApiRequest): Promise<boolean> {
   if (normalize(headerValue(req.headers, "x-admin-bypass")) !== "true") return false;
   const authHeader = headerValue(req.headers, "authorization");
@@ -443,12 +324,6 @@ async function processDeposit(
     }
   }
 
-  const incremented = await incrementWalletAtomic(supabaseAdmin, userId, credit);
-  if (!incremented.ok) {
-    return { ok: false, status: incremented.status ?? 500, error: incremented.error };
-  }
-  const next = incremented.wallet_balance;
-
   if (tx?.id) {
     const updatePayload: Record<string, unknown> = { amount: credit };
     if (!txMissingBalanceCreditedColumn) {
@@ -513,7 +388,7 @@ async function processDeposit(
     }
   }
 
-  return { ok: true, status: 200, data: { ok: true, userId, wallet_balance: next, reference: txRef } };
+  return { ok: true, status: 200, data: { ok: true, userId, reference: txRef } };
 }
 
 async function completeSuccessfulTxRefPayment(
@@ -563,30 +438,6 @@ async function completeSuccessfulTxRefPayment(
   }
   if (!txUpdate.data) {
     return { ok: true };
-  }
-
-  const userId = String((txUpdate.data as { user_id?: string } | null)?.user_id ?? "").trim();
-  if (!userId) {
-    return { ok: false, status: 500, error: "Completed transaction row has no user_id." };
-  }
-
-  let balanceRpc = await supabaseService.rpc("increment_balance", {
-    user_id: userId,
-    amount_to_add: amount,
-  });
-  if (balanceRpc.error) {
-    // Keep existing compatibility with current DB function signatures.
-    balanceRpc = await supabaseService.rpc("increment_balance", {
-      p_user_id: userId,
-      p_amount: amount,
-    });
-  }
-  if (balanceRpc.error) {
-    return {
-      ok: false,
-      status: 500,
-      error: `increment_balance RPC failed: ${formatDbError(balanceRpc.error)}`,
-    };
   }
 
   return { ok: true };
