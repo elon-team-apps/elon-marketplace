@@ -518,10 +518,10 @@ function ProductCard({
         {/* Stock + quantity hierarchy */}
         <p className="text-xs font-semibold text-slate-700 leading-5">
           {availableStock <= 0 ? (
-            <span className="text-slate-700">In Stock: <span className="font-black text-slate-950">Out of Stock</span></span>
+            <span className="text-slate-700">In Stock: <span className="text-base font-normal text-black">Out of Stock</span></span>
           ) : (
             <span className="text-slate-700">
-              In Stock: <span className="font-black text-slate-950">{availableStock} qty</span>
+              In Stock: <span className="text-base font-normal text-black">{availableStock} qty</span>
             </span>
           )}
         </p>
