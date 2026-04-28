@@ -16,10 +16,21 @@ type Deposit = {
 };
 
 const STATUS = {
-  completed: { label: "Completed", icon: CheckCircle2, cls: "bg-accent/10 text-accent border-accent/20" },
+  completed: { label: "Completed", icon: CheckCircle2, cls: "bg-emerald-500/10 text-emerald-700 border-emerald-500/25" },
   pending:   { label: "Pending",   icon: Clock,        cls: "bg-warning/10 text-warning border-warning/20" },
   failed:    { label: "Failed",    icon: XCircle,      cls: "bg-destructive/10 text-destructive border-destructive/20" },
 };
+
+function normalizeDepositStatus(status: string | null | undefined): keyof typeof STATUS {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (["completed", "complete", "success", "successful", "succeeded", "finalized", "paid"].includes(normalized)) {
+    return "completed";
+  }
+  if (["failed", "error", "cancelled", "canceled", "declined"].includes(normalized)) {
+    return "failed";
+  }
+  return "pending";
+}
 
 export default function PaymentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -68,7 +79,7 @@ export default function PaymentsPage() {
           const row = (payload.new ?? payload.old) as { type?: string; status?: string } | undefined;
           if (String(row?.type ?? "").toLowerCase() !== "deposit") return;
           void refetchDeposits({ showLoading: false });
-          const st = String((payload.new as { status?: string } | undefined)?.status ?? "").toLowerCase();
+          const st = normalizeDepositStatus((payload.new as { status?: string } | undefined)?.status);
           if (st === "completed") void refreshProfile();
         },
       )
@@ -115,7 +126,7 @@ export default function PaymentsPage() {
         return;
       }
 
-      const st = data.status as string;
+      const st = normalizeDepositStatus(data.status as string);
       if (st === "completed") {
         refreshedForRef.current = paystackRefParam;
         await refreshProfile();
@@ -141,7 +152,7 @@ export default function PaymentsPage() {
   }, [paystackRefParam, currentUser?.id, refreshProfile, setSearchParams, refetchDeposits]);
 
   const totalDeposited = deposits
-    .filter((d) => d.status === "completed")
+    .filter((d) => normalizeDepositStatus(d.status) === "completed")
     .reduce((sum, d) => sum + d.amount, 0);
 
   return (
@@ -225,7 +236,7 @@ export default function PaymentsPage() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {deposits.map((dep) => {
-                  const cfg = STATUS[dep.status as keyof typeof STATUS] ?? STATUS.pending;
+                  const cfg = STATUS[normalizeDepositStatus(dep.status)];
                   const Icon = cfg.icon;
                   return (
                     <tr key={dep.id} className="hover:bg-slate-50 transition-colors">
