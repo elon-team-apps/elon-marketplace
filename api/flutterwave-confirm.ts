@@ -1,7 +1,44 @@
 /// <reference path="../next-shim.d.ts" />
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { processSuccessfulTransaction, formatDbError, asPositiveInt } from "./_lib/processSuccessfulOrder.js";
+
+type ProcessSuccessfulTransactionFn = (
+  supabaseAdmin: SupabaseClient,
+  transactionId: string,
+  amountNairaRaw: unknown,
+  options?: { allowRecoveryForCompletedWithoutDelivery?: boolean },
+) => Promise<{ ok: boolean; status: number; error?: string; data?: unknown }>;
+
+function asPositiveInt(value: unknown, fallback = 0): number {
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
+function formatDbError(error: { message?: string; code?: string; details?: string; hint?: string } | null | undefined): string {
+  if (!error) return "Unknown database error.";
+  return [
+    error.message ? `message=${error.message}` : "",
+    error.code ? `code=${error.code}` : "",
+    error.details ? `details=${error.details}` : "",
+    error.hint ? `hint=${error.hint}` : "",
+  ].filter(Boolean).join(" | ") || "Unknown database error.";
+}
+
+async function loadProcessSuccessfulTransaction(): Promise<ProcessSuccessfulTransactionFn> {
+  try {
+    const module = await import("./_lib/processSuccessfulOrder");
+    const fn = module.processSuccessfulTransaction as ProcessSuccessfulTransactionFn | undefined;
+    if (typeof fn === "function") return fn;
+  } catch {
+    // Fallback to explicit extension below.
+  }
+
+  const fallbackModule = await import("./_lib/processSuccessfulOrder.js");
+  const fallbackFn = fallbackModule.processSuccessfulTransaction as ProcessSuccessfulTransactionFn | undefined;
+  if (typeof fallbackFn === "function") return fallbackFn;
+  throw new Error("processSuccessfulTransaction export not found.");
+}
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
 
@@ -588,6 +625,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
+    let processSuccessfulTransactionFn: ProcessSuccessfulTransactionFn;
+    try {
+      processSuccessfulTransactionFn = await loadProcessSuccessfulTransaction();
+    } catch (error) {
+      console.error("[FlutterwaveWebhook] Failed to load processSuccessfulOrder helper", error);
+      res.status(500).json({ error: "Webhook helper module missing or invalid." });
+      return;
+    }
+
     const { data: tx, error: txLookupError } = await supabaseService
       .from("transactions")
       .select("*")
@@ -678,7 +724,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       )
       : tx?.id
-        ? await processSuccessfulTransaction(supabaseService, tx.id, dataAmount)
+        ? await processSuccessfulTransactionFn(supabaseService, tx.id, dataAmount)
         : { ok: false, status: 404, error: "No transaction found for tx_ref." };
 
     if (!result.ok) {
