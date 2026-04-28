@@ -504,7 +504,7 @@ function ProductCard({
             size={32}
             accentColor={platform?.color ?? "#1877F2"}
           />
-          <h3 className="font-extrabold text-slate-900 uppercase">
+          <h3 className="text-lg font-black text-slate-950 uppercase tracking-tight">
             {p.title}
           </h3>
         </div>
@@ -513,12 +513,12 @@ function ProductCard({
         </p>
 
         {/* Stock + quantity hierarchy */}
-        <p className="text-xs text-slate-500 font-normal leading-5">
+        <p className="text-xs font-medium text-slate-500 leading-5">
           {availableStock <= 0 ? (
-            <span className="text-slate-500">In Stock: <span className="font-bold text-black">Out of Stock</span></span>
+            <span className="text-slate-500">In Stock: <span className="font-bold text-slate-900">Out of Stock</span></span>
           ) : (
             <span className="text-slate-500">
-              In Stock: <span className="font-bold text-black">{availableStock} qty</span>
+              In Stock: <span className="font-bold text-slate-900">{availableStock} qty</span>
             </span>
           )}
         </p>
@@ -526,7 +526,7 @@ function ProductCard({
         {/* Price */}
         <p className="text-xs text-slate-500 font-normal leading-5">
           Per Quantity:{" "}
-          <span className="font-black text-black">
+          <span className="text-lg font-black text-slate-900">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
