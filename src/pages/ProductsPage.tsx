@@ -508,25 +508,25 @@ function ProductCard({
             {p.title}
           </h3>
         </div>
-        <p className="text-sm font-semibold text-gray-600 leading-tight mt-1 line-clamp-2">
+        <p className="text-sm font-bold text-slate-800 leading-tight mt-1 line-clamp-2">
           {String(p.description ?? "").trim() || "No description provided."}
         </p>
 
         {/* Stock + quantity hierarchy */}
-        <p className="text-xs font-medium text-slate-500 leading-5">
+        <p className="text-xs font-semibold text-slate-700 leading-5">
           {availableStock <= 0 ? (
-            <span className="text-slate-500">In Stock: <span className="font-bold text-slate-900">Out of Stock</span></span>
+            <span className="text-slate-700">In Stock: <span className="font-black text-slate-950">Out of Stock</span></span>
           ) : (
-            <span className="text-slate-500">
-              In Stock: <span className="font-bold text-slate-900">{availableStock} qty</span>
+            <span className="text-slate-700">
+              In Stock: <span className="font-black text-slate-950">{availableStock} qty</span>
             </span>
           )}
         </p>
 
         {/* Price */}
-        <p className="text-xs text-slate-500 font-normal leading-5">
+        <p className="text-xs text-slate-700 font-semibold leading-5">
           Per Quantity:{" "}
-          <span className="text-lg font-black text-slate-900">
+          <span className="text-xl font-black text-slate-950">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>
