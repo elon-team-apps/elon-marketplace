@@ -1,7 +1,7 @@
 /// <reference path="../next-shim.d.ts" />
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { processSuccessfulTransaction, formatDbError, asPositiveInt } from "./_lib/processSuccessfulOrder";
+import { processSuccessfulTransaction, formatDbError, asPositiveInt } from "./_lib/processSuccessfulOrder.js";
 
 type ApiHeaders = Record<string, string | string[] | undefined>;
 
