@@ -441,6 +441,7 @@ function ProductCard({
   const availableStock = stockView.total;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
+  const isExpressTitle = p.title.trim().toLowerCase() === "express";
 
   useEffect(() => {
     if (!supabase || !p?.id) {
@@ -505,8 +506,8 @@ function ProductCard({
             accentColor={platform?.color ?? "#1877F2"}
           />
           <h3
-            className="text-lg font-normal text-black uppercase antialiased"
-            style={{ fontWeight: 400 }}
+            className={`${isExpressTitle ? "text-xs font-semibold" : "text-lg font-normal"} text-black uppercase antialiased`}
+            style={{ fontWeight: isExpressTitle ? 600 : 400 }}
           >
             {p.title}
           </h3>
