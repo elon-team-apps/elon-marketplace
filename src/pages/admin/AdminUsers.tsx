@@ -183,8 +183,9 @@ export default function AdminUsers() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token ?? "";
       if (token) {
-        const response = await fetch("/api/admin/users-list", {
+        const response = await fetch(`/api/admin/users-list?t=${Date.now()}`, {
           method: "GET",
+          cache: "no-store",
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -196,6 +197,13 @@ export default function AdminUsers() {
             setLoading(false);
             return;
           }
+        } else {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string };
+          toast({
+            title: "Admin users API failed",
+            description: payload.error || `Request failed with status ${response.status}`,
+            variant: "destructive",
+          });
         }
       }
 
@@ -337,12 +345,12 @@ export default function AdminUsers() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 dark:border-white/6 bg-slate-50/50 dark:bg-white/4">
-                    <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground">User</th>
-                    <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">Role</th>
-                    <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground">Balance</th>
-                    <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground hidden lg:table-cell">Joined</th>
-                    <th className="px-5 py-3.5 text-center font-semibold text-muted-foreground">Top-up</th>
+                  <tr className="border-b border-slate-300 dark:border-white/12 bg-slate-200/90 dark:bg-slate-700/50">
+                    <th className="px-5 py-3.5 text-left font-semibold text-slate-800 dark:text-slate-100">User</th>
+                    <th className="px-5 py-3.5 text-center font-semibold text-slate-800 dark:text-slate-100">Role</th>
+                    <th className="px-5 py-3.5 text-right font-semibold text-slate-800 dark:text-slate-100">Balance</th>
+                    <th className="px-5 py-3.5 text-center font-semibold text-slate-800 dark:text-slate-100 hidden lg:table-cell">Joined</th>
+                    <th className="px-5 py-3.5 text-center font-semibold text-slate-800 dark:text-slate-100">Top-up</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
