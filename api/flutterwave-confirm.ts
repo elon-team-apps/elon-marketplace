@@ -457,12 +457,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(405).json({ error: "Method not allowed." });
     return;
   }
+  if (!req.body || !(req.body as { data?: unknown }).data) {
+    res.status(400).json({ error: "No data" });
+    return;
+  }
 
   try {
     const payload = (req.body ?? {}) as FlutterwaveEvent;
     if (!payload?.data || typeof payload.data !== "object") {
-      console.warn("[FlutterwaveWebhook] Missing req.body.data payload; skipping.", payload);
-      res.status(200).json({ ok: true, skipped: true, reason: "Missing payload.data" });
+      res.status(400).json({ error: "No data" });
       return;
     }
     const webhookData = (payload.data ?? {}) as FlutterwaveEvent["data"];
@@ -481,13 +484,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const bypassAllowed = await canUseAdminBypass(req);
     const webhookHash = process.env.FLW_WEBHOOK_HASH;
-    const signature =
-      headerValueCaseInsensitive(req.headers, "verif-hash")
-      || headerValueCaseInsensitive(req.headers, "verif_hash")
-      || headerValueCaseInsensitive(req.headers, "X-Flutterwave-Signature");
-    console.log("Received Hash:", signature, "Expected:", webhookHash);
-    console.log("[FlutterwaveWebhook] Payload snapshot:", payload);
-    
+    let signature = "";
+    try {
+      signature =
+        headerValueCaseInsensitive(req.headers, "verif-hash")
+        || headerValueCaseInsensitive(req.headers, "verif_hash")
+        || headerValueCaseInsensitive(req.headers, "X-Flutterwave-Signature");
+      console.log("Received Hash:", signature, "Expected:", webhookHash);
+      console.log("[FlutterwaveWebhook] Payload snapshot:", payload);
+    } catch (signatureError) {
+      console.error("[FlutterwaveWebhook] Signature extraction failed", signatureError);
+      if (!bypassAllowed) {
+        res.status(401).json({ error: "Invalid Flutterwave webhook signature." });
+        return;
+      }
+    }
     if (!bypassAllowed && (!webhookHash || signature !== webhookHash)) {
       console.error("HASH_MISMATCH: Check your Vercel Env Variables");
       console.error("[FlutterwaveWebhook] Hash mismatch", {
@@ -644,6 +655,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(result.status).json(result.data ?? { ok: true });
   } catch (error) {
     console.error("[FlutterwaveWebhook] Unhandled error", error);
-    res.status(500).json({ error: `Webhook runtime failure: ${String(error)}` });
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ error: message });
   }
 }
