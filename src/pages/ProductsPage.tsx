@@ -313,8 +313,8 @@ export default function ProductsPage() {
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-bold text-2xl" style={{ color: TEXT_BLACK }}>Products</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Browse and purchase social media accounts</p>
+          <h1 className="font-bold text-2xl text-slate-900 dark:text-white">Products</h1>
+          <p className="text-sm mt-0.5 text-slate-600 dark:text-slate-300">Browse and purchase social media accounts</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Balance */}
