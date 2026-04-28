@@ -504,11 +504,11 @@ function ProductCard({
             size={32}
             accentColor={platform?.color ?? "#1877F2"}
           />
-          <h3 className="text-lg font-black text-slate-950 uppercase tracking-tight">
+          <h3 className="text-lg font-black text-slate-950 uppercase tracking-tight leading-tight" style={{ fontWeight: 900 }}>
             {p.title}
           </h3>
         </div>
-        <p className="text-sm font-medium text-gray-600 leading-tight mt-1 line-clamp-2">
+        <p className="text-sm font-semibold text-gray-600 leading-tight mt-1 line-clamp-2">
           {String(p.description ?? "").trim() || "No description provided."}
         </p>
 
