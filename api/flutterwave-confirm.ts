@@ -581,16 +581,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const bypassAllowed = await canUseAdminBypass(req);
     const webhookHash = process.env.FLW_WEBHOOK_HASH;
-    const headerHash = headerValueCaseInsensitive(req.headers, "verif-hash");
+    const signature =
+      headerValueCaseInsensitive(req.headers, "verif-hash")
+      || headerValueCaseInsensitive(req.headers, "verif_hash");
+    console.log("Received Hash:", signature, "Expected:", webhookHash);
     
-    if (!bypassAllowed && (!webhookHash || headerHash !== webhookHash)) {
+    if (!bypassAllowed && (!webhookHash || signature !== webhookHash)) {
       console.error("HASH_MISMATCH: Check your Vercel Env Variables");
       console.error("[FlutterwaveWebhook] Hash mismatch", {
-        headerHash,
+        signature,
         webhookHash,
-        hasHeader: Boolean(headerHash),
+        hasHeader: Boolean(signature),
         hasEnv: Boolean(webhookHash),
-        reason: !webhookHash ? "Missing FLW_WEBHOOK_HASH env" : "Header verif-hash mismatch",
+        reason: !webhookHash ? "Missing FLW_WEBHOOK_HASH env" : "Header verif-hash/verif_hash mismatch",
       });
       res.status(401).json({ error: "Invalid Flutterwave webhook signature." });
       return;
