@@ -194,6 +194,53 @@ export default function AdminUsers() {
 
   useEffect(() => { fetchProfiles(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel("admin-users-profiles-live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "profiles" },
+        (payload) => {
+          const inserted = payload.new as Profile;
+          setProfiles((prev) => {
+            if (prev.some((p) => p.id === inserted.id)) return prev;
+            return [inserted, ...prev];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles" },
+        (payload) => {
+          const updated = payload.new as Partial<Profile> & { id: string };
+          setProfiles((prev) =>
+            prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+          );
+          setTopUpTarget((prev) => {
+            if (!prev || prev.id !== updated.id) return prev;
+            return { ...prev, ...updated };
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "profiles" },
+        (payload) => {
+          const deleted = payload.old as Partial<Profile> & { id?: string };
+          if (!deleted.id) return;
+          setProfiles((prev) => prev.filter((p) => p.id !== deleted.id));
+          setTopUpTarget((prev) => (prev && prev.id === deleted.id ? null : prev));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
   const filtered = profiles.filter((p) =>
     p.email?.toLowerCase().includes(search.toLowerCase())
   );
