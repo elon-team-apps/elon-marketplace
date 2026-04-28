@@ -504,7 +504,7 @@ function ProductCard({
             size={32}
             accentColor={platform?.color ?? "#1877F2"}
           />
-          <h3 className="text-lg font-extrabold text-slate-900 uppercase tracking-tight leading-snug flex-1 min-w-0 line-clamp-2">
+          <h3 className="font-extrabold text-slate-900 uppercase">
             {p.title}
           </h3>
         </div>
@@ -526,7 +526,7 @@ function ProductCard({
         {/* Price */}
         <p className="text-xs text-slate-500 font-normal leading-5">
           Per Quantity:{" "}
-          <span className="text-xl font-black text-black leading-none break-words">
+          <span className="font-black text-black">
             ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
           </span>
         </p>

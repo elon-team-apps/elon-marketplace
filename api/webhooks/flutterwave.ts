@@ -463,29 +463,19 @@ async function completeSuccessfulTxRefPayment(
     return { ok: false, status: 400, error: "Missing tx_ref or amount in webhook data payload." };
   }
 
-  let txUpdate = await supabaseService
+  const txUpdate = await supabaseService
     .from("transactions")
     .update({ status: "completed" })
     .eq("reference", tx_ref)
     .select("id, user_id")
     .maybeSingle();
 
-  // Backward compatibility for schemas that might still expose tx_ref.
   if (txUpdate.error || !txUpdate.data) {
-    const fallbackTxUpdate = await supabaseService
-      .from("transactions")
-      .update({ status: "completed" })
-      .eq("tx_ref", tx_ref)
-      .select("id, user_id")
-      .maybeSingle();
-    if (fallbackTxUpdate.error || !fallbackTxUpdate.data) {
-      return {
-        ok: false,
-        status: 500,
-        error: `tx_ref completion update failed: ${formatDbError(fallbackTxUpdate.error ?? txUpdate.error)}`,
-      };
-    }
-    txUpdate = fallbackTxUpdate;
+    return {
+      ok: false,
+      status: 500,
+      error: `tx_ref completion update failed: ${formatDbError(txUpdate.error)}`,
+    };
   }
 
   const userId = String((txUpdate.data as { user_id?: string } | null)?.user_id ?? "").trim();
@@ -531,9 +521,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const payload = (req.body ?? {}) as FlutterwaveEvent;
   const webhookData = (payload.data ?? {}) as FlutterwaveEvent["data"];
-  const { status: dataStatus, tx_ref: dataTxRef, amount: dataAmount } = webhookData ?? {};
-  const webhookStatus = normalize(String(dataStatus ?? payload.status ?? ""));
-  const webhookTxRef = String(dataTxRef ?? webhookData?.reference ?? payload.tx_ref ?? "").trim();
+  const { status: dataStatus, tx_ref: dataTxRef, amount: dataAmountRaw } = webhookData ?? {};
+  const webhookStatus = normalize(String(dataStatus ?? ""));
+  const webhookTxRef = String(dataTxRef ?? "").trim();
+  const dataAmount = Math.max(0, asPositiveInt(dataAmountRaw, 0));
   
   // 1. EMERGENCY LOGGING (Check this in Vercel Dashboard > Logs)
   console.log("FLW_WEBHOOK_HIT:", webhookTxRef, webhookStatus);
@@ -570,6 +561,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null, status });
     return;
   }
+  if (!isSuccessfulGatewayStatus(status)) {
+    res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null, status });
+    return;
+  }
 
   const txRef = webhookTxRef;
   if (!txRef) {
@@ -595,10 +590,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const { data: tx, error: txLookupError } = await supabaseService
     .from("transactions")
-    .select("id, type, amount, status")
+    .select("*")
     .eq("reference", txRef)
-    .maybeSingle();
+    .single();
   if (txLookupError) {
+    const lookupMessage = String(txLookupError.message ?? "").toLowerCase();
+    if (lookupMessage.includes("no rows")) {
+      res.status(404).json({ error: "No transaction found for tx_ref." });
+      return;
+    }
     res.status(500).json({ error: `Transaction lookup failed: ${formatDbError(txLookupError)}` });
     return;
   }
