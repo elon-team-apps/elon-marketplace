@@ -30,6 +30,18 @@ function isAdminProfile(profile: { role?: string | null; is_admin?: unknown } | 
   return adminFlag || role === "admin";
 }
 
+function isAdminFromClaims(user: {
+  app_metadata?: Record<string, unknown> | null;
+  user_metadata?: Record<string, unknown> | null;
+} | null): boolean {
+  if (!user) return false;
+  const appRole = String(user.app_metadata?.role ?? "").toLowerCase();
+  const userRole = String(user.user_metadata?.role ?? "").toLowerCase();
+  const appAdmin = user.app_metadata?.is_admin === true || user.app_metadata?.isAdmin === true;
+  const userAdmin = user.user_metadata?.is_admin === true || user.user_metadata?.isAdmin === true;
+  return appRole === "admin" || userRole === "admin" || appAdmin || userAdmin;
+}
+
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -82,7 +94,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     .select("role, is_admin")
     .eq("id", userData.user.id)
     .maybeSingle();
-  if (callerProfileError || !isAdminProfile(callerProfile)) {
+  if (callerProfileError) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+
+  const adminFromProfile = isAdminProfile(callerProfile);
+  const adminFromClaims = isAdminFromClaims(userData.user);
+  if (!adminFromProfile && !adminFromClaims) {
     res.status(403).json({ error: "Admin access required." });
     return;
   }
