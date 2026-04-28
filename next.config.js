@@ -8,6 +8,9 @@ const nextConfig = {
     // This prevents ESLint from stopping the build
     ignoreDuringBuilds: true,
   },
+  env: {
+    NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY: process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY,
+  },
 }
 
 module.exports = nextConfig
