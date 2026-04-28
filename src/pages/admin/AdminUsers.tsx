@@ -179,20 +179,49 @@ export default function AdminUsers() {
   const fetchProfiles = async () => {
     if (!supabase) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, email, wallet_balance, role, is_admin, created_at")
-      .order("created_at", { ascending: false });
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (token) {
+        const response = await fetch("/api/admin/users-list", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { users?: Profile[] };
+          if (Array.isArray(payload.users)) {
+            setProfiles(payload.users);
+            setLoading(false);
+            return;
+          }
+        }
+      }
 
-    if (error) {
-      toast({ title: "Failed to load users", description: error.message, variant: "destructive" });
-    } else if (data) {
-      setProfiles(data as Profile[]);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, email, wallet_balance, role, is_admin, created_at")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        toast({ title: "Failed to load users", description: error.message, variant: "destructive" });
+      } else if (data) {
+        setProfiles(data as Profile[]);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => { fetchProfiles(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void fetchProfiles();
+    }, 20000);
+    return () => window.clearInterval(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!supabase) return;
