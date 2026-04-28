@@ -542,7 +542,7 @@ function ProductCard({
           type="button"
           onClick={() => onBuy(p)}
           disabled={availableStock <= 0}
-          className="mt-2 flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-slate-900 text-white text-sm font-extrabold transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-2 flex h-9 items-center justify-center gap-1.5 w-full rounded-lg bg-slate-900 text-white text-sm font-extrabold leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
             background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}
