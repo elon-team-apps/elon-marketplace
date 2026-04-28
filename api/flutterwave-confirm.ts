@@ -60,6 +60,12 @@ type FlutterwaveEvent = {
   [key: string]: unknown;
 };
 
+export const config = {
+  api: {
+    bodyParser: true,
+  },
+};
+
 function normalize(input: string | null | undefined): string {
   return (input ?? "").trim().toLowerCase();
 }
@@ -440,6 +446,29 @@ async function completeSuccessfulTxRefPayment(
     return { ok: true };
   }
 
+  const userId = String((txUpdate.data as { user_id?: string } | null)?.user_id ?? "").trim();
+  if (!userId) {
+    return { ok: false, status: 500, error: "Completed transaction row has no user_id." };
+  }
+
+  let balanceRpc = await supabaseService.rpc("increment_balance", {
+    user_id: userId,
+    amount_to_add: amount,
+  });
+  if (balanceRpc.error) {
+    balanceRpc = await supabaseService.rpc("increment_balance", {
+      p_user_id: userId,
+      p_amount: amount,
+    });
+  }
+  if (balanceRpc.error) {
+    return {
+      ok: false,
+      status: 500,
+      error: `increment_balance RPC failed: ${formatDbError(balanceRpc.error)}`,
+    };
+  }
+
   return { ok: true };
 }
 
@@ -457,21 +486,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(405).json({ error: "Method not allowed." });
     return;
   }
-  if (!req.body || !(req.body as { data?: unknown }).data) {
+  if (!req.body) {
     res.status(400).json({ error: "No data" });
     return;
   }
 
   try {
-    const payload = (req.body ?? {}) as FlutterwaveEvent;
-    if (!payload?.data || typeof payload.data !== "object") {
+    console.log("Full Webhook Body:", JSON.stringify(req.body, null, 2));
+    const rawBody = (req.body ?? {}) as FlutterwaveEvent;
+    const payload = (
+      rawBody?.data && typeof rawBody.data === "object"
+        ? (rawBody.data as Record<string, unknown>)
+        : (rawBody as Record<string, unknown>)
+    );
+    if (!payload || Object.keys(payload).length === 0) {
       res.status(400).json({ error: "No data" });
       return;
     }
-    const webhookData = (payload.data ?? {}) as FlutterwaveEvent["data"];
-    const { status: dataStatus, tx_ref: dataTxRef, amount: dataAmountRaw } = webhookData ?? {};
-    const webhookStatus = normalize(String(dataStatus ?? ""));
-    const webhookTxRef = String(dataTxRef ?? "").trim();
+    const dataStatus = String(payload.status ?? rawBody.status ?? "").trim();
+    const dataTxRef = String(payload.tx_ref ?? rawBody.tx_ref ?? "").trim();
+    const dataAmountRaw = payload.amount ?? 0;
+    const webhookStatus = normalize(dataStatus);
+    const webhookTxRef = dataTxRef;
     const dataAmount = Math.max(0, asPositiveInt(dataAmountRaw, 0));
   
   // 1. EMERGENCY LOGGING (Check this in Vercel Dashboard > Logs)
@@ -512,18 +548,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
     console.log("[FlutterwaveWebhook] Incoming event", {
-      event: payload.event,
+      event: rawBody.event,
       status: dataStatus,
       tx_ref: dataTxRef,
     });
     const status = webhookStatus;
-    const event = normalize(payload.event);
+    const event = normalize(String(rawBody.event ?? payload.event ?? ""));
     if (!(event === "charge.completed" || event === "payment.success" || isSuccessfulGatewayStatus(status))) {
-      res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null, status });
+      res.status(200).json({ ok: true, ignored: true, event: rawBody.event ?? null, status });
       return;
     }
-    if (status !== "successful") {
-      res.status(200).json({ ok: true, ignored: true, event: payload.event ?? null, status });
+    if (!(status === "successful" || status === "success")) {
+      res.status(200).json({ ok: true, ignored: true, event: rawBody.event ?? null, status });
       return;
     }
 
@@ -538,6 +574,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       supabaseService = getSupabaseServiceClient();
     } catch (error) {
       res.status(500).json({ error: `Server misconfigured: ${String(error)}` });
+      return;
+    }
+
+    const directCompletion = await completeSuccessfulTxRefPayment(supabaseService, txRef, dataAmount);
+    if (!directCompletion.ok) {
+      res.status(directCompletion.status).json({ error: directCompletion.error });
       return;
     }
 
@@ -570,10 +612,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const mergedMeta = {
-      ...(payload.meta ?? {}),
-      ...(payload.metadata ?? {}),
-      ...(payload.data?.meta ?? {}),
-      ...(payload.data?.metadata ?? {}),
+      ...((rawBody.meta ?? {}) as Record<string, unknown>),
+      ...((rawBody.metadata ?? {}) as Record<string, unknown>),
+      ...((payload.meta ?? {}) as Record<string, unknown>),
+      ...((payload.metadata ?? {}) as Record<string, unknown>),
     } as Record<string, unknown>;
     const metaType = String(mergedMeta.type ?? "").trim().toLowerCase();
     const isWalletTopupMeta = metaType === "wallet_topup" || metaType === "deposit";
@@ -633,12 +675,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         {
           ...(payload.meta ?? {}),
           ...(payload.metadata ?? {}),
-          ...(payload.data?.metadata ?? {}),
-          ...(payload.data?.meta ?? {}),
+          ...((rawBody.meta ?? {}) as Record<string, unknown>),
+          ...((rawBody.metadata ?? {}) as Record<string, unknown>),
           buyerEmail:
-            payload.data?.customer?.email
-            ?? (payload.data?.meta as Record<string, unknown> | undefined)?.buyerEmail
-            ?? (payload.data?.metadata as Record<string, unknown> | undefined)?.buyerEmail
+            (payload.customer as { email?: string } | undefined)?.email
+            ?? (payload.meta as Record<string, unknown> | undefined)?.buyerEmail
+            ?? (payload.metadata as Record<string, unknown> | undefined)?.buyerEmail
             ?? (payload.meta as Record<string, unknown> | undefined)?.buyerEmail
             ?? (payload.metadata as Record<string, unknown> | undefined)?.buyerEmail,
         },
