@@ -42,7 +42,9 @@ function getFlutterwaveWindow(): FlutterwaveWindow {
 }
 
 function getFlutterwavePublicKey(): string {
-  return String((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY ?? "").trim();
+  const publicKey = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY : undefined;
+  console.log("Direct process.env check:", publicKey);
+  return String(publicKey ?? "").trim();
 }
 
 async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptions) => void> {
