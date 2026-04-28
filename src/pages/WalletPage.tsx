@@ -41,6 +41,12 @@ function getFlutterwaveWindow(): FlutterwaveWindow {
   return window as FlutterwaveWindow;
 }
 
+function getFlutterwavePublicKey(): string {
+  const fromVite = (import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) ?? "";
+  const fromProcess = String((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY ?? "");
+  return String(fromVite || fromProcess || "").trim();
+}
+
 async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptions) => void> {
   const existing = getFlutterwaveWindow().FlutterwaveCheckout;
   if (existing) return existing;
@@ -263,7 +269,7 @@ export default function WalletPage() {
         throw new Error("Session mismatch. Refresh the page, then try again.");
       }
 
-      const flutterwavePublicKey = (import.meta.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY as string | undefined) || "";
+      const flutterwavePublicKey = getFlutterwavePublicKey();
       if (!flutterwavePublicKey.trim()) {
         console.error("[WalletPage] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
         throw new Error("Missing Key: NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");

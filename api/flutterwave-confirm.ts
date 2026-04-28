@@ -460,6 +460,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const payload = (req.body ?? {}) as FlutterwaveEvent;
+    if (!payload?.data || typeof payload.data !== "object") {
+      console.warn("[FlutterwaveWebhook] Missing req.body.data payload; skipping.", payload);
+      res.status(200).json({ ok: true, skipped: true, reason: "Missing payload.data" });
+      return;
+    }
     const webhookData = (payload.data ?? {}) as FlutterwaveEvent["data"];
     const { status: dataStatus, tx_ref: dataTxRef, amount: dataAmountRaw } = webhookData ?? {};
     const webhookStatus = normalize(String(dataStatus ?? ""));
@@ -481,6 +486,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       || headerValueCaseInsensitive(req.headers, "verif_hash")
       || headerValueCaseInsensitive(req.headers, "X-Flutterwave-Signature");
     console.log("Received Hash:", signature, "Expected:", webhookHash);
+    console.log("[FlutterwaveWebhook] Payload snapshot:", payload);
     
     if (!bypassAllowed && (!webhookHash || signature !== webhookHash)) {
       console.error("HASH_MISMATCH: Check your Vercel Env Variables");
