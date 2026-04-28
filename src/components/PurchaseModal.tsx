@@ -164,8 +164,13 @@ function normalizeDeliveredLog(entry: string): string {
 
 function getFlutterwavePublicKey(): string {
   const publicKey = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY : undefined;
+  const windowFallback =
+    typeof window !== "undefined"
+      ? (window as Window & { NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY?: string }).NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY
+      : undefined;
   console.log("Direct process.env check:", publicKey);
-  return String(publicKey ?? "").trim();
+  console.log("Window fallback check:", windowFallback);
+  return String(publicKey ?? windowFallback ?? "").trim();
 }
 
 type PurchaseState =
@@ -545,7 +550,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       const flutterwavePublicKey = getFlutterwavePublicKey();
-      console.log("FW Public Key being used:", (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY);
+      console.log("FW Public Key being used:", flutterwavePublicKey);
       if (!flutterwavePublicKey.trim()) {
         const msg = "Flutterwave public key is missing. Set NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY.";
         console.error("[PurchaseModal] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");

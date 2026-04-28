@@ -43,8 +43,13 @@ function getFlutterwaveWindow(): FlutterwaveWindow {
 
 function getFlutterwavePublicKey(): string {
   const publicKey = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY : undefined;
+  const windowFallback =
+    typeof window !== "undefined"
+      ? (window as Window & { NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY?: string }).NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY
+      : undefined;
   console.log("Direct process.env check:", publicKey);
-  return String(publicKey ?? "").trim();
+  console.log("Window fallback check:", windowFallback);
+  return String(publicKey ?? windowFallback ?? "").trim();
 }
 
 async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptions) => void> {
@@ -270,7 +275,7 @@ export default function WalletPage() {
       }
 
       const flutterwavePublicKey = getFlutterwavePublicKey();
-      console.log("FW Public Key being used:", (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY);
+      console.log("FW Public Key being used:", flutterwavePublicKey);
       if (!flutterwavePublicKey.trim()) {
         console.error("[WalletPage] Flutterwave init failed: missing NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
         throw new Error("Missing Key: NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY");
