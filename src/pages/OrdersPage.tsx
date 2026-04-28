@@ -296,6 +296,8 @@ type DbOrder = {
   log_id: string | null;
   product_id: string | null;
   product_description?: string | null;
+  product_title_snapshot?: string | null;
+  product_category_snapshot?: string | null;
   products: { title: string; category: string; description?: string | null } | null;
   delivered_data?: unknown;
   credentials_delivered?: unknown;
@@ -443,7 +445,7 @@ export default function OrdersPage() {
     setLoadingDb(true);
     supabase
       .from("transactions")
-      .select("id, amount, created_at, status, quantity, log_id, product_id, product_description, delivered_data, credentials_delivered, products(title, category, description)")
+      .select("id, amount, created_at, status, quantity, log_id, product_id, product_description, product_title_snapshot, product_category_snapshot, delivered_data, credentials_delivered, products(title, category, description)")
       .eq("user_id", currentUser.id)
       .in("type", ["purchase", "wallet_payment"])
       .order("created_at", { ascending: false })
@@ -467,8 +469,8 @@ export default function OrdersPage() {
         userId: currentUser?.id ?? "",
         userName: currentUser?.name ?? "",
         productId: db.product_id ?? "",
-        productTitle: db.products?.title ?? "Unknown Product",
-        category: db.products?.category ?? "",
+        productTitle: db.products?.title || String(db.product_title_snapshot ?? "").trim() || "Purchased Product",
+        category: db.products?.category || String(db.product_category_snapshot ?? "").trim(),
         productDescription: String(db.product_description ?? db.products?.description ?? ""),
         amount: db.amount,
         deliveredLog: parseDeliveredData(db.delivered_data ?? db._credentials ?? ""),

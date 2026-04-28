@@ -121,7 +121,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const { data: product, error: productError } = await admin
     .from("products")
-    .select("id, price, manual_stock, description")
+    .select("id, title, category, price, manual_stock, description")
     .eq("id", productId)
     .maybeSingle();
   if (productError || !product) {
@@ -164,12 +164,21 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       reference,
       product_id: productId,
       product_description: String(product.description ?? ""),
+      product_title_snapshot: String(product.title ?? ""),
+      product_category_snapshot: String(product.category ?? ""),
       quantity,
     })
     .select("id")
     .single();
   let insert = primaryInsert;
-  if (primaryInsert.error && isMissingColumnError(primaryInsert.error, "product_description")) {
+  if (
+    primaryInsert.error &&
+    (
+      isMissingColumnError(primaryInsert.error, "product_description") ||
+      isMissingColumnError(primaryInsert.error, "product_title_snapshot") ||
+      isMissingColumnError(primaryInsert.error, "product_category_snapshot")
+    )
+  ) {
     insert = await admin
       .from("transactions")
       .insert({

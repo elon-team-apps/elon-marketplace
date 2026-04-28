@@ -52,6 +52,8 @@ async function insertWalletTransaction(
     product_id: string;
     quantity: number;
     product_description: string;
+    product_title_snapshot: string;
+    product_category_snapshot: string;
   },
 ) {
   const first = await supabaseAdmin
@@ -59,7 +61,14 @@ async function insertWalletTransaction(
     .insert(payload)
     .select("id")
     .single();
-  if (!first.error || !isMissingColumnError(first.error, "product_description")) return first;
+  if (
+    !first.error ||
+    (
+      !isMissingColumnError(first.error, "product_description") &&
+      !isMissingColumnError(first.error, "product_title_snapshot") &&
+      !isMissingColumnError(first.error, "product_category_snapshot")
+    )
+  ) return first;
 
   return supabaseAdmin
     .from("transactions")
@@ -410,7 +419,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const { data: product, error: productError } = await supabaseAdmin
     .from("products")
-    .select("id, title, price, description")
+    .select("id, title, category, price, description")
     .eq("id", productId)
     .maybeSingle();
   if (productError || !product) {
@@ -449,6 +458,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     reference,
     product_id: productId,
     product_description: String(product.description ?? ""),
+    product_title_snapshot: String(product.title ?? ""),
+    product_category_snapshot: String(product.category ?? ""),
     quantity,
   });
   if (insertError || !insertedTx) {

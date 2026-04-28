@@ -83,14 +83,37 @@ function isIgnorableInventoryDeleteError(err: PostgrestError | null): boolean {
   return /does not exist|not find|schema cache|PGRST205|Could not find the table/i.test(err.message ?? "");
 }
 
-/** Keep order history rows valid by detaching transactions.product_id before deleting a product. */
-async function detachTransactionsForProduct(productId: string): Promise<{ error: PostgrestError | null }> {
+function isMissingColumnError(err: PostgrestError | null, column: string): boolean {
+  if (!err) return false;
+  if (err.code === "42703") return true;
+  const msg = String(err.message ?? "").toLowerCase();
+  return msg.includes("column") && msg.includes(column.toLowerCase()) && msg.includes("does not exist");
+}
+
+/** Keep order history rows valid by snapshotting identity, then detaching transactions.product_id before deleting a product. */
+async function detachTransactionsForProduct(
+  productId: string,
+  productTitle: string,
+  productCategory: string,
+): Promise<{ error: PostgrestError | null }> {
   if (!supabase) return { error: null };
-  const { error } = await supabase
+  const withSnapshots = await supabase
+    .from("transactions")
+    .update({
+      product_id: null,
+      product_title_snapshot: productTitle,
+      product_category_snapshot: productCategory,
+    })
+    .eq("product_id", productId);
+  if (!withSnapshots.error || !isMissingColumnError(withSnapshots.error, "product_title_snapshot")) {
+    return { error: withSnapshots.error };
+  }
+
+  const fallback = await supabase
     .from("transactions")
     .update({ product_id: null })
     .eq("product_id", productId);
-  return { error };
+  return { error: fallback.error };
 }
 
 /** Remove all inventory rows for this product (both table names) before deleting the product row — avoids FK issues. */
@@ -1271,7 +1294,11 @@ export default function AdminProducts() {
     setDeleting(true);
     try {
       if (supabase) {
-        const txDetach = await detachTransactionsForProduct(id);
+        const txDetach = await detachTransactionsForProduct(
+          id,
+          String(deleteTarget.title ?? ""),
+          String(deleteTarget.category ?? ""),
+        );
         if (txDetach.error) {
           console.warn("[AdminProducts] detach transactions before delete (non-fatal)", txDetach.error);
         }
