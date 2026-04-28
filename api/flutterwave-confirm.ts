@@ -553,6 +553,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, verif-hash, x-admin-bypass");
+  console.log("All Headers:", req.headers);
 
   if (req.method === "OPTIONS") {
     res.status(200).end();
@@ -583,7 +584,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const webhookHash = process.env.FLW_WEBHOOK_HASH;
     const signature =
       headerValueCaseInsensitive(req.headers, "verif-hash")
-      || headerValueCaseInsensitive(req.headers, "verif_hash");
+      || headerValueCaseInsensitive(req.headers, "verif_hash")
+      || headerValueCaseInsensitive(req.headers, "X-Flutterwave-Signature");
     console.log("Received Hash:", signature, "Expected:", webhookHash);
     
     if (!bypassAllowed && (!webhookHash || signature !== webhookHash)) {
