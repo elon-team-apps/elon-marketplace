@@ -542,12 +542,12 @@ function ProductCard({
             background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}
         >
-          <ShoppingCart className="h-3 w-3 shrink-0" />
           {availableStock <= 0 ? "Out of Stock" : (
             <>
-              <span className="whitespace-nowrap">{formattedPrice}</span>
-              <span className="text-white/50">|</span>
               <span className="whitespace-nowrap">Purchase</span>
+              <span className="text-white/50">|</span>
+              <ShoppingCart className="h-3 w-3 shrink-0" />
+              <span className="whitespace-nowrap">{formattedPrice}</span>
             </>
           )}
         </button>
