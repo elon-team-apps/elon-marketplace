@@ -532,25 +532,25 @@ function ProductCard({
         {/* Divider — the 'cut' line the client requested */}
         <div className="my-2 border-b border-slate-100" />
 
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <p className="text-xs font-semibold text-black leading-none whitespace-nowrap">
-            {formattedPrice}
-          </p>
-
-          {/* Purchase button */}
-          <button
-            type="button"
-            onClick={() => onBuy(p)}
-            disabled={availableStock <= 0}
-            className="flex h-5 min-w-[102px] items-center justify-center gap-1 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-            style={{
-              background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
-            }}
-          >
-            <ShoppingCart className="h-3 w-3 shrink-0" />
-            {availableStock <= 0 ? "Out of Stock" : "Purchase"}
-          </button>
-        </div>
+        {/* Purchase button */}
+        <button
+          type="button"
+          onClick={() => onBuy(p)}
+          disabled={availableStock <= 0}
+          className="mt-1 flex h-6 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-[11px] font-semibold text-white leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+          style={{
+            background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
+          }}
+        >
+          <ShoppingCart className="h-3 w-3 shrink-0" />
+          {availableStock <= 0 ? "Out of Stock" : (
+            <>
+              <span className="whitespace-nowrap">{formattedPrice}</span>
+              <span className="text-white/50">|</span>
+              <span className="whitespace-nowrap">Purchase</span>
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
