@@ -441,7 +441,10 @@ function ProductCard({
   const availableStock = stockView.total;
   const platform = PLATFORM_MAP[inferPlatformKey(p.title)];
   const stockLow = availableStock > 0 && availableStock <= 5;
-  const isExpressTitle = p.title.trim().toLowerCase() === "express";
+  const formattedPrice = `₦${p.price.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} NGN`;
 
   useEffect(() => {
     if (!supabase || !p?.id) {
@@ -506,8 +509,7 @@ function ProductCard({
             accentColor={platform?.color ?? "#1877F2"}
           />
           <h3
-            className={`${isExpressTitle ? "text-xs font-semibold" : "text-lg font-normal"} text-black uppercase antialiased`}
-            style={{ fontWeight: isExpressTitle ? 600 : 400 }}
+            className="text-[11px] font-semibold text-black uppercase antialiased leading-tight line-clamp-2"
           >
             {p.title}
           </h3>
@@ -519,38 +521,36 @@ function ProductCard({
         {/* Stock + quantity hierarchy */}
         <p className="text-xs font-semibold text-slate-700 leading-5">
           {availableStock <= 0 ? (
-            <span className="text-slate-700">In Stock: <span className="text-base font-normal text-black">Out of Stock</span></span>
+            <span className="text-slate-700">In Stock: <span className="text-[10px] font-medium text-black">Out of Stock</span></span>
           ) : (
             <span className="text-slate-700">
-              In Stock: <span className="text-base font-normal text-black">{availableStock} qty</span>
+              In Stock: <span className="text-[10px] font-medium text-black">{availableStock} qty</span>
             </span>
           )}
-        </p>
-
-        {/* Price */}
-        <p className="text-xs text-slate-700 font-semibold leading-5">
-          Per Quantity:{" "}
-          <span className="text-base font-normal text-black">
-            ₦{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN
-          </span>
         </p>
 
         {/* Divider — the 'cut' line the client requested */}
         <div className="my-2 border-b border-slate-100" />
 
-        {/* Purchase button */}
-        <button
-          type="button"
-          onClick={() => onBuy(p)}
-          disabled={availableStock <= 0}
-          className="mt-2 flex h-6 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-sm font-extrabold leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-          style={{
-            background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
-          }}
-        >
-          <ShoppingCart className="h-4 w-4 shrink-0" />
-          {availableStock <= 0 ? "Out of Stock" : `Purchase`}
-        </button>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-black leading-none whitespace-nowrap">
+            {formattedPrice}
+          </p>
+
+          {/* Purchase button */}
+          <button
+            type="button"
+            onClick={() => onBuy(p)}
+            disabled={availableStock <= 0}
+            className="flex h-5 min-w-[102px] items-center justify-center gap-1 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+            style={{
+              background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
+            }}
+          >
+            <ShoppingCart className="h-3 w-3 shrink-0" />
+            {availableStock <= 0 ? "Out of Stock" : "Purchase"}
+          </button>
+        </div>
       </div>
     </div>
   );
