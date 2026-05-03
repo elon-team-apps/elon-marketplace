@@ -501,17 +501,55 @@ function CreateProductModal({
   onAfterSave?: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
-  const { addProduct, refreshProducts, mergeProductRowFromDb, updateProduct } = useApp();
   const [form, setForm] = useState<CreateForm>(emptyCreateForm);
+  const [logoUrl, setLogoUrl] = useState<string>("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [createErrorMsg, setCreateErrorMsg] = useState("");
 
   useEffect(() => {
     if (open) {
       setForm(emptyCreateForm);
+      setLogoUrl("");
       setCreateErrorMsg("");
     }
   }, [open]);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !supabase) return;
+
+    // Basic validation
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please upload an image file", variant: "destructive" });
+      return;
+    }
+
+    setUploadingLogo(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+      const filePath = `logos/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("product-logos")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("product-logos")
+        .getPublicUrl(filePath);
+
+      setLogoUrl(publicUrl);
+      sonnerToast.success("Logo uploaded successfully");
+    } catch (err) {
+      console.error("Logo upload error:", err);
+      toast({ title: "Logo upload failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -571,7 +609,7 @@ function CreateProductModal({
             stock: 0,
             stock_count: 0,
             status: "sold_out",
-            logo_url: autoLogoUrl ?? null,
+            logo_url: logoUrl || autoLogoUrl || null,
           })
           .select("*")
           .single();
@@ -647,7 +685,7 @@ function CreateProductModal({
         logs: rawLogLines,
         stock_count: rawLogLines.length,
         stock: rawLogLines.length,
-        logo_url: autoLogoUrl,
+        logo_url: logoUrl || autoLogoUrl,
       });
       const offDesc = `“${form.title.trim()}” added with ${rawLogLines.length} log line(s).`;
       sonnerToast.success("Product saved", { description: offDesc });
@@ -687,13 +725,23 @@ function CreateProductModal({
             <ProductBrandAvatar
               title={form.title.trim() || "Your product"}
               category={form.category}
+              logo_url={logoUrl}
               size={52}
               accentColor={BTN_NAVY}
             />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Logo preview</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                Matches keywords in the title and category (e.g. Netflix, VPN, WhatsApp). Saves automatically when you create the product.
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Product Logo</p>
+                <label className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400">
+                  {uploadingLogo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                  {logoUrl ? "Change logo" : "Upload logo"}
+                  <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} disabled={uploadingLogo || saving} />
+                </label>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                {logoUrl 
+                  ? "Custom logo uploaded. This will be used instead of the auto-generated one."
+                  : "Auto-generated based on keywords (e.g. Netflix, VPN). Upload a custom logo to override."}
               </p>
             </div>
           </div>
@@ -810,6 +858,8 @@ function EditProductModal({
     typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "",
   );
   const [logsText, setLogsText] = useState("");
+  const [logoUrl, setLogoUrl] = useState<string>(product.logo_url || "");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const { toast } = useToast();
@@ -821,9 +871,45 @@ function EditProductModal({
     setPrice(product.price.toString());
     setDescription(product.description);
     setManualStock(typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "");
+    setLogoUrl(product.logo_url || "");
     setLogsText("");
     setErrorMsg("");
-  }, [product.id, product.title, product.category, product.price, product.description, product.manual_stock]);
+  }, [product.id, product.title, product.category, product.price, product.description, product.manual_stock, product.logo_url]);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !supabase) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Please upload an image file", variant: "destructive" });
+      return;
+    }
+
+    setUploadingLogo(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+      const filePath = `logos/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("product-logos")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("product-logos")
+        .getPublicUrl(filePath);
+
+      setLogoUrl(publicUrl);
+      sonnerToast.success("Logo updated");
+    } catch (err) {
+      console.error("Logo upload error:", err);
+      toast({ title: "Upload failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -864,7 +950,7 @@ function EditProductModal({
             price: Math.trunc(n),
             description: description.trim(),
             manual_stock: effectiveManualStock,
-            logo_url: autoLogoUrl ?? null,
+            logo_url: logoUrl || autoLogoUrl || null,
           })
           .eq("id", product.id)
           .select("*")
@@ -920,7 +1006,7 @@ function EditProductModal({
           price: Math.trunc(n),
           description: description.trim(),
           manual_stock: effectiveManualStock === null ? undefined : effectiveManualStock,
-          logo_url: autoLogoUrl,
+          logo_url: logoUrl || autoLogoUrl,
         });
       }
 
@@ -963,6 +1049,28 @@ function EditProductModal({
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Name</Label>
             <Input className="mt-1.5" value={title} onChange={(e) => setTitle(e.target.value)} disabled={saving} />
+          </div>
+          <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-slate-950/40">
+            <ProductBrandAvatar
+              title={title.trim() || "Product"}
+              category={category}
+              logo_url={logoUrl}
+              size={52}
+              accentColor={BTN_NAVY}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Product Logo</p>
+                <label className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400">
+                  {uploadingLogo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                  Change logo
+                  <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} disabled={uploadingLogo || saving} />
+                </label>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                Upload a custom logo to override the auto-generated preview.
+              </p>
+            </div>
           </div>
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Category</Label>
