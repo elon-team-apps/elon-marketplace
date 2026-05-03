@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 
 // ─── Contact links (update with your real handles) ────────────────────────────
-const TELEGRAM_URL  = "https://t.me/davidgodwin10115";
+const TELEGRAM_URL  = "https://t.me/+fxC4mCK8pX8wMTY0";
 const WHATSAPP_URL  = "https://wa.me/2348127692456";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────

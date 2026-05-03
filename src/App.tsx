@@ -6,6 +6,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useApp } from "./context/AppContext";
 import { useAuth } from "./hooks/useAuth";
+import { FloatingTelegram } from "./components/FloatingTelegram";
+
 
 const loadLandingPage = () => import("./app/page");
 const loadAuthPage = () => import("./pages/AuthPage");
@@ -213,7 +215,9 @@ const App = () => (
         <RouteErrorBoundary>
           <AppRoutes />
         </RouteErrorBoundary>
+        <FloatingTelegram />
       </BrowserRouter>
+
     </TooltipProvider>
   </QueryClientProvider>
 );

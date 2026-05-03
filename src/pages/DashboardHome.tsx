@@ -178,9 +178,11 @@ export default function DashboardHome() {
 
       {/* Social cards */}
       <section className="grid grid-cols-2 gap-2.5">
-        <Link
-          to="/dashboard/support"
-          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm"
+        <a
+          href="https://t.me/+fxC4mCK8pX8wMTY0"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm transition-transform hover:scale-[1.02] active:scale-95"
         >
           <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
             Telegram Group
@@ -191,7 +193,7 @@ export default function DashboardHome() {
           <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-sky-100 flex items-center justify-center">
             <Send className="h-9 w-9 text-sky-500" />
           </div>
-        </Link>
+        </a>
         <Link
           to="/dashboard/support"
           className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm"
