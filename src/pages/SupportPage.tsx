@@ -8,7 +8,7 @@ const WHATSAPP_URL = "https://wa.me/2348127692456";
 const CHANNELS = [
   {
     name: "Telegram",
-    handle: "@elonmarketplace",
+    handle: "Join Community",
     description: "Fastest response. Send a message and our team replies within minutes.",
     url: TELEGRAM_URL,
     icon: Send,
