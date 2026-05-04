@@ -60,10 +60,12 @@ function TopUpDialog({
     }
 
     setSaving(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ wallet_balance: newBalance })
-      .eq("id", profile.id);
+    const adjustAmount = type === "add" ? parsed : -parsed;
+
+    const { data: updatedBalance, error } = await supabase.rpc("increment_wallet_balance", {
+      p_user_id: profile.id,
+      p_amount: adjustAmount,
+    });
 
     if (error) {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
@@ -71,11 +73,12 @@ function TopUpDialog({
       return;
     }
 
+    const nextBalanceNum = Number(updatedBalance);
     toast({
       title: type === "add" ? "Funds added" : "Funds deducted",
-      description: `₦${parsed.toLocaleString()} ${type === "add" ? "credited to" : "debited from"} ${profile.email}. New balance: ₦${newBalance.toLocaleString()}.`,
+      description: `₦${parsed.toLocaleString()} ${type === "add" ? "credited to" : "debited from"} ${profile.email}. New balance: ₦${nextBalanceNum.toLocaleString()}.`,
     });
-    onSuccess(profile.id, newBalance);
+    onSuccess(profile.id, nextBalanceNum);
     setSaving(false);
     onClose();
   };

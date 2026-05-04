@@ -501,6 +501,7 @@ function CreateProductModal({
   onAfterSave?: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
+  const { addProduct, updateProduct, refreshProducts, mergeProductRowFromDb } = useApp();
   const [form, setForm] = useState<CreateForm>(emptyCreateForm);
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [uploadingLogo, setUploadingLogo] = useState(false);

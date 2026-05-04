@@ -237,7 +237,21 @@ function UsersTable() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchProfiles(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void fetchProfiles();
+
+    if (!supabase) return;
+    const channel = supabase
+      .channel("admin-dashboard-users-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        void fetchProfiles();
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = profiles.filter((p) =>
     p.email?.toLowerCase().includes(search.toLowerCase())
@@ -267,10 +281,12 @@ function UsersTable() {
         return;
       }
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({ wallet_balance: newBalance })
-        .eq("id", adjusting.userId);
+      const adjustAmount = adjusting.type === "add" ? parsed : -parsed;
+
+      const { data: updatedBalance, error } = await supabase.rpc("increment_wallet_balance", {
+        p_user_id: adjusting.userId,
+        p_amount: adjustAmount,
+      });
 
       if (error) {
         toast({ title: "Update failed", description: error.message, variant: "destructive" });
@@ -279,7 +295,7 @@ function UsersTable() {
       }
 
       setProfiles((prev) =>
-        prev.map((p) => (p.id === adjusting.userId ? { ...p, wallet_balance: newBalance } : p))
+        prev.map((p) => (p.id === adjusting.userId ? { ...p, wallet_balance: Number(updatedBalance) } : p))
       );
       toast({
         title: adjusting.type === "add" ? "Funds added" : "Funds deducted",

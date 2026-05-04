@@ -156,6 +156,7 @@ const LandingPage = () => {
         liveStock: stock.live,
         manualStock: stock.manual,
         totalStock: stock.total,
+        logo_url: product.logo_url,
       };
     })
     .sort((a, b) => {
@@ -434,6 +435,7 @@ const LandingPage = () => {
                       <ProductBrandAvatar
                         title={d.title}
                         category={d.category}
+                        logo_url={d.logo_url}
                         size={34}
                         accentColor={d.color}
                       />

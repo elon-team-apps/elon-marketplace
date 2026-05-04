@@ -61,17 +61,20 @@ export function resolveProductBrandVisual(product: {
   const category = (product.category || "").trim();
   const haystack = `${title}\n${category}`;
 
+  // 1. Stored custom logo takes absolute precedence.
+  const stored = (product.logo_url || "").trim();
+  if (stored) return { kind: "image", src: stored, alt: title || "Product" };
+
+  // 2. Keyword-aware brand rules (SimpleIcons).
   for (const rule of RULES) {
     if (matchesRule(haystack, rule)) return rule.visual;
   }
 
+  // 3. Category-based fallbacks.
   const catLower = category.toLowerCase();
   if (catLower === "vpn" || /\bvpn\b/i.test(haystack)) {
     return { kind: "vpn" };
   }
-
-  const stored = (product.logo_url || "").trim();
-  if (stored) return { kind: "image", src: stored, alt: title || "Product" };
 
   return { kind: "box" };
 }
