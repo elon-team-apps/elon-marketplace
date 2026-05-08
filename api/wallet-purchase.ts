@@ -427,85 +427,44 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const totalPrice = Math.max(0, asPositiveInt(product.price, 0) * quantity);
-  if (totalPrice <= 0) {
-    res.status(400).json({ error: "Invalid product price." });
-    return;
-  }
-
-  const balanceRead = await readUserBalance(supabaseAdmin, authedUser.id);
-  if ("error" in balanceRead) {
-    res.status(500).json({ error: balanceRead.error });
-    return;
-  }
-  const balanceField = balanceRead.field;
-  const currentBalance = balanceRead.current;
-  if (currentBalance < totalPrice) {
-    res.status(409).json({
-      error: `Insufficient wallet balance. Need ₦${(totalPrice - currentBalance).toLocaleString()} more.`,
-      code: "INSUFFICIENT_BALANCE",
-    });
-    return;
-  }
-  const nextBalance = currentBalance - totalPrice;
-
-  const reference = `wlt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  const { data: insertedTx, error: insertError } = await insertWalletTransaction(supabaseAdmin, {
-    user_id: authedUser.id,
-    amount: totalPrice,
-    type: "wallet_payment",
-    status: "pending",
-    reference,
-    product_id: productId,
-    product_description: String(product.description ?? ""),
-    product_title_snapshot: String(product.title ?? ""),
-    product_category_snapshot: String(product.category ?? ""),
-    quantity,
+  const { data: rpcRes, error: rpcError } = await supabaseUser.rpc("process_wallet_purchase", {
+    p_product_id: productId,
+    p_quantity: quantity,
   });
-  if (insertError || !insertedTx) {
-    res.status(500).json({ error: `Could not create wallet transaction: ${formatDbError(insertError)}` });
+
+  if (rpcError || !rpcRes) {
+    const msg = rpcError ? formatDbError(rpcError) : "No response from purchase engine.";
+    console.error("[WalletPurchase] RPC Error:", rpcError);
+    res.status(500).json({ error: msg });
     return;
   }
 
-  const balanceDeduction = await updateUserBalance(
-    supabaseAdmin,
-    authedUser.id,
-    balanceField,
-    currentBalance,
-    nextBalance,
-  );
-  if (!balanceDeduction.ok) {
-    const deductionError = balanceDeduction;
-    await supabaseAdmin.from("transactions").update({ status: "failed" }).eq("id", insertedTx.id);
-    res.status(deductionError.conflict ? 409 : 500).json({
-      error: deductionError.error,
-      ...(deductionError.conflict ? { code: "INSUFFICIENT_BALANCE" } : {}),
-    });
-    return;
-  }
-  const balanceAfter = nextBalance;
+  const result = rpcRes as {
+    success: boolean;
+    message?: string;
+    transaction_id?: string;
+    reference?: string;
+    delivered_data?: string;
+    wallet_balance?: number;
+    code?: string;
+  };
 
-  const fulfilled = await fulfillWalletPurchase(supabaseAdmin, insertedTx.id, totalPrice);
-  if (!fulfilled.ok) {
-    console.error("[WalletPurchase] Fulfillment failed after deduction, refunding balance.", {
-      transactionId: insertedTx.id,
-      error: fulfilled.error,
+  if (!result.success) {
+    const status = result.code === "INSUFFICIENT_BALANCE" ? 409 : 500;
+    res.status(status).json({
+      error: result.message || "Purchase failed.",
+      code: result.code,
     });
-    await supabaseAdmin
-      .from("profiles")
-      .update({ [balanceField]: balanceAfter + totalPrice })
-      .eq("id", authedUser.id);
-    await supabaseAdmin
-      .from("transactions")
-      .update({ status: "failed" })
-      .eq("id", insertedTx.id);
-    res.status(fulfilled.status).json({ error: fulfilled.error ?? "Wallet fulfillment failed. Your balance was refunded." });
     return;
   }
 
   res.status(200).json({
-    ...(fulfilled.data ?? { ok: true }),
-    wallet_balance: balanceAfter,
+    ok: true,
+    message: result.message,
+    transactionId: result.transaction_id,
+    reference: result.reference,
+    delivered_data: result.delivered_data,
+    wallet_balance: result.wallet_balance,
     payment_method: "wallet",
   });
 }
