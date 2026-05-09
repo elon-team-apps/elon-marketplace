@@ -146,7 +146,7 @@ BEGIN
     VALUES (
       v_user_id, v_total_price, 'purchase', 'completed', v_reference, p_product_id, p_quantity, 
       v_log_contents, COALESCE(v_product.description, ''), COALESCE(v_product.title, ''), COALESCE(v_product.category, ''),
-      'true'::jsonb
+      TRUE
     )
     RETURNING id INTO v_tx_id;
   ELSIF v_has_delivered_data THEN
