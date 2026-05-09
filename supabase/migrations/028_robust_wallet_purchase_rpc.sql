@@ -13,7 +13,7 @@ CREATE OR REPLACE FUNCTION public.process_wallet_purchase(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_user_id UUID;
@@ -126,7 +126,12 @@ BEGIN
   WHERE id = p_product_id;
 
   -- 11. Create Transaction Audit Record
-  v_reference := 'wlt_' || encode(gen_random_bytes(6), 'hex');
+  BEGIN
+    v_reference := 'wlt_' || encode(gen_random_bytes(6), 'hex');
+  EXCEPTION WHEN OTHERS THEN
+    -- Fallback if pgcrypto is missing or inaccessible
+    v_reference := 'wlt_' || floor(extract(epoch from now()))::text || '_' || floor(random() * 1000000)::text;
+  END;
   
   -- Check for delivered_data and snapshot columns
   SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'delivered_data') INTO v_has_delivered_data;
