@@ -72,7 +72,7 @@ function normalize(input: string | null | undefined): string {
 
 function isSuccessfulGatewayStatus(value: string | null | undefined): boolean {
   const status = normalize(value);
-  return status === "successful" || status === "success" || status === "completed";
+  return status === "successful" || status === "success" || status === "completed" || status === "finalized";
 }
 
 function headerValue(headers: ApiHeaders, key: string): string {
@@ -176,15 +176,14 @@ async function verifyFlutterwaveByReference(txRef: string): Promise<FlutterwaveV
   if (!verifiedTxRef || verifiedTxRef !== txRef) {
     return { ok: false, status: 409, error: "Flutterwave verify tx_ref mismatch." };
   }
-  if (verifiedStatus !== "successful") {
+  if (!isSuccessfulGatewayStatus(verifiedStatus)) {
     return { ok: false, status: 409, error: `Flutterwave verify status is ${verifiedStatus || "unknown"}, not successful.` };
   }
 
   return { ok: true, txRef: verifiedTxRef, status: verifiedStatus, amount: verifiedAmount };
 }
 
-async function canUseAdminBypass(req: NextApiRequest): Promise<boolean> {
-  if (normalize(headerValue(req.headers, "x-admin-bypass")) !== "true") return false;
+async function canUseAdminBypass(req: NextApiRequest, txRef?: string): Promise<boolean> {
   const authHeader = headerValue(req.headers, "authorization");
   if (!authHeader.toLowerCase().startsWith("bearer ")) return false;
   const token = authHeader.slice(7).trim();
@@ -197,15 +196,32 @@ async function canUseAdminBypass(req: NextApiRequest): Promise<boolean> {
   });
   const { data, error } = await userClient.auth.getUser(token);
   if (error || !data.user) return false;
+
+  // 1. Check if user is Admin
   const { data: profile, error: profileError } = await userClient
     .from("profiles")
     .select("role, is_admin")
     .eq("id", data.user.id)
     .maybeSingle();
-  if (profileError || !profile) return false;
-  const role = String(profile.role ?? "").toLowerCase();
-  const adminFlag = profile.is_admin === true || profile.is_admin === "true" || profile.is_admin === "t";
-  return adminFlag || role === "admin";
+  
+  if (!profileError && profile) {
+    const role = String(profile.role ?? "").toLowerCase();
+    const adminFlag = profile.is_admin === true || profile.is_admin === "true" || profile.is_admin === "t";
+    if (adminFlag || role === "admin") return true;
+  }
+
+  // 2. Check if user is the Owner of the transaction (for reconciliation)
+  if (txRef) {
+    const { data: tx, error: txError } = await userClient
+      .from("transactions")
+      .select("id")
+      .eq("reference", txRef)
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+    if (!txError && tx) return true;
+  }
+
+  return false;
 }
 
 async function processDeposit(
@@ -506,21 +522,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
     const dataStatus = String(payload.status ?? rawBody.status ?? "").trim();
-    const dataTxRef = String(payload.tx_ref ?? rawBody.tx_ref ?? "").trim();
-    const dataAmountRaw = payload.amount ?? 0;
-    const webhookStatus = normalize(dataStatus);
-    const webhookTxRef = dataTxRef;
-    const dataAmount = Math.max(0, asPositiveInt(dataAmountRaw, 0));
-  
-  // 1. EMERGENCY LOGGING (Check this in Vercel Dashboard > Logs)
-  console.log("FLW_WEBHOOK_HIT:", webhookTxRef, webhookStatus);
-  console.log("FLW_WEBHOOK_AMOUNT:", dataAmount ?? null);
-  console.log("WEBHOOK_RECEIVED", payload);
-  console.log("PAYLOAD_SUCCESS", payload);
-  console.log("WEBHOOK_STATUS", webhookStatus || null, webhookTxRef || null);
-  console.log("[FlutterwaveWebhook] FULL_PAYLOAD_JSON", JSON.stringify(payload));
+    const txRef = String(payload.tx_ref ?? rawBody.tx_ref ?? "").trim();
+    if (!txRef) {
+      res.status(400).json({ error: "Missing tx_ref." });
+      return;
+    }
 
-    const bypassAllowed = await canUseAdminBypass(req);
+    const bypassAllowed = await canUseAdminBypass(req, txRef);
     const webhookHash = process.env.FLW_WEBHOOK_HASH;
     let signature = "";
     try {
@@ -529,7 +537,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         || headerValueCaseInsensitive(req.headers, "verif_hash")
         || headerValueCaseInsensitive(req.headers, "X-Flutterwave-Signature");
       console.log("Received Hash:", signature, "Expected:", webhookHash);
-      console.log("[FlutterwaveWebhook] Payload snapshot:", payload);
     } catch (signatureError) {
       console.error("[FlutterwaveWebhook] Signature extraction failed", signatureError);
       if (!bypassAllowed) {
@@ -537,37 +544,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return;
       }
     }
+
     if (!bypassAllowed && (!webhookHash || signature !== webhookHash)) {
       console.error("HASH_MISMATCH: Check your Vercel Env Variables");
-      console.error("[FlutterwaveWebhook] Hash mismatch", {
-        signature,
-        webhookHash,
-        hasHeader: Boolean(signature),
-        hasEnv: Boolean(webhookHash),
-        reason: !webhookHash ? "Missing FLW_WEBHOOK_HASH env" : "Header verif-hash/verif_hash mismatch",
-      });
       res.status(401).json({ error: "Invalid Flutterwave webhook signature." });
       return;
     }
-    console.log("[FlutterwaveWebhook] Incoming event", {
-      event: rawBody.event,
-      status: dataStatus,
-      tx_ref: dataTxRef,
-    });
-    const status = webhookStatus;
+
+    const dataAmountRaw = payload.amount ?? 0;
+    const dataAmount = Math.max(0, asPositiveInt(dataAmountRaw, 0));
     const event = normalize(String(rawBody.event ?? payload.event ?? ""));
+    const status = normalize(dataStatus);
+
     if (!(event === "charge.completed" || event === "payment.success" || isSuccessfulGatewayStatus(status))) {
       res.status(200).json({ ok: true, ignored: true, event: rawBody.event ?? null, status });
       return;
     }
-    if (!(status === "successful" || status === "success")) {
+    if (!isSuccessfulGatewayStatus(status)) {
       res.status(200).json({ ok: true, ignored: true, event: rawBody.event ?? null, status });
-      return;
-    }
-
-    const txRef = webhookTxRef;
-    if (!txRef) {
-      res.status(400).json({ error: "Missing tx_ref." });
       return;
     }
 
