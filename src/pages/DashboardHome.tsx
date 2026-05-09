@@ -177,37 +177,46 @@ export default function DashboardHome() {
       </section>
 
       {/* Social cards */}
-      <section className="grid grid-cols-2 gap-2.5">
+      <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <a
           href="https://t.me/+fxC4mCK8pX8wMTY0"
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm transition-transform hover:scale-[1.02] active:scale-95"
+          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 flex items-center gap-4 shadow-sm transition-all hover:scale-[1.01] active:scale-95 group"
         >
-          <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
-            Telegram Group
-          </p>
-          <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
-            STAY UPDATED AT ALL TIMES
-          </span>
-          <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-sky-100 flex items-center justify-center">
-            <Send className="h-9 w-9 text-sky-500" />
+          <div className="h-12 w-12 rounded-xl bg-sky-100 dark:bg-sky-500/10 flex items-center justify-center shrink-0 group-hover:bg-sky-500/20 transition-colors">
+            <Send className="h-6 w-6 text-sky-500" />
           </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-slate-900 dark:text-white">
+              Telegram Group
+            </p>
+            <p className="text-[10px] font-extrabold text-sky-500 tracking-tight uppercase">
+              STAY UPDATED AT ALL TIMES
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-sky-500 transition-colors" />
         </a>
-        <Link
-          to="/dashboard/support"
-          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 aspect-square flex flex-col items-center justify-center gap-3 shadow-sm"
+
+        <a
+          href="https://whatsapp.com/channel/0029VaDPv8S60eBebYfJ1Y2S"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 flex items-center gap-4 shadow-sm transition-all hover:scale-[1.01] active:scale-95 group"
         >
-          <p className="text-sm font-bold text-center" style={{ color: TEXT_BLACK }}>
-            WhatsApp Channel
-          </p>
-          <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white" style={{ background: BTN_NAVY }}>
-            STAY UPDATED AT ALL TIMES
-          </span>
-          <div className="h-[4.5rem] w-[4.5rem] rounded-full bg-emerald-100 flex items-center justify-center">
-            <MessageCircle className="h-9 w-9 text-emerald-500" />
+          <div className="h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/20 transition-colors">
+            <MessageCircle className="h-6 w-6 text-emerald-500" />
           </div>
-        </Link>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-slate-900 dark:text-white">
+              WhatsApp Channel
+            </p>
+            <p className="text-[10px] font-extrabold text-emerald-500 tracking-tight uppercase">
+              STAY UPDATED AT ALL TIMES
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-emerald-500 transition-colors" />
+        </a>
       </section>
 
       <div>
