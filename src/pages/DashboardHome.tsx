@@ -96,7 +96,7 @@ export default function DashboardHome() {
             <div className="h-8 w-8 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: BTN_NAVY }}>
               <Wallet className="h-4 w-4" />
             </div>
-            <p className="font-extrabold text-sm truncate" style={{ color: TEXT_BLACK }}>
+            <p className="font-extrabold text-sm truncate text-slate-900 dark:text-white">
               ELON MARKETPLACE
             </p>
           </div>
@@ -117,10 +117,9 @@ export default function DashboardHome() {
             <button
               type="button"
               className="h-9 w-9 rounded-full border border-slate-200 dark:border-white/10 flex items-center justify-center"
-              style={{ color: TEXT_BLACK }}
               aria-label="Open menu"
             >
-              <Menu className="h-4 w-4" />
+              <Menu className="h-4 w-4 text-slate-900 dark:text-white" />
             </button>
           </div>
         </div>
@@ -199,7 +198,7 @@ export default function DashboardHome() {
         </a>
 
         <a
-          href="https://whatsapp.com/channel/0029VaDPv8S60eBebYfJ1Y2S"
+          href="https://wa.me/2348127692456"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 flex items-center gap-4 shadow-sm transition-all hover:scale-[1.01] active:scale-95 group"
@@ -209,10 +208,10 @@ export default function DashboardHome() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-slate-900 dark:text-white">
-              WhatsApp Channel
+              WhatsApp Support
             </p>
             <p className="text-[10px] font-extrabold text-emerald-500 tracking-tight uppercase">
-              STAY UPDATED AT ALL TIMES
+              REPLIES IN MINUTES
             </p>
           </div>
           <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-emerald-500 transition-colors" />
