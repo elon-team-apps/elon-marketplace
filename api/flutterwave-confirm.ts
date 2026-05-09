@@ -409,9 +409,10 @@ async function completeSuccessfulTxRefPayment(
 
   const existingTx = await supabaseService
     .from("transactions")
-    .select("id, user_id, status")
+    .select("id, user_id, status, balance_credited")
     .eq("reference", tx_ref)
     .maybeSingle();
+
   if (existingTx.error) {
     return {
       ok: false,
@@ -419,17 +420,30 @@ async function completeSuccessfulTxRefPayment(
       error: `tx_ref lookup failed: ${formatDbError(existingTx.error)}`,
     };
   }
+
   if (!existingTx.data) {
-    return { ok: true };
-  }
-  console.log(`Processing transaction ${tx_ref}. Current status: ${String(existingTx.data.status ?? "")}`);
-  if (normalize(String(existingTx.data.status ?? "")) === "completed") {
+    // If no transaction exists yet, we'll let processDeposit handle creating it.
     return { ok: true };
   }
 
+  const currentStatus = normalize(String(existingTx.data.status ?? ""));
+  console.log(`Processing transaction ${tx_ref}. Current status: ${currentStatus}`);
+
+  // 1. Check Idempotency: If already completed or credited, return success immediately.
+  if (currentStatus === "completed" || existingTx.data.balance_credited === true) {
+    console.log(`Transaction ${tx_ref} already completed/credited. Skipping.`);
+    return { ok: true };
+  }
+
+  // 2. Atomic Update: Only update if status is still pending/initiated.
+  // This update will fire the database trigger 'trg_apply_wallet_credit_from_transaction',
+  // which will handle the balance increment atomically.
   const txUpdate = await supabaseService
     .from("transactions")
-    .update({ status: "completed" })
+    .update({ 
+      status: "completed",
+      amount: amount // Ensure amount is recorded correctly
+    })
     .eq("reference", tx_ref)
     .in("status", ["pending", "initiated"])
     .select("id, user_id")
@@ -442,32 +456,14 @@ async function completeSuccessfulTxRefPayment(
       error: `tx_ref completion update failed: ${formatDbError(txUpdate.error)}`,
     };
   }
+
+  // If no rows were updated, it means it was already moved out of pending status by a race condition.
   if (!txUpdate.data) {
     return { ok: true };
   }
 
-  const userId = String((txUpdate.data as { user_id?: string } | null)?.user_id ?? "").trim();
-  if (!userId) {
-    return { ok: false, status: 500, error: "Completed transaction row has no user_id." };
-  }
-
-  let balanceRpc = await supabaseService.rpc("increment_balance", {
-    user_id: userId,
-    amount_to_add: amount,
-  });
-  if (balanceRpc.error) {
-    balanceRpc = await supabaseService.rpc("increment_balance", {
-      p_user_id: userId,
-      p_amount: amount,
-    });
-  }
-  if (balanceRpc.error) {
-    return {
-      ok: false,
-      status: 500,
-      error: `increment_balance RPC failed: ${formatDbError(balanceRpc.error)}`,
-    };
-  }
+  // NOTE: We have REMOVED the 'increment_balance' RPC call here.
+  // The database trigger handles the balance update when the status changes to 'completed'.
 
   return { ok: true };
 }
@@ -612,9 +608,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(500).json({ error: `Transaction lookup failed: ${formatDbError(txLookupError)}` });
       return;
     }
-    if (!tx) {
-      res.status(200).json({ message: "Transaction not found, skipping" });
-      return;
+
+    if (tx) {
+      const currentStatus = normalize(tx.status);
+      if (currentStatus === "completed" || tx.balance_credited === true) {
+        console.log(`[FlutterwaveWebhook] Transaction ${txRef} already processed/credited. STOP.`);
+        res.status(200).json({ ok: true, message: "Transaction already processed", idempotent: true });
+        return;
+      }
     }
 
     const mergedMeta = {
