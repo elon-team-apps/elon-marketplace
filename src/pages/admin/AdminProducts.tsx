@@ -45,7 +45,32 @@ function parseRawLogLines(raw: string): string[] {
   return raw
     .replace(/\r/g, "")
     .split("\n")
-    .filter((line) => line.trim().length > 0);
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function parseLogLineStructured(line: string) {
+  // Support multiple separators: colon, pipe, semicolon
+  const separators = [":", "|", ";"];
+  let parts: string[] = [line];
+  
+  for (const sep of separators) {
+    if (line.includes(sep)) {
+      const split = line.split(sep).map(p => p.trim());
+      // We need at least email and password
+      if (split.length >= 2) {
+        parts = split;
+        break;
+      }
+    }
+  }
+
+  const email = parts[0] || "";
+  const password = parts[1] || "";
+  // Join the rest as recovery
+  const recovery = parts.slice(2).join(":") || "";
+
+  return { email, password, recovery, isValid: email.length > 0 && password.length > 0 };
 }
 
 type LogRow = {
@@ -162,27 +187,48 @@ async function syncProductStockFromLogs(productId: string): Promise<number> {
 
 async function insertRawLogsForProduct(productId: string, rawLines: string[]): Promise<{ inserted: number; newStock: number }> {
   if (!supabase || rawLines.length === 0) return { inserted: 0, newStock: 0 };
-  const rowsWithContent = rawLines.map((line) => ({
-    product_id: productId,
-    content: line,
-    credentials: line,
-    status: "available",
-    is_delivered: false,
-  }));
-  let { error } = await supabase.from("log_items").insert(rowsWithContent);
-  if (error && /column .*content/i.test(String(error.message ?? ""))) {
-    const rowsLegacy = rawLines.map((line) => ({
+
+  const structuredLogs = rawLines.map(line => {
+    const { email, password, recovery } = parseLogLineStructured(line);
+    return { email, password, recovery };
+  });
+
+  const { data, error } = await supabase.rpc("bulk_upload_logs", {
+    p_product_id: productId,
+    p_logs: structuredLogs,
+  });
+
+  if (error) {
+    console.error("[AdminProducts] bulk_upload_logs RPC failed, falling back to direct insert", error);
+    // Legacy fallback for direct insert if RPC is missing or fails
+    const rowsWithContent = rawLines.map((line) => ({
       product_id: productId,
+      content: line,
       credentials: line,
       status: "available",
       is_delivered: false,
     }));
-    const legacy = await supabase.from("log_items").insert(rowsLegacy);
-    error = legacy.error;
+    
+    let { error: insError } = await supabase.from("log_items").insert(rowsWithContent);
+    if (insError && /column .*content/i.test(String(insError.message ?? ""))) {
+      const rowsLegacy = rawLines.map((line) => ({
+        product_id: productId,
+        credentials: line,
+        status: "available",
+        is_delivered: false,
+      }));
+      const legacy = await supabase.from("log_items").insert(rowsLegacy);
+      insError = legacy.error;
+    }
+    if (insError) throw insError;
+    const newStock = await syncProductStockFromLogs(productId);
+    return { inserted: rawLines.length, newStock };
   }
-  if (error) throw error;
-  const newStock = await syncProductStockFromLogs(productId);
-  return { inserted: rawLines.length, newStock };
+
+  return { 
+    inserted: Number(data.inserted ?? 0), 
+    newStock: Number(data.new_stock ?? 0) 
+  };
 }
 
 /** Live stock = count of log_items per product where status = 'available' (not products.stock). */
@@ -420,13 +466,34 @@ function BulkUploadModal({
                   rows={10}
                   disabled={status === "uploading"}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-                  placeholder={"Paste one full account per line.\nExample:\nID:Pass:2FA:Email\nor any raw line format you use."}
+                  placeholder={"Paste one full account per line.\nExample:\nemail:password:recovery\nor email|password|recovery\nor email;password"}
                   value={logsText}
                   onChange={(e) => {
                     setLogsText(e.target.value);
                     if (status === "error") setStatus("idle");
                   }}
                 />
+                {lineCount > 0 && (
+                  <div className="mt-2">
+                    {(() => {
+                      const invalidCount = rawLogLines.filter(l => !parseLogLineStructured(l).isValid).length;
+                      if (invalidCount > 0) {
+                        return (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" />
+                            {invalidCount} line(s) don't seem to follow the email:password format and might be stored as-is.
+                          </p>
+                        );
+                      }
+                      return (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          All lines follow the correct format.
+                        </p>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </>
           )}

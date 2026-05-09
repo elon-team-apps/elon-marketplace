@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  X, Eye, AlertCircle, Loader2, Minus, Plus, Wallet,
+  X, Eye, AlertCircle, Loader2, Minus, Plus, Wallet, CheckCircle2
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
@@ -160,7 +160,30 @@ function extractDeliveredData(payload: Record<string, unknown>): string[] {
 }
 
 function normalizeDeliveredLog(entry: string): string {
-  return String(entry ?? "");
+  return String(entry ?? "").trim();
+}
+
+function parseDeliveredLine(line: string) {
+  const separators = [":", "|", ";"];
+  let parts: string[] = [line];
+  
+  for (const sep of separators) {
+    if (line.includes(sep)) {
+      const split = line.split(sep).map(p => p.trim());
+      if (split.length >= 2) {
+        parts = split;
+        break;
+      }
+    }
+  }
+
+  return {
+    email: parts[0] || "",
+    password: parts[1] || "",
+    recovery: parts.slice(2).join(":") || "",
+    isStructured: parts.length >= 2,
+    full: line
+  };
 }
 
 function getFlutterwavePublicKey(): string {
@@ -731,32 +754,84 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
               </div>
             )}
             {purchaseState.phase === "success" && (
-              <div className="rounded-xl px-4 py-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 space-y-2.5">
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Purchase completed ({purchaseState.count} account{purchaseState.count === 1 ? "" : "s"})
-                </p>
+              <div className="rounded-xl px-4 py-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                    Purchase completed ({purchaseState.count} account{purchaseState.count === 1 ? "" : "s"})
+                  </p>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                </div>
+                
                 {purchaseState.logs.length > 0 ? (
-                  <div className="max-h-56 overflow-auto rounded-lg border border-emerald-200/70 dark:border-emerald-500/20 bg-white/60 dark:bg-black/20 px-2.5 py-2 space-y-2">
-                    {purchaseState.logs.map((logLine, index) => (
-                      <div
-                        key={`${logLine}-${index}`}
-                        className="flex items-start justify-between gap-2 rounded-md border border-emerald-200/70 bg-white/70 px-2 py-2 dark:border-emerald-500/10 dark:bg-black/20"
-                      >
-                        <pre className="text-xs whitespace-pre-wrap break-all font-mono text-emerald-900 dark:text-emerald-100 leading-relaxed flex-1 min-w-0">
-                          {logLine}
-                        </pre>
-                        <button
-                          type="button"
-                          onClick={() => void copyLogLine(logLine)}
-                          className="shrink-0 rounded-md border border-emerald-300/80 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  <div className="max-h-72 overflow-auto space-y-3 pr-1 custom-scrollbar">
+                    {purchaseState.logs.map((logLine, index) => {
+                      const parsed = parseDeliveredLine(logLine);
+                      return (
+                        <div
+                          key={`${logLine}-${index}`}
+                          className="rounded-xl border border-emerald-200/70 bg-white/70 p-3 dark:border-emerald-500/20 dark:bg-black/40 space-y-2.5 shadow-sm"
                         >
-                          {copiedLog === logLine ? "Copied" : "Copy"}
-                        </button>
-                      </div>
-                    ))}
+                          {parsed.isStructured ? (
+                            <div className="grid grid-cols-1 gap-2.5">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email / Username</span>
+                                <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200/50 dark:border-white/5">
+                                  <span className="text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all">{parsed.email}</span>
+                                  <button
+                                    onClick={() => void copyLogLine(parsed.email)}
+                                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
+                                  >
+                                    {copiedLog === parsed.email ? "Copied" : "Copy"}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Password</span>
+                                <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200/50 dark:border-white/5">
+                                  <span className="text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all">{parsed.password}</span>
+                                  <button
+                                    onClick={() => void copyLogLine(parsed.password)}
+                                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
+                                  >
+                                    {copiedLog === parsed.password ? "Copied" : "Copy"}
+                                  </button>
+                                </div>
+                              </div>
+                              {parsed.recovery && (
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Recovery / 2FA</span>
+                                  <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200/50 dark:border-white/5">
+                                    <span className="text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all">{parsed.recovery}</span>
+                                    <button
+                                      onClick={() => void copyLogLine(parsed.recovery)}
+                                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
+                                    >
+                                      {copiedLog === parsed.recovery ? "Copied" : "Copy"}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-start justify-between gap-3">
+                              <pre className="text-xs whitespace-pre-wrap break-all font-mono text-emerald-900 dark:text-emerald-100 leading-relaxed flex-1 min-w-0">
+                                {logLine}
+                              </pre>
+                              <button
+                                type="button"
+                                onClick={() => void copyLogLine(logLine)}
+                                className="shrink-0 rounded-lg border border-emerald-300/80 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/10 transition-all"
+                              >
+                                {copiedLog === logLine ? "Copied" : "Copy All"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300 animate-pulse">
                     Processing your accounts...
                   </p>
                 )}
