@@ -190,7 +190,12 @@ BEGIN
   -- 9. Collect Delivered Data
   SELECT string_agg(val, E'\n') INTO v_log_contents
   FROM (
-    SELECT COALESCE(content, credentials, '') as val
+    SELECT COALESCE(
+      NULLIF(content, ''),
+      NULLIF(credentials, ''),
+      NULLIF(concat_ws(':', NULLIF(email, ''), NULLIF(password, ''), NULLIF(recovery, '')), ''),
+      ''
+    ) as val
     FROM public.log_items
     WHERE id = ANY(v_log_ids)
     ORDER BY created_at ASC
