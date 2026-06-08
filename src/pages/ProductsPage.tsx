@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, EyeOff,
+  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, EyeOff, Heart
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -509,10 +509,13 @@ function ProductCard({
             accentColor={platform?.color ?? "#1877F2"}
           />
           <h3
-            className="text-[11px] font-semibold text-black uppercase antialiased leading-tight line-clamp-2"
+            className="text-[11px] font-semibold text-black uppercase antialiased leading-tight line-clamp-2 flex-1"
           >
             {p.title}
           </h3>
+          <button className="text-slate-300 hover:text-red-500 transition-colors">
+            <Heart className="h-4 w-4" />
+          </button>
         </div>
         <p className="text-sm font-bold text-slate-800 leading-tight mt-1 line-clamp-2">
           {String(p.description ?? "").trim() || "No description provided."}
