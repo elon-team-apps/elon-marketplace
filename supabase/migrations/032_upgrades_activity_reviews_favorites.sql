@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 
 -- RLS for Activity Logs
 ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins can view activity logs" ON activity_logs;
 CREATE POLICY "Admins can view activity logs" ON activity_logs FOR SELECT USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
 );
@@ -51,10 +52,15 @@ CREATE TABLE IF NOT EXISTS product_reviews (
 
 -- RLS for Reviews
 ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anyone can read reviews" ON product_reviews;
 CREATE POLICY "Anyone can read reviews" ON product_reviews FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can create reviews" ON product_reviews;
 CREATE POLICY "Users can create reviews" ON product_reviews FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own reviews" ON product_reviews;
 CREATE POLICY "Users can update own reviews" ON product_reviews FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own reviews" ON product_reviews;
 CREATE POLICY "Users can delete own reviews" ON product_reviews FOR DELETE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Admins can delete any review" ON product_reviews;
 CREATE POLICY "Admins can delete any review" ON product_reviews FOR DELETE USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
 );
@@ -70,6 +76,7 @@ CREATE TABLE IF NOT EXISTS user_favorites (
 
 -- RLS for Favorites
 ALTER TABLE user_favorites ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage favorites" ON user_favorites;
 CREATE POLICY "Users can manage favorites" ON user_favorites FOR ALL USING (auth.uid() = user_id);
 
 -- Expose tables in publication for realtime
