@@ -425,7 +425,7 @@ async function completeSuccessfulTxRefPayment(
 
   const existingTx = await supabaseService
     .from("transactions")
-    .select("id, user_id, status, balance_credited")
+    .select("id, user_id, status, balance_credited, type")
     .eq("reference", tx_ref)
     .maybeSingle();
 
@@ -444,6 +444,12 @@ async function completeSuccessfulTxRefPayment(
 
   const currentStatus = normalize(String(existingTx.data.status ?? ""));
   console.log(`Processing transaction ${tx_ref}. Current status: ${currentStatus}`);
+
+  const txType = normalize(String(existingTx.data.type ?? ""));
+  if (txType !== "deposit" && txType !== "wallet_topup") {
+    console.log(`Transaction ${tx_ref} is type ${txType}. Deferring completion to processSuccessfulTransaction.`);
+    return { ok: true };
+  }
 
   // 1. Check Idempotency: If already completed or credited, return success immediately.
   if (currentStatus === "completed" || existingTx.data.balance_credited === true) {
