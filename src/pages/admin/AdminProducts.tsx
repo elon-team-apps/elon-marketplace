@@ -673,7 +673,7 @@ function CreateProductModal({
             category: form.category,
             price: Math.trunc(price),
             description: form.description.trim(),
-            manual_stock: parsedManualStock,
+            manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
             stock: 0,
             stock_count: 0,
             status: "sold_out",
