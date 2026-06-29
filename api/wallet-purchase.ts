@@ -268,14 +268,14 @@ async function fulfillWalletPurchase(
       .order("created_at", { ascending: true })
       .limit(quantity);
     if (availableLogsRes.error && isMissingColumnError(availableLogsRes.error, "content")) {
-      availableLogsRes = await supabaseAdmin
+      availableLogsRes = (await supabaseAdmin
         .from("log_items")
         .select("id, credentials, email, password, recovery")
         .eq("product_id", tx.product_id)
         .eq("status", "available")
         .eq("is_delivered", false)
         .order("created_at", { ascending: true })
-        .limit(quantity);
+        .limit(quantity)) as any;
     }
     const logFetchError = availableLogsRes.error;
     const availableLogs = availableLogsRes.data;

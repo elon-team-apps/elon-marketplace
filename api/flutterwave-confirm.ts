@@ -581,7 +581,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const directCompletion = await completeSuccessfulTxRefPayment(supabaseService, txRef, dataAmount);
     if (!directCompletion.ok) {
-      res.status(directCompletion.status).json({ error: directCompletion.error });
+      const err = directCompletion as { ok: false; status: number; error: string };
+      res.status(err.status).json({ error: err.error });
       return;
     }
 
@@ -636,14 +637,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!bypassAllowed) {
       const verified = await verifyFlutterwaveByReference(txRef);
       if (!verified.ok) {
+        const vErr = verified as { ok: false; error: string; status?: number };
         await writeVerificationAudit(supabaseService, {
           txRef,
           decision: "rejected",
-          reason: verified.error,
+          reason: vErr.error,
           expectedAmount: Math.max(0, asPositiveInt(tx?.amount ?? dataAmount, 0)),
           payload,
         });
-        res.status(verified.status ?? 502).json({ error: verified.error });
+        res.status(vErr.status ?? 502).json({ error: vErr.error });
         return;
       }
       const expectedAmount = Math.max(0, asPositiveInt(tx?.amount ?? dataAmount, 0));
@@ -680,10 +682,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         txRef,
         dataAmount,
         {
-          ...(payload.meta ?? {}),
-          ...(payload.metadata ?? {}),
-          ...((rawBody.meta ?? {}) as Record<string, unknown>),
-          ...((rawBody.metadata ?? {}) as Record<string, unknown>),
+          ...(typeof payload.meta === 'object' && payload.meta !== null ? payload.meta : {}),
+          ...(typeof payload.metadata === 'object' && payload.metadata !== null ? payload.metadata : {}),
+          ...(typeof rawBody.meta === 'object' && rawBody.meta !== null ? (rawBody.meta as Record<string, unknown>) : {}),
+          ...(typeof rawBody.metadata === 'object' && rawBody.metadata !== null ? (rawBody.metadata as Record<string, unknown>) : {}),
           buyerEmail:
             (payload.customer as { email?: string } | undefined)?.email
             ?? (payload.meta as Record<string, unknown> | undefined)?.buyerEmail

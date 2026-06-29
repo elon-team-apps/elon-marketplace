@@ -89,14 +89,14 @@ export async function processSuccessfulTransaction(
       .order("created_at", { ascending: true })
       .limit(quantity);
     if (soldLogsPrimary.error && isMissingColumnError(soldLogsPrimary.error, "content")) {
-      soldLogsPrimary = await supabaseAdmin
+      soldLogsPrimary = (await supabaseAdmin
         .from("log_items")
         .select("id, credentials, email, password, recovery")
         .eq("product_id", tx.product_id)
         .eq("buyer_id", tx.user_id)
         .eq("is_delivered", true)
         .order("created_at", { ascending: true })
-        .limit(quantity);
+        .limit(quantity)) as any;
     }
     if (soldLogsPrimary.error) {
       return { ok: false, status: 500, error: `Failed to recover sold logs: ${formatDbError(soldLogsPrimary.error)}` };
@@ -113,14 +113,14 @@ export async function processSuccessfulTransaction(
             .order("created_at", { ascending: true })
             .limit(quantity);
     if (soldLogsFallback.error && isMissingColumnError(soldLogsFallback.error, "content")) {
-      soldLogsFallback = await supabaseAdmin
+      soldLogsFallback = (await supabaseAdmin
         .from("log_items")
         .select("id, credentials, email, password, recovery")
         .eq("product_id", tx.product_id)
         .eq("buyer_id", tx.user_id)
         .in("status", ["sold", "delivered"])
         .order("created_at", { ascending: true })
-        .limit(quantity);
+        .limit(quantity)) as any;
     }
     if (soldLogsFallback.error) {
       return { ok: false, status: 500, error: `Failed to recover fallback sold logs: ${formatDbError(soldLogsFallback.error)}` };
@@ -242,14 +242,14 @@ export async function processSuccessfulTransaction(
     .order("created_at", { ascending: true })
     .limit(quantity);
   if (availableLogsRes.error && isMissingColumnError(availableLogsRes.error, "content")) {
-    availableLogsRes = await supabaseAdmin
+    availableLogsRes = (await supabaseAdmin
       .from("log_items")
       .select("id, credentials, email, password, recovery")
       .eq("product_id", tx.product_id)
       .eq("status", "available")
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
-      .limit(quantity);
+      .limit(quantity)) as any;
   }
   const logFetchError = availableLogsRes.error;
   const availableLogs = availableLogsRes.data;
