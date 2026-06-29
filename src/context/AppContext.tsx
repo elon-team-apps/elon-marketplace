@@ -203,14 +203,18 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
-  } catch {}
+  } catch (e) {
+    // ignore
+  }
   return null;
 }
 
 function saveState(data: object) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {}
+  } catch (e) {
+    // ignore
+  }
 }
 
 function buildProfileSyncWarning(errorMessage: string | null | undefined, errorCode?: string | null) {

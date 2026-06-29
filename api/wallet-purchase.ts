@@ -275,7 +275,7 @@ async function fulfillWalletPurchase(
         .eq("status", "available")
         .eq("is_delivered", false)
         .order("created_at", { ascending: true })
-        .limit(quantity)) as any;
+        .limit(quantity)) as unknown;
     }
     const logFetchError = availableLogsRes.error;
     const availableLogs = availableLogsRes.data;

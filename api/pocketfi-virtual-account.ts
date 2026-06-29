@@ -8,7 +8,7 @@ type ApiRequest = {
 
 type ApiResponse = {
   setHeader: (name: string, value: string) => void;
-  status: (code: number) => { json: (body: any) => void; end: () => void };
+  status: (code: number) => { json: (body: unknown) => void; end: () => void };
 };
 
 function getSupabaseServiceClient(): SupabaseClient {

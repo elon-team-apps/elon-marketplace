@@ -4,12 +4,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 type ApiRequest = {
   method?: string;
   headers: Record<string, string | string[] | undefined>;
-  on: (event: string, callback: (chunk: any) => void) => void;
+  on: (event: string, callback: (chunk: unknown) => void) => void;
 };
 
 type ApiResponse = {
   setHeader: (name: string, value: string) => void;
-  status: (code: number) => { json: (body: any) => void; end: () => void };
+  status: (code: number) => { json: (body: unknown) => void; end: () => void };
 };
 
 function getSupabaseServiceClient(): SupabaseClient {
