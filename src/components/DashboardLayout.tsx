@@ -35,7 +35,7 @@ const userNav = [
   { label: "Dashboard",  icon: LayoutDashboard, path: "/dashboard",          exact: true  },
   { label: "Products",   icon: Package,          path: "/dashboard/products", exact: false },
   { label: "My Orders",  icon: ClipboardList,    path: "/dashboard/orders",   exact: false },
-  { label: "Payments",   icon: CreditCard,       path: "/dashboard/payments", exact: false },
+  { label: "Deposit History",   icon: CreditCard,       path: "/dashboard/payments", exact: false },
   { label: "Wallet",     icon: Wallet,           path: "/dashboard/wallet",   exact: false },
   { label: "Settings",   icon: Settings,         path: "/dashboard/settings", exact: false },
   { label: "Support",    icon: Headphones,       path: "/dashboard/support",  exact: false },
