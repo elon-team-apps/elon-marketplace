@@ -1,6 +1,16 @@
-/// <reference path="../next-shim.d.ts" />
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { NextApiRequest, NextApiResponse } from "next";
+
+type NextApiRequest = {
+  method?: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: any;
+  query: Record<string, string | string[]>;
+};
+
+type NextApiResponse = {
+  setHeader: (name: string, value: string) => void;
+  status: (code: number) => { json: (body: any) => void; end: () => void };
+};
 
 type ProcessSuccessfulTransactionFn = (
   supabaseAdmin: SupabaseClient,
@@ -27,14 +37,14 @@ function formatDbError(error: { message?: string; code?: string; details?: strin
 
 async function loadProcessSuccessfulTransaction(): Promise<ProcessSuccessfulTransactionFn> {
   try {
-    const module = await import("./_lib/processSuccessfulOrder");
+    const module = await import("../_lib/processSuccessfulOrder");
     const fn = module.processSuccessfulTransaction as ProcessSuccessfulTransactionFn | undefined;
     if (typeof fn === "function") return fn;
   } catch {
     // Fallback to explicit extension below.
   }
 
-  const fallbackModule = await import("./_lib/processSuccessfulOrder.js");
+  const fallbackModule = await import("../_lib/processSuccessfulOrder.js");
   const fallbackFn = fallbackModule.processSuccessfulTransaction as ProcessSuccessfulTransactionFn | undefined;
   if (typeof fallbackFn === "function") return fallbackFn;
   throw new Error("processSuccessfulTransaction export not found.");
