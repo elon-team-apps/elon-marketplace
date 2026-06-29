@@ -1,13 +1,16 @@
-/// <reference path="../next-shim.d.ts" />
-import crypto from "crypto";
+import * as crypto from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { NextApiRequest, NextApiResponse } from "next";
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
+type WebhookRequest = {
+  method?: string;
+  headers: Record<string, string | string[] | undefined>;
+  on: (event: string, callback: (chunk: any) => void) => void;
 };
+
+type WebhookResponse = {
+  status: (code: number) => { json: (body: any) => void; end: () => void };
+};
+
 
 function getSupabaseServiceClient(): SupabaseClient {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "").trim();
@@ -16,7 +19,7 @@ function getSupabaseServiceClient(): SupabaseClient {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: WebhookRequest, res: WebhookResponse) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
