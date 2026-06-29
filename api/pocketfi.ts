@@ -329,7 +329,7 @@ async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, to
       email: email,
       phone: "08000000000",
       businessId: businessId,
-      bank: "safehaven"
+      bank: "kuda"
     };
 
     const fwRes = await fetch("https://api.pocketfi.ng/api/v1/virtual-accounts/create", {
