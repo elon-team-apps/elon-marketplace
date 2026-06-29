@@ -1,3 +1,4 @@
+/// <reference path="../next-shim.d.ts" />
 import crypto from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { NextApiRequest, NextApiResponse } from "next";
