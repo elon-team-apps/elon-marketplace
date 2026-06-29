@@ -311,15 +311,15 @@ async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, to
     const firstName = nameParts[0];
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "User";
 
-    const businessId = (process.env.NEXT_PUBLIC_POCKETFI_BUSINESS_ID ?? "").trim();
-    const secretKey = (process.env.POCKETFI_SECRET_KEY ?? "").trim();
+    const businessId = (process.env.NEXT_PUBLIC_POCKETFI_BUSINESS_ID ?? process.env.POCKETFI_BUSINESS_ID ?? "").trim();
+    const apiToken = (process.env.POCKETFI_API_TOKEN ?? process.env.POCKETFI_SECRET_KEY ?? "").trim();
 
     if (!businessId) {
       res.status(500).json({ error: "Missing NEXT_PUBLIC_POCKETFI_BUSINESS_ID." });
       return;
     }
-    if (!secretKey) {
-      res.status(500).json({ error: "Missing POCKETFI_SECRET_KEY." });
+    if (!apiToken) {
+      res.status(500).json({ error: "Missing POCKETFI_API_TOKEN." });
       return;
     }
 
@@ -337,7 +337,7 @@ async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, to
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        Authorization: `Bearer ${secretKey}`,
+        Authorization: `Bearer ${apiToken}`,
       },
       body: JSON.stringify(payload),
     });
