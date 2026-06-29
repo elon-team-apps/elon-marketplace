@@ -59,7 +59,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const txRef = transaction.reference;
-    const amount = Number(transaction.amount || 0);
+    // PocketFi sends amount inside `order.amount` instead of `transaction.amount`
+    const amount = Number(payload.order?.amount || payload.order?.settlement_amount || 0);
 
     // 2. The Signature Header Bug
     // Checking all four potential header names

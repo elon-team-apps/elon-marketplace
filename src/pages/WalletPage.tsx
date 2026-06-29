@@ -13,13 +13,19 @@ import { useSearchParams } from "react-router-dom";
 // ─── Quick-select amounts ─────────────────────────────────────────────────────
 const QUICK_AMOUNTS = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000];
 const PENDING_REF_KEY = "flutterwave_pending_reference";
-const LEGACY_PENDING_REF_KEY = "pocketfi_pending_reference";
+const LEGACY_PENDING_REF_KEY = "pocketfi_legacy_pending_reference";
+const POCKETFI_PENDING_REF_KEY = "pocketfi_pending_reference";
 /** Client-approved primary actions (Purchase / Continue) */
 const BTN_NAVY = "#0f172a";
 
 function buildPaymentReference(): string {
   const rand = Math.random().toString(36).slice(2, 10);
   return `flw_wallet_${Date.now()}_${rand}`;
+}
+
+function buildPocketFiReference(): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `PFI|${Date.now()}_${rand}`;
 }
 
 type FlutterwaveOptions = {
@@ -78,12 +84,14 @@ type PaymentMethodSettingsRow = {
 
 type PaymentMethodSettings = {
   flutterwaveEnabled: boolean;
+  pocketfiEnabled: boolean;
   manualEnabled: boolean;
 };
 
 function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
   return {
     flutterwaveEnabled: Boolean(row?.pocketfi_enabled),
+    pocketfiEnabled: Boolean(row?.pocketfi_enabled),
     manualEnabled: Boolean(row?.manual_enabled),
   };
 }
@@ -98,7 +106,7 @@ export default function WalletPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | "finalized" | null>(null);
-  const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, manualEnabled: false });
+  const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, pocketfiEnabled: true, manualEnabled: false });
   const [pendingStartBalance, setPendingStartBalance] = useState<number | null>(null);
 
   useEffect(() => {
@@ -126,7 +134,7 @@ export default function WalletPage() {
       searchParams.get("trxref") ||
       searchParams.get("tx_ref");
     const stored =
-      localStorage.getItem(PENDING_REF_KEY) ?? localStorage.getItem(LEGACY_PENDING_REF_KEY);
+      localStorage.getItem(PENDING_REF_KEY) ?? localStorage.getItem(POCKETFI_PENDING_REF_KEY) ?? localStorage.getItem(LEGACY_PENDING_REF_KEY);
     const ref = fromUrl || stored;
     if (ref) {
       setPendingRef(ref);
@@ -157,6 +165,7 @@ export default function WalletPage() {
         void refreshProfile();
         toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
         localStorage.removeItem(PENDING_REF_KEY);
+        localStorage.removeItem(POCKETFI_PENDING_REF_KEY);
         setPendingRef(null);
         setPendingStartBalance(null);
         return;
@@ -165,6 +174,7 @@ export default function WalletPage() {
       if (status === "failed") {
         toast({ title: "Payment failed", description: "Transaction verification failed.", variant: "destructive" });
         localStorage.removeItem(PENDING_REF_KEY);
+        localStorage.removeItem(POCKETFI_PENDING_REF_KEY);
         setPendingRef(null);
         setPendingStartBalance(null);
         return;
@@ -186,15 +196,16 @@ export default function WalletPage() {
           if (response.ok) {
             const payload = (await response.json().catch(() => ({}))) as { status?: string };
             const confirmedStatus = String(payload.status ?? "").toLowerCase();
-            if (confirmedStatus === "completed") {
-              setPendingStatus("completed");
-              void refreshProfile();
-              toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
-              localStorage.removeItem(PENDING_REF_KEY);
-              setPendingRef(null);
-              setPendingStartBalance(null);
-              return;
-            }
+              if (confirmedStatus === "completed") {
+                setPendingStatus("completed");
+                void refreshProfile();
+                toast({ title: "Wallet funded", description: "Payment verified and balance updated." });
+                localStorage.removeItem(PENDING_REF_KEY);
+                localStorage.removeItem(POCKETFI_PENDING_REF_KEY);
+                setPendingRef(null);
+                setPendingStartBalance(null);
+                return;
+              }
           }
         }
       } catch {
@@ -216,6 +227,7 @@ export default function WalletPage() {
     if (latest > pendingStartBalance) {
       setPendingStatus("completed");
       localStorage.removeItem(PENDING_REF_KEY);
+      localStorage.removeItem(POCKETFI_PENDING_REF_KEY);
       setPendingRef(null);
       setPendingStartBalance(null);
     }
@@ -340,6 +352,71 @@ export default function WalletPage() {
     }
   };
 
+  const startPocketFiCheckout = async () => {
+    if (checkoutLoading) return;
+    const numeric = Number(amount);
+    const naira = Math.trunc(numeric);
+    if (isNaN(naira) || naira < 100) {
+      toast({ title: "Minimum funding amount is ₦100", variant: "destructive" });
+      return;
+    }
+    if (!currentUser?.email) {
+      toast({ title: "Email not ready. Please refresh and try again.", variant: "destructive" });
+      return;
+    }
+    if (!currentUser?.id || !supabase) {
+      toast({ title: "Session not ready. Please refresh and try again.", variant: "destructive" });
+      return;
+    }
+
+    setCheckoutLoading(true);
+    try {
+      const { data: activeUserData } = await supabase.auth.getUser();
+      if (!activeUserData.user) {
+        throw new Error("No active login session. Please sign in again and retry.");
+      }
+
+      const pfiRef = buildPocketFiReference();
+      const { error: txError } = await supabase.from("transactions").insert({
+        user_id: currentUser.id,
+        amount: naira,
+        type: "deposit",
+        status: "pending",
+        reference: pfiRef,
+      });
+
+      if (txError) {
+        throw new Error(`Could not create pending transaction: ${txError.message}`);
+      }
+
+      localStorage.setItem(POCKETFI_PENDING_REF_KEY, pfiRef);
+      setPendingRef(pfiRef);
+      setPendingStatus("pending");
+
+      const response = await fetch("/api/pocketfi-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: naira,
+          email: currentUser.email,
+          tx_ref: pfiRef,
+          callback_url: window.location.href,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.checkout_url) {
+        throw new Error(data.error || "Failed to initialize PocketFi checkout.");
+      }
+
+      window.location.href = data.checkout_url;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";
+      toast({ title: "Checkout failed", description: msg, variant: "destructive" });
+      setCheckoutLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Page header */}
@@ -367,7 +444,7 @@ export default function WalletPage() {
 
       <div className="glass-card p-6 space-y-5">
         <h2 className="font-heading font-semibold text-lg text-black dark:text-white">
-          Fund Wallet with Flutterwave
+          Fund Wallet
         </h2>
         <div>
           <Label className="mb-2 block font-medium text-black dark:text-white">Amount</Label>
@@ -401,31 +478,56 @@ export default function WalletPage() {
             Minimum funding amount: ₦100
           </p>
         </div>
-        {methods.flutterwaveEnabled ? (
-          <button
-            type="button"
-            className="w-full inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
-            style={{ background: BTN_NAVY }}
-            onClick={startFlutterwaveCheckout}
-            disabled={checkoutLoading || !amount || parseInt(amount) < 100}
-          >
-            {checkoutLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
-                <span className="text-white">Processing...</span>
-              </>
-            ) : (
-              <>
-                <Wallet className="h-4 w-4 shrink-0 text-white" />
-                <span className="text-white">Continue to Flutterwave</span>
-              </>
-            )}
-          </button>
-        ) : (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 dark:border-amber-500/35">
-            Flutterwave checkout is currently disabled by admin.
-          </div>
-        )}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {methods.flutterwaveEnabled ? (
+            <button
+              type="button"
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0"
+              style={{ background: BTN_NAVY }}
+              onClick={startFlutterwaveCheckout}
+              disabled={checkoutLoading || !amount || parseInt(amount) < 100}
+            >
+              {checkoutLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
+                  <span className="text-white">Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Wallet className="h-4 w-4 shrink-0 text-white" />
+                  <span className="text-white">Flutterwave</span>
+                </>
+              )}
+            </button>
+          ) : null}
+
+          {methods.pocketfiEnabled ? (
+            <button
+              type="button"
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0 bg-blue-600 hover:bg-blue-700"
+              onClick={startPocketFiCheckout}
+              disabled={checkoutLoading || !amount || parseInt(amount) < 100}
+            >
+              {checkoutLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
+                  <span className="text-white">Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Wallet className="h-4 w-4 shrink-0 text-white" />
+                  <span className="text-white">PocketFi</span>
+                </>
+              )}
+            </button>
+          ) : null}
+          
+          {!methods.flutterwaveEnabled && !methods.pocketfiEnabled && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 dark:border-amber-500/35">
+              Online checkout is currently disabled by admin.
+            </div>
+          )}
+        </div>
 
         {!methods.manualEnabled && (
           <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-black dark:border-white/40 dark:bg-slate-800/80 dark:text-white">
