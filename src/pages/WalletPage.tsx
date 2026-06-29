@@ -185,7 +185,7 @@ export default function WalletPage() {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData.session?.access_token ?? "";
         if (token) {
-          const response = await fetch("/api/flutterwave-confirm", {
+          const response = await fetch("/api/webhooks/flutterwave", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
