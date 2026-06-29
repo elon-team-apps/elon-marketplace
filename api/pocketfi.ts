@@ -332,10 +332,11 @@ async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, to
       bank: "safehaven"
     };
 
-    const fwRes = await fetch("https://api.pocketfi.ng/v1/bank-accounts/create", {
+    const fwRes = await fetch("https://api.pocketfi.ng/api/v1/virtual-accounts/create", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
         Authorization: `Bearer ${secretKey}`,
       },
       body: JSON.stringify(payload),
