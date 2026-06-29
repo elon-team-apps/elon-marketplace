@@ -163,10 +163,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     }
 
     const businessId = (process.env.NEXT_PUBLIC_POCKETFI_BUSINESS_ID ?? "").trim();
-    const secretKey = (process.env.POCKETFI_SECRET_KEY ?? "").trim();
+    const publicKey = (process.env.NEXT_PUBLIC_POCKETFI_PUBLIC_KEY ?? process.env.POCKETFI_PUBLIC_KEY ?? "").trim();
 
     if (!businessId) {
       res.status(500).json({ error: "Missing NEXT_PUBLIC_POCKETFI_BUSINESS_ID." });
+      return;
+    }
+
+    if (!publicKey) {
+      res.status(500).json({ error: "Missing POCKETFI_PUBLIC_KEY." });
       return;
     }
 
@@ -184,7 +189,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(secretKey ? { Authorization: `Bearer ${secretKey}` } : {}),
+        Authorization: `Bearer ${publicKey}`,
       },
       body: JSON.stringify(fwPayload),
     }).catch((error) => {
