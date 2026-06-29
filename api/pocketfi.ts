@@ -312,7 +312,7 @@ async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, to
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "User";
 
     const businessId = (process.env.NEXT_PUBLIC_POCKETFI_BUSINESS_ID ?? process.env.POCKETFI_BUSINESS_ID ?? "").trim();
-    const apiToken = (process.env.POCKETFI_API_TOKEN ?? process.env.POCKETFI_SECRET_KEY ?? "").trim();
+    const apiToken = (process.env.NEXT_PUBLIC_POCKETFI_PUBLIC_KEY ?? process.env.POCKETFI_PUBLIC_KEY ?? "").trim();
 
     if (!businessId) {
       res.status(500).json({ error: "Missing NEXT_PUBLIC_POCKETFI_BUSINESS_ID." });
