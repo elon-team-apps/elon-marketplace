@@ -129,6 +129,26 @@ export default function WalletPage() {
   }, []);
 
   useEffect(() => {
+    const urlStatus = (searchParams.get("status") || searchParams.get("resp") || "").toLowerCase();
+    
+    if (urlStatus === "cancelled" || urlStatus === "failed" || urlStatus === "error") {
+      toast({ title: "Payment Cancelled", description: "The payment was cancelled.", variant: "destructive" });
+      localStorage.removeItem(PENDING_REF_KEY);
+      localStorage.removeItem(POCKETFI_PENDING_REF_KEY);
+      localStorage.removeItem(LEGACY_PENDING_REF_KEY);
+      setPendingRef(null);
+      setPendingStartBalance(null);
+      
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("status");
+      newUrl.searchParams.delete("tx_ref");
+      newUrl.searchParams.delete("reference");
+      newUrl.searchParams.delete("trxref");
+      newUrl.searchParams.delete("resp");
+      window.history.replaceState({}, "", newUrl.toString());
+      return;
+    }
+
     const fromUrl =
       searchParams.get("reference") ||
       searchParams.get("trxref") ||
@@ -140,6 +160,14 @@ export default function WalletPage() {
       setPendingRef(ref);
       localStorage.setItem(PENDING_REF_KEY, ref);
       setPendingStartBalance(currentUser?.wallet_balance ?? 0);
+      
+      if (fromUrl) {
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("tx_ref");
+        newUrl.searchParams.delete("reference");
+        newUrl.searchParams.delete("trxref");
+        window.history.replaceState({}, "", newUrl.toString());
+      }
     }
   }, [searchParams, currentUser?.wallet_balance]);
 
@@ -393,7 +421,7 @@ export default function WalletPage() {
       setPendingRef(pfiRef);
       setPendingStatus("pending");
 
-      const response = await fetch("/api/pocketfi-init", {
+      const response = await fetch("/api/pocketfi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
