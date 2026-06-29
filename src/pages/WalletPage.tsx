@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Wallet, Loader2, AlertCircle } from "lucide-react";
+import { Wallet, Loader2, AlertCircle, Copy, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
@@ -104,6 +104,8 @@ export default function WalletPage() {
 
   const [amount, setAmount] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [isGeneratingVA, setIsGeneratingVA] = useState(false);
+  const [copiedVA, setCopiedVA] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | "finalized" | null>(null);
   const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, pocketfiEnabled: true, manualEnabled: false });
@@ -450,6 +452,41 @@ export default function WalletPage() {
     }
   };
 
+  const generateVirtualAccount = async () => {
+    if (isGeneratingVA) return;
+    setIsGeneratingVA(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("No active session");
+
+      const res = await fetch("/api/pocketfi-virtual-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate virtual account");
+      
+      toast({ title: "Success", description: "Virtual account generated successfully!" });
+      void refreshProfile();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error generating virtual account";
+      toast({ title: "Failed", description: msg, variant: "destructive" });
+    } finally {
+      setIsGeneratingVA(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedVA(true);
+    setTimeout(() => setCopiedVA(false), 2000);
+    toast({ title: "Copied!", description: "Account number copied to clipboard." });
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Page header */}
@@ -473,6 +510,60 @@ export default function WalletPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="glass-card p-6 space-y-5">
+        <h2 className="font-heading font-semibold text-lg text-black dark:text-white flex items-center gap-2">
+          <Wallet className="h-5 w-5 text-accent" />
+          Virtual Account
+        </h2>
+        {currentUser?.virtual_account_number ? (
+          <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 space-y-4">
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-1">Bank Name</p>
+              <p className="text-sm font-semibold text-black dark:text-white">{currentUser.virtual_account_bank}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-1">Account Name</p>
+              <p className="text-sm font-semibold text-black dark:text-white">{currentUser.virtual_account_name}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mb-1">Account Number</p>
+              <div className="flex items-center justify-between bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg p-3">
+                <p className="font-mono text-lg font-bold text-black dark:text-white tracking-widest">{currentUser.virtual_account_number}</p>
+                <button
+                  onClick={() => copyToClipboard(currentUser.virtual_account_number!)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                  title="Copy account number"
+                >
+                  {copiedVA ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : <Copy className="h-5 w-5 text-slate-500 dark:text-slate-400" />}
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2 mt-2">
+               <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+               Transfers to this account will automatically top up your wallet balance.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 text-center space-y-4">
+            <div className="mx-auto h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Wallet className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-black dark:text-white mb-1">Get Your Dedicated Account</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">Generate a permanent bank account number. Any transfers will instantly fund your wallet.</p>
+            </div>
+            <button
+              onClick={generateVirtualAccount}
+              disabled={isGeneratingVA}
+              className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-9 px-4 text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {isGeneratingVA ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Generate Account
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="glass-card p-6 space-y-5">

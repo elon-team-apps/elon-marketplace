@@ -123,7 +123,52 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       }
 
       if (!existingTx) {
-        res.status(404).json({ error: "Transaction not found" });
+        // Handle potential Virtual Account transfer (no pre-existing transaction)
+        let matchedUser = null;
+        const depositAmount = amount;
+
+        // Try to match by virtual account number if present in payload
+        const possibleAccountNum = payload.accountNumber || payload.account_number || payload.virtualAccount?.accountNumber || payload.sourceInformation?.accountNumber;
+        if (possibleAccountNum) {
+           const { data: profile } = await supabaseService.from("profiles").select("id").eq("virtual_account_number", possibleAccountNum).maybeSingle();
+           if (profile) matchedUser = profile.id;
+        }
+
+        // Try to match by email if account number didn't match and email is present
+        if (!matchedUser && payload.customer?.email) {
+           const { data: profile } = await supabaseService.from("profiles").select("id").eq("email", payload.customer.email).maybeSingle();
+           if (profile) matchedUser = profile.id;
+        }
+        
+        if (matchedUser) {
+           // We found the user for this spontaneous virtual account deposit!
+           // Create a new transaction row to mark it as completed and trigger the DB trigger/credit logic
+           const { error: insertError } = await supabaseService.from("transactions").insert({
+               reference: txRef,
+               user_id: matchedUser,
+               amount: depositAmount > 0 ? depositAmount : 0,
+               type: "deposit",
+               status: "completed"
+           });
+           
+           if (insertError) {
+               // If there's a unique constraint violation on reference, it means it was already inserted
+               // by a concurrent webhook call, which is fine (idempotent).
+               if (insertError.code === '23505') {
+                 res.status(200).json({ ok: true, message: "Virtual account deposit already processed (Idempotent)" });
+                 return;
+               }
+               console.error("Failed to insert virtual account transaction:", insertError);
+               res.status(500).json({ error: "Failed to insert transaction" });
+               return;
+           }
+           
+           res.status(200).json({ ok: true, message: "Virtual account deposit successfully credited" });
+           return;
+        }
+
+        console.error("Webhook payload could not be matched to an existing transaction or virtual account user.", payload);
+        res.status(404).json({ error: "Transaction not found and could not map to virtual account" });
         return;
       }
 

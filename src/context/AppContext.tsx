@@ -33,6 +33,9 @@ export interface User {
   /** True when profiles.is_admin is true or role is admin (legacy). */
   is_admin: boolean;
   createdAt: string;
+  virtual_account_number?: string;
+  virtual_account_bank?: string;
+  virtual_account_name?: string;
 }
 
 export interface Order {
@@ -378,6 +381,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           role: resolvedRole,
           is_admin: resolvedAdmin,
           createdAt: (profile.created_at as string) ?? "",
+          virtual_account_number: (profile.virtual_account_number as string) ?? undefined,
+          virtual_account_bank: (profile.virtual_account_bank as string) ?? undefined,
+          virtual_account_name: (profile.virtual_account_name as string) ?? undefined,
         });
         if (!resolvedAdmin && isAdminViewRef.current) setIsAdminView(false);
         return;
