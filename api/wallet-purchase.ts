@@ -275,7 +275,8 @@ async function fulfillWalletPurchase(
         .eq("status", "available")
         .eq("is_delivered", false)
         .order("created_at", { ascending: true })
-        .limit(quantity)) as unknown;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .limit(quantity)) as any;
     }
     const logFetchError = availableLogsRes.error;
     const availableLogs = availableLogsRes.data;

@@ -96,7 +96,8 @@ export async function processSuccessfulTransaction(
         .eq("buyer_id", tx.user_id)
         .eq("is_delivered", true)
         .order("created_at", { ascending: true })
-        .limit(quantity)) as unknown;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .limit(quantity)) as any;
     }
     if (soldLogsPrimary.error) {
       return { ok: false, status: 500, error: `Failed to recover sold logs: ${formatDbError(soldLogsPrimary.error)}` };
@@ -120,7 +121,8 @@ export async function processSuccessfulTransaction(
         .eq("buyer_id", tx.user_id)
         .in("status", ["sold", "delivered"])
         .order("created_at", { ascending: true })
-        .limit(quantity)) as unknown;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .limit(quantity)) as any;
     }
     if (soldLogsFallback.error) {
       return { ok: false, status: 500, error: `Failed to recover fallback sold logs: ${formatDbError(soldLogsFallback.error)}` };
@@ -249,7 +251,8 @@ export async function processSuccessfulTransaction(
       .eq("status", "available")
       .eq("is_delivered", false)
       .order("created_at", { ascending: true })
-      .limit(quantity)) as unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .limit(quantity)) as any;
   }
   const logFetchError = availableLogsRes.error;
   const availableLogs = availableLogsRes.data;

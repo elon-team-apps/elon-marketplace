@@ -3,13 +3,15 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 type NextApiRequest = {
   method?: string;
   headers: Record<string, string | string[] | undefined>;
-  body: unknown;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body: any;
   query: Record<string, string | string[]>;
 };
 
 type NextApiResponse = {
   setHeader: (name: string, value: string) => void;
-  status: (code: number) => { json: (body: unknown) => void; end: () => void };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  status: (code: number) => { json: (body: any) => void; end: () => void };
 };
 
 type ProcessSuccessfulTransactionFn = (
@@ -260,9 +262,11 @@ async function processDeposit(
     if (fallbackDepositLookup.error) {
       return { ok: false, status: 500, error: `Failed deposit lookup: ${formatDbError(fallbackDepositLookup.error)}` };
     }
-    // @ts-expect-error -- pre-existing mixed select shape in fallback assignment
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore -- pre-existing mixed select shape in fallback assignment
     primaryDepositLookup = {
-      // @ts-expect-error -- fallback row omits balance_credited column
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore -- fallback row omits balance_credited column
       data: fallbackDepositLookup.data,
       error: null,
       count: null,
@@ -296,7 +300,8 @@ async function processDeposit(
         .order("created_at", { ascending: false })
         .limit(1);
       if (!fallbackTxLookup.error && Array.isArray(fallbackTxLookup.data) && fallbackTxLookup.data.length > 0) {
-        // @ts-expect-error -- pre-existing parser/type narrowing mismatch on fallback row cast
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore -- pre-existing parser/type narrowing mismatch on fallback row cast
         tx = fallbackTxLookup.data[0] as {
           id: string;
           user_id: string;
