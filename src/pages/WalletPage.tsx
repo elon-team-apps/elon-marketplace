@@ -460,7 +460,7 @@ export default function WalletPage() {
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("No active session");
 
-      const res = await fetch("/api/pocketfi-virtual-account", {
+      const res = await fetch("/api/pocketfi", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

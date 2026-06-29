@@ -4,7 +4,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 type ApiRequest = {
   method?: string;
   headers: Record<string, string | string[] | undefined>;
-  on: (event: string, callback: (chunk: unknown) => void) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on?: (event: string, callback: (chunk: any) => void) => void;
+  body?: string | Record<string, unknown>;
 };
 
 type ApiResponse = {
@@ -28,7 +30,7 @@ function asPositiveInt(value: unknown, fallback = 0): number {
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, pocketfi-signature, x-pocketfi-signature, http_pocketfi_signature");
 
   if (req.method === "OPTIONS") {
     res.status(200).end();
@@ -43,6 +45,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const val = req.headers[name] || req.headers[name.toLowerCase()];
     return Array.isArray(val) ? val[0] : val;
   };
+
+  const authHeader = getHeader("authorization");
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return handleVirtualAccountRequest(req, res, authHeader.replace("Bearer ", "").trim());
+  }
 
   const signature = 
     getHeader("http_pocketfi_signature") ??
@@ -274,6 +281,114 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     res.status(200).json({ checkout_url, checkoutUrl: checkout_url, tx_ref: payment_id });
   } catch (err) {
     console.error("Unhandled pocketfi error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, token: string) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      res.status(401).json({ error: "Unauthorized: Invalid token" });
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("virtual_account_number, name, email")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.virtual_account_number) {
+      res.status(400).json({ error: "User already has a virtual account" });
+      return;
+    }
+
+    const email = profile?.email || user.email || "";
+    const nameParts = (profile?.name || email.split("@")[0] || "Customer").split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "User";
+
+    const businessId = (process.env.NEXT_PUBLIC_POCKETFI_BUSINESS_ID ?? "").trim();
+    const secretKey = (process.env.POCKETFI_SECRET_KEY ?? "").trim();
+
+    if (!businessId) {
+      res.status(500).json({ error: "Missing NEXT_PUBLIC_POCKETFI_BUSINESS_ID." });
+      return;
+    }
+    if (!secretKey) {
+      res.status(500).json({ error: "Missing POCKETFI_SECRET_KEY." });
+      return;
+    }
+
+    const payload = {
+      first_name: firstName,
+      last_name: lastName,
+      email: email,
+      phone: "00000000000",
+      businessId: businessId,
+      bank: "wema"
+    };
+
+    const fwRes = await fetch("https://api.pocketfi.ng/api/v1/bank-accounts/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${secretKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await fwRes.json().catch(() => ({}));
+
+    if (!fwRes.ok || data.status !== true) {
+      console.error("PocketFi Virtual Account Error:", data);
+      res.status(502).json({ error: data.message || data.error || "Failed to create virtual account." });
+      return;
+    }
+
+    const banks = data.banks || [];
+    if (banks.length === 0) {
+      res.status(502).json({ error: "No bank details returned from PocketFi." });
+      return;
+    }
+
+    const bankDetails = banks[0];
+    const accountNumber = bankDetails.accountNumber;
+    const bankName = bankDetails.bankName;
+    const accountName = bankDetails.accountName;
+
+    if (!accountNumber) {
+      res.status(502).json({ error: "Missing account number in PocketFi response." });
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        virtual_account_number: accountNumber,
+        virtual_account_bank: bankName,
+        virtual_account_name: accountName
+      })
+      .eq("id", user.id);
+
+    if (updateError) {
+      console.error("Failed to update profile:", updateError);
+      res.status(500).json({ error: "Failed to save virtual account details." });
+      return;
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      virtual_account_number: accountNumber,
+      virtual_account_bank: bankName,
+      virtual_account_name: accountName
+    });
+
+  } catch (err) {
+    console.error("Virtual Account Generation Error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 }
