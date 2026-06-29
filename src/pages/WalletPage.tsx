@@ -437,6 +437,11 @@ export default function WalletPage() {
         throw new Error(data.error || "Failed to initialize PocketFi checkout.");
       }
 
+      if (data.tx_ref && data.tx_ref !== pfiRef) {
+        localStorage.setItem(POCKETFI_PENDING_REF_KEY, data.tx_ref);
+        setPendingRef(data.tx_ref);
+      }
+
       window.location.href = data.checkout_url;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unable to start PocketFi checkout.";

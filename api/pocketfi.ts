@@ -170,8 +170,58 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       return;
     }
 
-    const checkout_url = `https://pocketfi.ng/pay?businessId=${businessId}&amount=${initAmount}&reference=${tx_ref}`;
-    res.status(200).json({ checkout_url, checkoutUrl: checkout_url, tx_ref });
+    const fwPayload = {
+      first_name: "Customer",
+      last_name: email.split("@")[0] || "User",
+      phone: "00000000000",
+      business_id: businessId,
+      email: email,
+      redirect_link: callback_url,
+      amount: initAmount.toString(),
+    };
+
+    const fwRes = await fetch("https://api.pocketfi.ng/api/v1/checkout/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(secretKey ? { Authorization: `Bearer ${secretKey}` } : {}),
+      },
+      body: JSON.stringify(fwPayload),
+    }).catch((error) => {
+      console.error("[PocketFiInit] network error", error);
+      return null;
+    });
+
+    if (!fwRes) {
+      res.status(502).json({ error: "Network error reaching PocketFi." });
+      return;
+    }
+
+    const data = (await fwRes.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!fwRes.ok || data.status !== "success") {
+      res.status(502).json({
+        error: String(data.message ?? data.error ?? "PocketFi init failed."),
+        provider: data,
+      });
+      return;
+    }
+
+    const checkout_url = String(data.payment_link ?? "").trim();
+    const payment_id = String(data.payment_id ?? "").trim();
+    
+    if (!checkout_url || !payment_id) {
+      res.status(502).json({ error: "PocketFi did not return payment_link or payment_id.", provider: data });
+      return;
+    }
+
+    // PocketFi generates its own reference (payment_id). We must update our database transaction to use this new reference!
+    const supabaseService = getSupabaseServiceClient();
+    await supabaseService
+      .from("transactions")
+      .update({ reference: payment_id })
+      .eq("reference", tx_ref);
+
+    res.status(200).json({ checkout_url, checkoutUrl: checkout_url, tx_ref: payment_id });
   } catch (err) {
     console.error("Unhandled pocketfi error:", err);
     res.status(500).json({ error: "Internal server error" });
