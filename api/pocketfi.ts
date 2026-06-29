@@ -341,7 +341,15 @@ async function handleVirtualAccountRequest(req: ApiRequest, res: ApiResponse, to
       body: JSON.stringify(payload),
     });
 
-    const data = await fwRes.json().catch(() => ({}));
+    const fwResText = await fwRes.text();
+    console.log("PocketFi Raw Response:", fwResText);
+    
+    let data: any = {};
+    try {
+      data = JSON.parse(fwResText);
+    } catch (e) {
+      console.error("Failed to parse PocketFi JSON:", e);
+    }
 
     if (!fwRes.ok || data.status !== true) {
       console.error("PocketFi Virtual Account Error:", data);
