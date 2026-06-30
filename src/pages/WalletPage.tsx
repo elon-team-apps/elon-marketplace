@@ -601,6 +601,27 @@ export default function WalletPage() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
+          {methods.pocketfiEnabled ? (
+            <button
+              type="button"
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0 bg-blue-600 hover:bg-blue-700"
+              onClick={startPocketFiCheckout}
+              disabled={checkoutLoading || !amount || parseInt(amount) < 100}
+            >
+              {checkoutLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
+                  <span className="text-white">Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Wallet className="h-4 w-4 shrink-0 text-white" />
+                  <span className="text-white">PocketFi</span>
+                </>
+              )}
+            </button>
+          ) : null}
+
           {methods.flutterwaveEnabled ? (
             <button
               type="button"
@@ -618,27 +639,6 @@ export default function WalletPage() {
                 <>
                   <Wallet className="h-4 w-4 shrink-0 text-white" />
                   <span className="text-white">Flutterwave</span>
-                </>
-              )}
-            </button>
-          ) : null}
-
-          {methods.pocketfiEnabled ? (
-            <button
-              type="button"
-              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium h-10 px-4 py-2 text-white [&_svg]:text-white transition-opacity hover:opacity-95 disabled:pointer-events-none disabled:opacity-50 border-0 bg-blue-600 hover:bg-blue-700"
-              onClick={startPocketFiCheckout}
-              disabled={checkoutLoading || !amount || parseInt(amount) < 100}
-            >
-              {checkoutLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white" />
-                  <span className="text-white">Processing...</span>
-                </>
-              ) : (
-                <>
-                  <Wallet className="h-4 w-4 shrink-0 text-white" />
-                  <span className="text-white">PocketFi</span>
                 </>
               )}
             </button>
