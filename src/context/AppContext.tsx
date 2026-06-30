@@ -480,6 +480,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.log("[AppContext] getSession: no active session on mount.");
         setProfileLoaded(true);
       }
+    }).catch((err) => {
+      console.error("[AppContext] getSession exception:", err);
+      authBootstrapDoneRef.current = true;
+      setProfileLoaded(true);
     });
 
     return () => { listener.subscription.unsubscribe(); };
@@ -701,8 +705,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase) return;
     setProfileSyncWarning(null);
     currentUserRef.current = { ...currentUserRef.current, role: "" };
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) await syncProfile(session.user);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) await syncProfile(session.user);
+    } catch (err) {
+      console.error("[AppContext] refreshProfile getSession exception:", err);
+    }
   }, [syncProfile]);
 
   const addProduct = (product: Omit<Product, "id" | "createdAt">) => {

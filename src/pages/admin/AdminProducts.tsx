@@ -190,7 +190,7 @@ async function insertRawLogsForProduct(productId: string, rawLines: string[]): P
 
   const structuredLogs = rawLines.map(line => {
     const { email, password, recovery } = parseLogLineStructured(line);
-    return { email, password, recovery };
+    return { email, password, recovery, content: line };
   });
 
   const { data, error } = await supabase.rpc("bulk_upload_logs", {
