@@ -538,10 +538,17 @@ export default function WalletPage() {
                 </button>
               </div>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2 mt-2">
-               <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-               Transfers to this account will automatically top up your wallet balance.
-            </p>
+            <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg p-4">
+              <h3 className="text-sm font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                How to fund your wallet
+              </h3>
+              <ol className="text-sm text-blue-800 dark:text-blue-400/90 space-y-1.5 list-decimal list-inside ml-1">
+                <li>Copy the account number above.</li>
+                <li>Go to your bank app and send payment to this exact account.</li>
+                <li>Your wallet balance will be updated automatically in a few moments!</li>
+              </ol>
+            </div>
           </div>
         ) : (
           <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 text-center space-y-4">
