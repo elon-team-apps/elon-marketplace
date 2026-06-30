@@ -802,12 +802,12 @@ export default function AdminDashboard() {
         </div>
 
         <div className="grid sm:grid-cols-2 gap-3">
-          <div className="rounded-xl border border-slate-200 dark:border-white/8 p-4 bg-white/60 dark:bg-white/3">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Today</p>
+          <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Today</p>
             <p className="text-2xl font-bold text-foreground mt-1">{todayOrderCount}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 dark:border-white/8 p-4 bg-white/60 dark:bg-white/3">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Yesterday</p>
+          <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Yesterday</p>
             <p className="text-2xl font-bold text-foreground mt-1">{yesterdayOrderCount}</p>
           </div>
         </div>
