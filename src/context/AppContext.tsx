@@ -56,6 +56,8 @@ interface AppContextType {
   /** Admin from DB flags and role. */
   isAdmin: boolean;
   isAdminView: boolean;
+  announcementMessage: string;
+  announcementActive: boolean;
   /** Non-null when profile fetch failed or threw (e.g. RLS / recursion); UI can show a soft warning. */
   profileSyncWarning: string | null;
   /** Clears app + auth storage, signs out, redirects to `/auth` for a clean session. */
@@ -236,6 +238,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [isAdminView, setIsAdminView] = useState(false);
   const [profileSyncWarning, setProfileSyncWarning] = useState<string | null>(null);
+  const [announcementMessage, setAnnouncementMessage] = useState<string>("");
+  const [announcementActive, setAnnouncementActive] = useState<boolean>(false);
 
   const isAdmin =
     currentUser.is_admin === true ||
@@ -632,6 +636,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void refreshProducts();
   }, [refreshProducts]);
 
+  // ── Fetch site settings ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!supabase) return;
+    const fetchSettings = async () => {
+      const { data } = await supabase.from("site_settings").select("announcement_message, announcement_active").eq("id", 1).maybeSingle();
+      if (data) {
+        setAnnouncementMessage(data.announcement_message ?? "");
+        setAnnouncementActive(data.announcement_active ?? false);
+      }
+    };
+    void fetchSettings();
+    const channel = supabase.channel("site_settings_realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings", filter: "id=eq.1" }, (payload) => {
+        const row = payload.new as Record<string, unknown>;
+        if (row) {
+          setAnnouncementMessage(typeof row.announcement_message === "string" ? row.announcement_message : "");
+          setAnnouncementActive(Boolean(row.announcement_active));
+        }
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
+
   // Live wallet/role sync for navbar and dashboard stats.
   useEffect(() => {
     if (!supabase || !currentUser?.id) return;
@@ -878,6 +905,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         profileLoaded,
         isAdmin,
         isAdminView,
+        announcementMessage,
+        announcementActive,
         profileSyncWarning,
         clearSessionAndHardRefresh,
         products,

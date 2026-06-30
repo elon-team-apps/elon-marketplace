@@ -503,6 +503,9 @@ export default function AdminDashboard() {
     manualEnabled: false,
   });
   const [pmLoading, setPmLoading] = useState(false);
+  const [announcementMsg, setAnnouncementMsg] = useState("");
+  const [announcementActive, setAnnouncementActive] = useState(false);
+  const [savingAnnouncement, setSavingAnnouncement] = useState(false);
   const [reconcilingDeposits, setReconcilingDeposits] = useState(false);
   const [dbTotalUsers, setDbTotalUsers] = useState<number | null>(null);
   const [dbPurchaseRevenue, setDbPurchaseRevenue] = useState<number | null>(null);
@@ -649,19 +652,44 @@ export default function AdminDashboard() {
     ],
   );
 
-  const fetchPaymentSettings = useCallback(async () => {
+  const fetchSettings = useCallback(async () => {
     if (!supabase || !profileLoaded || !isAdmin) return;
-    const { data, error } = await supabase
+    const { data: pmData, error: pmError } = await supabase
       .from("payment_method_settings")
       .select("pocketfi_enabled, manual_enabled")
       .eq("id", 1)
       .maybeSingle();
-    if (!error && data) setPmSettings(mapPaymentSettings(data as PaymentMethodSettingsRow));
+    if (!pmError && pmData) setPmSettings(mapPaymentSettings(pmData as PaymentMethodSettingsRow));
+
+    const { data: siteData, error: siteError } = await supabase
+      .from("site_settings")
+      .select("announcement_message, announcement_active")
+      .eq("id", 1)
+      .maybeSingle();
+    if (!siteError && siteData) {
+      setAnnouncementMsg(siteData.announcement_message ?? "");
+      setAnnouncementActive(siteData.announcement_active ?? false);
+    }
   }, [isAdmin, profileLoaded]);
 
   useEffect(() => {
-    fetchPaymentSettings();
-  }, [fetchPaymentSettings]);
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const saveAnnouncement = async () => {
+    if (!supabase || !profileLoaded || !isAdmin) return;
+    setSavingAnnouncement(true);
+    const { error } = await supabase
+      .from("site_settings")
+      .upsert({ id: 1, announcement_message: announcementMsg, announcement_active: announcementActive });
+    
+    if (error) {
+      toast({ title: "Failed to save announcement", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Announcement saved", description: "The announcement has been updated." });
+    }
+    setSavingAnnouncement(false);
+  };
 
   const togglePaymentMethod = async (field: "paystackEnabled" | "manualEnabled") => {
     if (!supabase || !profileLoaded || !isAdmin) return;
@@ -846,6 +874,41 @@ export default function AdminDashboard() {
           >
             {reconcilingDeposits ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Reconcile Pending Deposits
+          </Button>
+        </div>
+      </div>
+
+      <div className="glass-card p-5 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="font-heading font-semibold text-sm text-foreground">Site Announcement</h2>
+          </div>
+          <button
+            onClick={() => {
+              setAnnouncementActive(!announcementActive);
+            }}
+            className={`text-xs px-3 py-1.5 rounded-md font-semibold transition ${
+              announcementActive ? "bg-accent/15 text-accent" : "bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-300"
+            }`}
+          >
+            {announcementActive ? "Active" : "Inactive"}
+          </button>
+        </div>
+        <textarea
+          value={announcementMsg}
+          onChange={(e) => setAnnouncementMsg(e.target.value)}
+          placeholder="Enter an announcement to display on user dashboard..."
+          className="w-full h-24 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={saveAnnouncement}
+            disabled={savingAnnouncement}
+            className="h-9"
+          >
+            {savingAnnouncement ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Save Announcement
           </Button>
         </div>
       </div>

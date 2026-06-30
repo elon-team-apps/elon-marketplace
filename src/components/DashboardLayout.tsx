@@ -125,13 +125,15 @@ const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const {
     currentUser,
-    profileLoaded,
     isAdmin,
     isAdminView,
-    toggleAdminView,
-    refreshProfile,
+    profileLoaded,
     profileSyncWarning,
     clearSessionAndHardRefresh,
+    refreshProfile,
+    announcementMessage,
+    announcementActive,
+    toggleAdminView,
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -392,6 +394,18 @@ const DashboardLayout = () => {
         </header>
 
         <main className="flex-1 px-4 md:px-6 pt-7 md:pt-10 pb-6 overflow-auto">
+          {announcementActive && announcementMessage && (
+            <div className="mb-6 rounded-lg bg-accent/10 border border-accent/20 p-4">
+              <div className="flex gap-3">
+                <div className="h-6 w-6 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="h-3 w-3 text-accent" />
+                </div>
+                <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                  {announcementMessage}
+                </div>
+              </div>
+            </div>
+          )}
           <DashboardContentErrorBoundary>
             <Outlet />
           </DashboardContentErrorBoundary>
