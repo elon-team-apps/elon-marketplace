@@ -1442,6 +1442,7 @@ export default function AdminProducts() {
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [liveStockById, setLiveStockById] = useState<Record<string, number>>({});
+  const [searchQuery, setSearchQuery] = useState("");
 
   const openBulkUploadModal = async (initialId: string | null) => {
     await refreshProducts();

@@ -406,7 +406,7 @@ const DashboardLayout = () => {
               </div>
             </div>
           )}
-          <DashboardContentErrorBoundary>
+          <DashboardContentErrorBoundary key={location.pathname}>
             <Outlet />
           </DashboardContentErrorBoundary>
         </main>
