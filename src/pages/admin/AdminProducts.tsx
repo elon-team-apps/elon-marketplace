@@ -1542,6 +1542,10 @@ export default function AdminProducts() {
     sonnerToast.success("Upload complete", { description: desc });
   };
 
+  const filteredProducts = products.filter((p) =>
+    p.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm dark:border-white/10 dark:bg-slate-900/60 flex flex-wrap items-center justify-between gap-4">
@@ -1549,7 +1553,24 @@ export default function AdminProducts() {
           <h1 className="font-heading text-2xl font-bold text-slate-900 dark:text-white">Product manager</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create products, paste accounts, manage inventory</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full sm:w-64 h-10 pl-3 pr-8 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-950/50 dark:text-white transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => void openBulkUploadModal(null)}
@@ -1573,10 +1594,10 @@ export default function AdminProducts() {
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-white/10 dark:bg-slate-900/60">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-white/10 bg-slate-50/80 dark:bg-white/5">
           <h2 className="font-heading font-semibold text-slate-900 dark:text-white">
-            Inventory · {products.length} {products.length === 1 ? "product" : "products"}
+            Inventory · {filteredProducts.length} {filteredProducts.length === 1 ? "product" : "products"}
           </h2>
         </div>
-        {products.length === 0 ? (
+        {filteredProducts.length === 0 ? (
           <div className="px-6 py-20 flex flex-col items-center justify-center text-center">
             <PackagePlus className="h-14 w-14 text-slate-300 dark:text-slate-600 mb-4" aria-hidden />
             <p className="text-lg font-semibold text-slate-900 dark:text-white">No products found</p>
@@ -1607,7 +1628,7 @@ export default function AdminProducts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/10">
-                {products.map((product) => {
+                {filteredProducts.map((product) => {
                   const { total: stock, live: liveStock, manual: manualStock } = resolveStockBreakdown(product, liveStockById);
                   const manualOnly = liveStock === 0 && manualStock > 0;
                   return (
