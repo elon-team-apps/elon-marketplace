@@ -655,8 +655,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
             <div className="flex items-center gap-3">
               <PlatformLogo product={product} platform={platform} size={35} />
               <div>
-                <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1 text-white">{product.title}</h3>
-                <p className="text-[11px] mt-0.5 text-gray-100">
+                <h3 className="font-bold text-sm leading-tight pr-2 line-clamp-1 text-slate-900 dark:text-white">{product.title}</h3>
+                <p className="text-[11px] mt-0.5 text-slate-600 dark:text-slate-300">
                   {availableStock} available · {platform?.label ?? product.category}
                 </p>
               </div>
@@ -667,7 +667,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
           </div>
           <div className="p-5 space-y-5">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest mb-3 text-white">Select Quantity</p>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-3 text-slate-500 dark:text-slate-400">Select Quantity</p>
               <div className="flex items-center gap-4">
                 <button
                   type="button"
@@ -678,8 +678,8 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                   <Minus className="h-4 w-4" />
                 </button>
                 <div className="flex-1 text-center">
-                  <span className="font-bold text-3xl text-white">{qty}</span>
-                  <span className="text-sm ml-2 text-gray-100">account{qty > 1 ? "s" : ""}</span>
+                  <span className="font-bold text-3xl text-slate-900 dark:text-white">{qty}</span>
+                  <span className="text-sm ml-2 text-slate-600 dark:text-slate-300">account{qty > 1 ? "s" : ""}</span>
                 </div>
                 <button
                   type="button"
