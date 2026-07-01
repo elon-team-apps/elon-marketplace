@@ -177,13 +177,19 @@ function normalizeDeliveredLog(entry: string): string {
 function parseDeliveredLine(line: string) {
   const separators = [":", "|", ";"];
   let parts: string[] = [line];
-  
-  for (const sep of separators) {
-    if (line.includes(sep)) {
-      const split = line.split(sep).map(p => p.trim());
-      if (split.length >= 2) {
-        parts = split;
-        break;
+  let isStructured = false;
+
+  // If the log contains newlines, it's a multi-line text (e.g., instructions/guide)
+  // We should NOT try to parse it into email/password boxes, even if it contains a colon.
+  if (!line.includes("\n")) {
+    for (const sep of separators) {
+      if (line.includes(sep)) {
+        const split = line.split(sep).map(p => p.trim());
+        if (split.length >= 2) {
+          parts = split;
+          isStructured = true;
+          break;
+        }
       }
     }
   }
@@ -192,7 +198,7 @@ function parseDeliveredLine(line: string) {
     email: parts[0] || "",
     password: parts[1] || "",
     recovery: parts.slice(2).join(":") || "",
-    isStructured: parts.length >= 2,
+    isStructured,
     full: line
   };
 }
