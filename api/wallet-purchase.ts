@@ -324,7 +324,7 @@ async function fulfillWalletPurchase(
     .slice(0, fromLogs)
     .map((row) => formatDeliveredLog(row))
     .filter(Boolean);
-  const deliveredData = deliveredDataLines.join("\n");
+  const deliveredData = JSON.stringify(deliveredDataLines);
   const hasDeliveredCredentials = deliveredDataLines.length > 0;
   const deliveryUpdate = await supabaseAdmin
     .from("transactions")

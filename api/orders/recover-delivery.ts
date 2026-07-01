@@ -81,7 +81,18 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const deliveredData = String(tx.delivered_data ?? "").trim();
   if (deliveredData) {
-    res.status(200).json({ ok: true, already_present: true, delivered_data: deliveredData.split(/\r?\n/).filter(Boolean) });
+    let arr: string[] = [];
+    try {
+      const parsed = JSON.parse(deliveredData);
+      if (Array.isArray(parsed)) {
+        arr = parsed.map(String);
+      } else {
+        throw new Error("Not an array");
+      }
+    } catch {
+      arr = deliveredData.includes("\n---\n") ? deliveredData.split("\n---\n") : deliveredData.split(/\r?\n/);
+    }
+    res.status(200).json({ ok: true, already_present: true, delivered_data: arr.filter(Boolean) });
     return;
   }
 

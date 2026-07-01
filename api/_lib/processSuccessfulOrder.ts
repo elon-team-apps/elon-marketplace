@@ -137,7 +137,7 @@ export async function processSuccessfulTransaction(
       }))
       .filter(Boolean);
     if (recoveredLines.length > 0) {
-      const recoveredData = recoveredLines.join("\n");
+      const recoveredData = JSON.stringify(recoveredLines);
       const recoverTx = await supabaseAdmin
         .from("transactions")
         .update({
@@ -296,7 +296,7 @@ export async function processSuccessfulTransaction(
   }
 
   const deliveredDataLines = logsToDeliver.slice(0, fromLogs).map((row) => formatDeliveredLog(row)).filter(Boolean);
-  const deliveredData = deliveredDataLines.join("\n");
+  const deliveredData = JSON.stringify(deliveredDataLines);
   const hasDeliveredCredentials = deliveredDataLines.length > 0;
   const saveDelivery = await supabaseAdmin
     .from("transactions")

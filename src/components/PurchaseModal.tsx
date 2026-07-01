@@ -151,6 +151,17 @@ function extractDeliveredData(payload: Record<string, unknown>): string[] {
   const data = (payload.data as Record<string, unknown> | undefined) ?? payload;
   const raw = data.delivered_data;
   if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map(String).filter((line) => line.trim().length > 0);
+      }
+    } catch {
+      // Not JSON, fallback to legacy
+    }
+    if (raw.includes("\n---\n")) {
+      return raw.split("\n---\n").filter((line) => line.trim().length > 0);
+    }
     return raw.split(/\r?\n/).filter((line) => line.length > 0);
   }
   if (!Array.isArray(raw)) return [];

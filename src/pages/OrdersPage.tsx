@@ -29,7 +29,20 @@ function categoryStyle(cat: string) {
 }
 
 function parseDeliveredData(raw: unknown): string {
-  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map(String).filter((line) => line.trim().length > 0).join("\n\n");
+      }
+    } catch {
+      // Not JSON
+    }
+    if (raw.includes("\n---\n")) {
+      return raw.split("\n---\n").filter((line) => line.trim().length > 0).join("\n\n");
+    }
+    return raw.trim();
+  }
   if (Array.isArray(raw)) {
     return raw
       .map((item) => String(item ?? "").trim())
