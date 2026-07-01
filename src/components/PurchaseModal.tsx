@@ -209,7 +209,7 @@ function getFlutterwavePublicKey(): string {
 
 type PurchaseState =
   | { phase: "idle" }
-  | { phase: "success"; logs: string[]; count: number }
+  | { phase: "success"; logs: string[]; count: number; message?: string }
   | { phase: "processing"; message: string }
   | { phase: "error"; message: string };
 
@@ -326,25 +326,33 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
         const status = String(data.status ?? "").toLowerCase();
         const delivered = extractDeliveredData(data as Record<string, unknown>).map(normalizeDeliveredLog);
         if ((status === "completed" || status === "finalized") && delivered.length > 0) {
-          setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
+          setPurchaseState({ phase: "success", logs: delivered, count: delivered.length, message: "Purchase successful." });
           window.dispatchEvent(new CustomEvent("orders:refresh"));
           await refreshProfile();
           return true;
         }
-        if ((status === "completed" || status === "success" || status === "finalized") && delivered.length === 0 && !recoveryAttempted) {
-          recoveryAttempted = true;
-          const txId = String((data as { id?: string }).id ?? "").trim();
-          const { data: sessionData } = await supabase.auth.getSession();
-          const token = sessionData.session?.access_token ?? "";
-          if (txId && token) {
-            await fetch("/api/orders/recover-delivery", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ transactionId: txId }),
-            });
+        if ((status === "completed" || status === "success" || status === "finalized") && delivered.length === 0) {
+          if (!recoveryAttempted) {
+            recoveryAttempted = true;
+            const txId = String((data as { id?: string }).id ?? "").trim();
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData.session?.access_token ?? "";
+            if (txId && token) {
+              await fetch("/api/orders/recover-delivery", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ transactionId: txId }),
+              });
+            }
+          } else {
+            // If we attempted recovery and it's still 0, it's likely a manual fulfillment.
+            setPurchaseState({ phase: "success", logs: [], count: 0, message: "Purchase successful. Pending manual fulfillment." });
+            window.dispatchEvent(new CustomEvent("orders:refresh"));
+            await refreshProfile();
+            return true;
           }
         }
       }
@@ -413,7 +421,7 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
       }
 
       const delivered = extractDeliveredData(walletPayload).map(normalizeDeliveredLog);
-      setPurchaseState({ phase: "success", logs: delivered, count: delivered.length });
+      setPurchaseState({ phase: "success", logs: delivered, count: delivered.length, message: walletPayload.message as string | undefined });
       window.dispatchEvent(new CustomEvent("orders:refresh"));
       await refreshProfile();
       sonnerToast.success("Wallet payment completed", {
@@ -848,14 +856,14 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                     })}
                   </div>
                 ) : (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300 animate-pulse">
-                    Processing your accounts...
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">
+                    {purchaseState.message || "Order placed! Pending manual delivery by admin."}
                   </p>
                 )}
               </div>
             )}
 
-            {!canUseWallet && !canBypassBalance && availableStock > 0 && (
+            {purchaseState.phase !== "success" && !canUseWallet && !canBypassBalance && availableStock > 0 && (
               <p className="text-xs text-center text-slate-700 dark:text-slate-200">
                 Insufficient Balance. Need ₦{shortfall.toLocaleString()} more.{" "}
                 <Link to={`/dashboard/wallet?amount=${Math.max(100, shortfall)}`} onClick={onClose} className="underline underline-offset-2 font-semibold text-slate-900 dark:text-white">
