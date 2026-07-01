@@ -455,8 +455,12 @@ function ProductCard({
     let cancelled = false;
     const loadLiveStock = async () => {
       const { data, error } = await supabase.rpc("get_live_stock", { p_product_id: p.id });
-      if (!cancelled && !error && typeof data === "number") {
-        setLiveStock(Math.max(0, data));
+      if (!cancelled) {
+        if (!error && typeof data === "number") {
+          setLiveStock(Math.max(0, data));
+        } else {
+          setLiveStock(Math.max(0, Number(p.stock_count ?? p.stock ?? 0)));
+        }
       }
     };
 
@@ -509,7 +513,15 @@ function ProductCard({
 
         {/* Stock + quantity hierarchy */}
         <p className="text-xs font-semibold text-slate-700 leading-5">
-          {availableStock <= 0 ? (
+          {liveStock === null && availableStock <= 0 ? (
+            <span className="text-slate-500 flex items-center gap-1">
+              <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+              </svg>
+              Checking stock...
+            </span>
+          ) : availableStock <= 0 ? (
             <span className="text-slate-700">In Stock: <span className="text-[10px] font-medium text-black">Out of Stock</span></span>
           ) : (
             <span className="text-slate-700">
@@ -525,13 +537,21 @@ function ProductCard({
         <button
           type="button"
           onClick={() => onBuy(p)}
-          disabled={availableStock <= 0}
+          disabled={availableStock <= 0 || (liveStock === null && availableStock <= 0)}
           className="mt-1 flex h-6 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-[11px] font-semibold text-white leading-none transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
           style={{
-            background: availableStock <= 0 ? "#cbd5e1" : "#0f172a",
+            background: (liveStock === null && availableStock <= 0) ? "#e2e8f0" : availableStock <= 0 ? "#cbd5e1" : "#0f172a",
           }}
         >
-          {availableStock <= 0 ? "Out of Stock" : (
+          {liveStock === null && availableStock <= 0 ? (
+            <span className="flex items-center gap-1.5 text-slate-500">
+               <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"></circle>
+                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+               </svg>
+               Checking
+            </span>
+          ) : availableStock <= 0 ? "Out of Stock" : (
             <>
               <ShoppingCart className="h-3 w-3 shrink-0" />
               <span className="whitespace-nowrap">Purchase</span>
