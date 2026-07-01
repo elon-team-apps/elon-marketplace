@@ -454,23 +454,9 @@ function ProductCard({
 
     let cancelled = false;
     const loadLiveStock = async () => {
-      const primary = await supabase
-        .from("log_items")
-        .select("id", { count: "exact", head: true })
-        .eq("product_id", p.id)
-        .eq("is_delivered", false);
-      if (!cancelled && !primary.error && typeof primary.count === "number") {
-        setLiveStock(Math.max(0, primary.count));
-        return;
-      }
-
-      const fallback = await supabase
-        .from("log_items")
-        .select("id", { count: "exact", head: true })
-        .eq("product_id", p.id)
-        .eq("status", "available");
-      if (!cancelled && !fallback.error && typeof fallback.count === "number") {
-        setLiveStock(Math.max(0, fallback.count));
+      const { data, error } = await supabase.rpc("get_live_stock", { p_product_id: p.id });
+      if (!cancelled && !error && typeof data === "number") {
+        setLiveStock(Math.max(0, data));
       }
     };
 
