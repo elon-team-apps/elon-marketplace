@@ -168,7 +168,7 @@ function CredentialModal({
             Account Credentials
           </p>
 
-          {!isCompleted ? (
+          {!isCompleted && !credentials ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
               Processing: your order is still being fulfilled. Please check back shortly.
             </div>
