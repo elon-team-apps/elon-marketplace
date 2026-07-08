@@ -22,6 +22,7 @@ import {
   MessageCircle,
   Send,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 
 // ─── Contact links (update with your real handles) ────────────────────────────
@@ -157,6 +158,7 @@ const LandingPage = () => {
         manualStock: stock.manual,
         totalStock: stock.total,
         logo_url: product.logo_url,
+        account_url: product.account_url,
       };
     })
     .sort((a, b) => {
@@ -464,6 +466,20 @@ const LandingPage = () => {
                   >
                     {d.price}
                   </p>
+                  
+                  {/* View Account button (if available) */}
+                  {'account_url' in d && d.account_url && (
+                    <a
+                      href={d.account_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mb-2 flex w-full items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800/50 border border-white/10 text-emerald-400 text-xs font-semibold hover:bg-slate-800/80 hover:text-emerald-300 transition-all duration-200"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      View Account
+                    </a>
+                  )}
+
                   <Link to="/auth?tab=signup">
                     <button className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/65 text-sm font-semibold hover:bg-white/10 hover:text-white transition-all duration-200">
                       View Details <ChevronRight className="h-3.5 w-3.5" />
