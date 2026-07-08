@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, EyeOff, Heart
+  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, EyeOff, Heart, ExternalLink
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -532,6 +532,19 @@ function ProductCard({
 
         {/* Divider — the 'cut' line the client requested */}
         <div className="my-2 border-b border-slate-100" />
+
+        {/* View Account button (if available) */}
+        {p.account_url && (
+          <a
+            href={p.account_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 flex h-6 w-full items-center justify-center gap-2 rounded-lg bg-slate-100 border border-slate-200 px-3 text-[11px] font-semibold text-slate-700 leading-none transition-all duration-200 hover:bg-slate-200 active:scale-[0.98]"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span>View Account</span>
+          </a>
+        )}
 
         {/* Purchase button */}
         <button

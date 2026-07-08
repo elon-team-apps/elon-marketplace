@@ -22,6 +22,7 @@ export interface Product {
   createdAt: string;
   image_url?: string;
   logo_url?: string;
+  account_url?: string;
 }
 
 export interface User {
@@ -533,6 +534,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         logs:        Array.isArray(row.logs) ? (row.logs as string[]) : [],
         createdAt:   String(row.created_at ?? ""),
         image_url:   String(row.image_url ?? ""),
+        account_url: row.account_url ? String(row.account_url) : undefined,
         logo_url:    (() => {
           const s = String(row.logo_url ?? "").trim();
           return s || resolveLogoUrlFromTitle(String(row.title ?? ""), String(row.category ?? "")) || "";
@@ -594,6 +596,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             createdAt: r.createdAt,
             image_url: r.image_url,
             logo_url: r.logo_url,
+            account_url: r.account_url,
           };
         }),
       );
@@ -783,6 +786,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       logs: [],
       createdAt: String(row.created_at ?? new Date().toISOString()),
       image_url: String(row.image_url ?? ""),
+      account_url: row.account_url ? String(row.account_url) : undefined,
       logo_url,
     };
     setProducts((prev) => [next, ...prev.filter((p) => p.id !== id)]);

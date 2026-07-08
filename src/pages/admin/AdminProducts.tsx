@@ -544,6 +544,7 @@ type CreateForm = {
   category: string;
   price: string;
   description: string;
+  accountUrl: string;
   manualStock: string;
   logsText: string;
 };
@@ -553,6 +554,7 @@ const emptyCreateForm: CreateForm = {
   category: DEFAULT_PRODUCT_CATEGORY,
   price: "",
   description: "",
+  accountUrl: "",
   manualStock: "",
   logsText: "",
 };
@@ -673,6 +675,7 @@ function CreateProductModal({
             category: form.category,
             price: Math.trunc(price),
             description: form.description.trim(),
+            account_url: form.accountUrl.trim() || null,
             manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
             stock: 0,
             stock_count: 0,
@@ -749,6 +752,7 @@ function CreateProductModal({
         category: form.category,
         price,
         description: form.description.trim(),
+        account_url: form.accountUrl.trim() || undefined,
         manual_stock: parsedManualStock === null ? undefined : parsedManualStock,
         logs: rawLogLines,
         stock_count: rawLogLines.length,
@@ -864,6 +868,20 @@ function CreateProductModal({
             />
           </div>
           <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Account URL (Optional)</Label>
+            <Input
+              type="url"
+              className="mt-1.5"
+              value={form.accountUrl}
+              onChange={(e) => {
+                setCreateErrorMsg("");
+                setForm((f) => ({ ...f, accountUrl: e.target.value }));
+              }}
+              disabled={saving}
+              placeholder="e.g. https://profile-url.com (View Account link)"
+            />
+          </div>
+          <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Accounts (paste list)</Label>
               <span className="text-xs font-semibold text-slate-500">
@@ -922,6 +940,7 @@ function EditProductModal({
   const [category, setCategory] = useState(product.category);
   const [price, setPrice] = useState(product.price.toString());
   const [description, setDescription] = useState(product.description);
+  const [accountUrl, setAccountUrl] = useState(product.account_url || "");
   const [manualStock, setManualStock] = useState(
     typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "",
   );
@@ -938,11 +957,12 @@ function EditProductModal({
     setCategory(product.category);
     setPrice(product.price.toString());
     setDescription(product.description);
+    setAccountUrl(product.account_url || "");
     setManualStock(typeof product.manual_stock === "number" ? String(Math.max(0, product.manual_stock)) : "");
     setLogoUrl(product.logo_url || "");
     setLogsText("");
     setErrorMsg("");
-  }, [product.id, product.title, product.category, product.price, product.description, product.manual_stock, product.logo_url]);
+  }, [product.id, product.title, product.category, product.price, product.description, product.account_url, product.manual_stock, product.logo_url]);
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1017,6 +1037,7 @@ function EditProductModal({
             category: nextCategory,
             price: Math.trunc(n),
             description: description.trim(),
+            account_url: accountUrl.trim() || null,
             manual_stock: effectiveManualStock,
             logo_url: logoUrl || autoLogoUrl || null,
           })
@@ -1073,6 +1094,7 @@ function EditProductModal({
           category: nextCategory,
           price: Math.trunc(n),
           description: description.trim(),
+          account_url: accountUrl.trim() || undefined,
           manual_stock: effectiveManualStock === null ? undefined : effectiveManualStock,
           logo_url: logoUrl || autoLogoUrl,
         });
@@ -1162,6 +1184,10 @@ function EditProductModal({
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Description</Label>
             <textarea rows={3} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-950/50 dark:text-white" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Account URL (Optional)</Label>
+            <Input type="url" className="mt-1.5" value={accountUrl} onChange={(e) => setAccountUrl(e.target.value)} disabled={saving} placeholder="e.g. https://profile-url.com (View Account link)" />
           </div>
           <div>
             <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Manual Stock Count</Label>
