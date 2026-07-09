@@ -1120,14 +1120,14 @@ function EditProductModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-white/10">
+      <div className="relative w-full max-w-md max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-white/10 shrink-0">
           <h2 className="font-heading font-bold text-slate-900 dark:text-white">Edit product</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="px-5 py-4 space-y-4">
+        <div className="px-5 py-4 space-y-4 overflow-y-auto">
           {errorMsg && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3 dark:border-red-900/40 dark:bg-red-950/20">
               <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
