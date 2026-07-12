@@ -29,18 +29,37 @@ function profileIsAdmin(p: Pick<Profile, "role" | "is_admin">): boolean {
 
 type PaymentMethodSettingsRow = {
   pocketfi_enabled: boolean;
+  flutterwave_enabled: boolean;
   manual_enabled: boolean;
 };
 
 type PaymentMethodSettings = {
-  paystackEnabled: boolean;
+  flutterwaveEnabled: boolean;
+  pocketfiEnabled: boolean;
   manualEnabled: boolean;
 };
+
+function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
+  return {
+    flutterwaveEnabled: Boolean(row?.flutterwave_enabled ?? true),
+    pocketfiEnabled: Boolean(row?.pocketfi_enabled),
+    manualEnabled: Boolean(row?.manual_enabled),
+  };
+}
+
+function toPaymentSettingsUpdate(settings: PaymentMethodSettings): PaymentMethodSettingsRow {
+  return {
+    pocketfi_enabled: settings.pocketfiEnabled,
+    flutterwave_enabled: settings.flutterwaveEnabled,
+    manual_enabled: settings.manualEnabled,
+  };
+}
 
 type DailyOrderCount = {
   dayKey: string;
   count: number;
 };
+
 
 type WebhookVerificationRow = {
   id: string;
@@ -52,20 +71,6 @@ type WebhookVerificationRow = {
   verified_amount: number | null;
   created_at: string;
 };
-
-function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
-  return {
-    paystackEnabled: Boolean(row?.pocketfi_enabled),
-    manualEnabled: Boolean(row?.manual_enabled),
-  };
-}
-
-function toPaymentSettingsUpdate(settings: PaymentMethodSettings): PaymentMethodSettingsRow {
-  return {
-    pocketfi_enabled: settings.paystackEnabled,
-    manual_enabled: settings.manualEnabled,
-  };
-}
 
 function WebhookVerificationsCard() {
   const [txRef, setTxRef] = useState("");
@@ -499,7 +504,8 @@ export default function AdminDashboard() {
   const { isAdmin, profileLoaded } = useAuth();
   const { toast } = useToast();
   const [pmSettings, setPmSettings] = useState<PaymentMethodSettings>({
-    paystackEnabled: true,
+    flutterwaveEnabled: true,
+    pocketfiEnabled: true,
     manualEnabled: false,
   });
   const [pmLoading, setPmLoading] = useState(false);
@@ -656,7 +662,7 @@ export default function AdminDashboard() {
     if (!supabase || !profileLoaded || !isAdmin) return;
     const { data: pmData, error: pmError } = await supabase
       .from("payment_method_settings")
-      .select("pocketfi_enabled, manual_enabled")
+      .select("pocketfi_enabled, flutterwave_enabled, manual_enabled")
       .eq("id", 1)
       .maybeSingle();
     if (!pmError && pmData) setPmSettings(mapPaymentSettings(pmData as PaymentMethodSettingsRow));
@@ -691,7 +697,7 @@ export default function AdminDashboard() {
     setSavingAnnouncement(false);
   };
 
-  const togglePaymentMethod = async (field: "paystackEnabled" | "manualEnabled") => {
+  const togglePaymentMethod = async (field: "flutterwaveEnabled" | "pocketfiEnabled" | "manualEnabled") => {
     if (!supabase || !profileLoaded || !isAdmin) return;
     setPmLoading(true);
     const next = { ...pmSettings, [field]: !pmSettings[field] };
@@ -843,26 +849,36 @@ export default function AdminDashboard() {
           <Wallet className="h-4 w-4 text-accent" />
           <h2 className="font-heading font-semibold text-sm text-foreground">Payment Methods</h2>
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid sm:grid-cols-3 gap-3">
           <button
-            onClick={() => togglePaymentMethod("paystackEnabled")}
+            onClick={() => togglePaymentMethod("flutterwaveEnabled")}
             disabled={pmLoading}
             className={`rounded-lg border px-4 py-3 text-left transition ${
-              pmSettings.paystackEnabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
+              pmSettings.flutterwaveEnabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
             }`}
           >
-            <p className="text-sm font-semibold">Paystack</p>
-            <p className="text-xs mt-1">{pmSettings.paystackEnabled ? "Enabled" : "Disabled"}</p>
+            <p className="text-sm font-semibold">Flutterwave</p>
+            <p className="text-xs mt-1">{pmSettings.flutterwaveEnabled ? "✅ Enabled" : "❌ Disabled"}</p>
+          </button>
+          <button
+            onClick={() => togglePaymentMethod("pocketfiEnabled")}
+            disabled={pmLoading}
+            className={`rounded-lg border px-4 py-3 text-left transition ${
+              pmSettings.pocketfiEnabled ? "border-sky-400/40 bg-sky-400/10 text-sky-400" : "border-slate-300/40 bg-transparent text-muted-foreground"
+            }`}
+          >
+            <p className="text-sm font-semibold">PocketFi</p>
+            <p className="text-xs mt-1">{pmSettings.pocketfiEnabled ? "✅ Enabled" : "❌ Disabled"}</p>
           </button>
           <button
             onClick={() => togglePaymentMethod("manualEnabled")}
             disabled={pmLoading}
             className={`rounded-lg border px-4 py-3 text-left transition ${
-              pmSettings.manualEnabled ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-300/40 bg-transparent text-muted-foreground"
+              pmSettings.manualEnabled ? "border-amber-400/40 bg-amber-400/10 text-amber-400" : "border-slate-300/40 bg-transparent text-muted-foreground"
             }`}
           >
             <p className="text-sm font-semibold">Manual Transfer</p>
-            <p className="text-xs mt-1">{pmSettings.manualEnabled ? "Enabled" : "Disabled"}</p>
+            <p className="text-xs mt-1">{pmSettings.manualEnabled ? "✅ Enabled" : "❌ Disabled"}</p>
           </button>
         </div>
         <div className="pt-1">

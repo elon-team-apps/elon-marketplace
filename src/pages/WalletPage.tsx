@@ -79,6 +79,7 @@ async function loadFlutterwaveInlineScript(): Promise<(options: FlutterwaveOptio
 
 type PaymentMethodSettingsRow = {
   pocketfi_enabled: boolean;
+  flutterwave_enabled: boolean;
   manual_enabled: boolean;
 };
 
@@ -90,7 +91,7 @@ type PaymentMethodSettings = {
 
 function mapPaymentSettings(row: PaymentMethodSettingsRow | null | undefined): PaymentMethodSettings {
   return {
-    flutterwaveEnabled: Boolean(row?.pocketfi_enabled),
+    flutterwaveEnabled: Boolean(row?.flutterwave_enabled ?? true),
     pocketfiEnabled: Boolean(row?.pocketfi_enabled),
     manualEnabled: Boolean(row?.manual_enabled),
   };
@@ -108,7 +109,7 @@ export default function WalletPage() {
   const [copiedVA, setCopiedVA] = useState(false);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<"pending" | "completed" | "failed" | "finalized" | null>(null);
-  const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, pocketfiEnabled: true, manualEnabled: false });
+  const [methods, setMethods] = useState<PaymentMethodSettings>({ flutterwaveEnabled: true, pocketfiEnabled: true, manualEnabled: false }); // defaults until DB loads
   const [pendingStartBalance, setPendingStartBalance] = useState<number | null>(null);
 
   useEffect(() => {
@@ -122,7 +123,7 @@ export default function WalletPage() {
     if (!supabase) return;
     supabase
       .from("payment_method_settings")
-      .select("pocketfi_enabled, manual_enabled")
+      .select("pocketfi_enabled, flutterwave_enabled, manual_enabled")
       .eq("id", 1)
       .maybeSingle()
       .then(({ data }) => {
