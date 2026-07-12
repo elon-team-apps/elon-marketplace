@@ -174,34 +174,7 @@ function normalizeDeliveredLog(entry: string): string {
   return String(entry ?? "").trim();
 }
 
-function parseDeliveredLine(line: string) {
-  const separators = [":", "|", ";"];
-  let parts: string[] = [line];
-  let isStructured = false;
 
-  // If the log contains newlines, it's a multi-line text (e.g., instructions/guide)
-  // We should NOT try to parse it into email/password boxes, even if it contains a colon.
-  if (!line.includes("\n")) {
-    for (const sep of separators) {
-      if (line.includes(sep)) {
-        const split = line.split(sep).map(p => p.trim());
-        if (split.length >= 2) {
-          parts = split;
-          isStructured = true;
-          break;
-        }
-      }
-    }
-  }
-
-  return {
-    email: parts[0] || "",
-    password: parts[1] || "",
-    recovery: parts.slice(2).join(":") || "",
-    isStructured,
-    full: line
-  };
-}
 
 function getFlutterwavePublicKey(): string {
   return resolveFlutterwavePublicKey();
@@ -776,54 +749,12 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                 {purchaseState.logs.length > 0 ? (
                   <div className="max-h-72 overflow-auto space-y-3 pr-1 custom-scrollbar">
                     {purchaseState.logs.map((logLine, index) => {
-                      const parsed = parseDeliveredLine(logLine);
+
                       return (
                         <div
                           key={`${logLine}-${index}`}
                           className="rounded-xl border border-emerald-200/70 bg-white/70 p-3 dark:border-emerald-500/20 dark:bg-black/40 space-y-2.5 shadow-sm"
                         >
-                          {parsed.isStructured ? (
-                            <div className="grid grid-cols-1 gap-2.5">
-                              <div className="flex flex-col gap-1">
-                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Email / Username</span>
-                                <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200/50 dark:border-white/5">
-                                  <span className="text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all">{parsed.email}</span>
-                                  <button
-                                    onClick={() => void copyLogLine(parsed.email)}
-                                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
-                                  >
-                                    {copiedLog === parsed.email ? "Copied" : "Copy"}
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="flex flex-col gap-1">
-                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Password</span>
-                                <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200/50 dark:border-white/5">
-                                  <span className="text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all">{parsed.password}</span>
-                                  <button
-                                    onClick={() => void copyLogLine(parsed.password)}
-                                    className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
-                                  >
-                                    {copiedLog === parsed.password ? "Copied" : "Copy"}
-                                  </button>
-                                </div>
-                              </div>
-                              {parsed.recovery && (
-                                <div className="flex flex-col gap-1">
-                                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Recovery / 2FA</span>
-                                  <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-white/5 rounded-lg px-2.5 py-1.5 border border-slate-200/50 dark:border-white/5">
-                                    <span className="text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all">{parsed.recovery}</span>
-                                    <button
-                                      onClick={() => void copyLogLine(parsed.recovery)}
-                                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
-                                    >
-                                      {copiedLog === parsed.recovery ? "Copied" : "Copy"}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
                             <div className="flex items-start justify-between gap-3">
                               <pre className="text-xs whitespace-pre-wrap break-all font-mono text-emerald-900 dark:text-emerald-100 leading-relaxed flex-1 min-w-0">
                                 {logLine}
@@ -833,10 +764,9 @@ export function PurchaseModal({ product, onClose }: { product: Product; onClose:
                                 onClick={() => void copyLogLine(logLine)}
                                 className="shrink-0 rounded-lg border border-emerald-300/80 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/10 transition-all"
                               >
-                                {copiedLog === logLine ? "Copied" : "Copy All"}
+                                {copiedLog === logLine ? "Copied" : "Copy"}
                               </button>
                             </div>
-                          )}
                         </div>
                       );
                     })}
