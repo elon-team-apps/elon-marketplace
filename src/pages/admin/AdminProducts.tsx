@@ -49,29 +49,7 @@ function parseRawLogLines(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function parseLogLineStructured(line: string) {
-  // Support multiple separators: colon, pipe, semicolon
-  const separators = [":", "|", ";"];
-  let parts: string[] = [line];
-  
-  for (const sep of separators) {
-    if (line.includes(sep)) {
-      const split = line.split(sep).map(p => p.trim());
-      // We need at least email and password
-      if (split.length >= 2) {
-        parts = split;
-        break;
-      }
-    }
-  }
 
-  const email = parts[0] || "";
-  const password = parts[1] || "";
-  // Join the rest as recovery
-  const recovery = parts.slice(2).join(":") || "";
-
-  return { email, password, recovery, isValid: email.length > 0 && password.length > 0 };
-}
 
 type LogRow = {
   id: string;
@@ -188,10 +166,9 @@ async function syncProductStockFromLogs(productId: string): Promise<number> {
 async function insertRawLogsForProduct(productId: string, rawLines: string[]): Promise<{ inserted: number; newStock: number }> {
   if (!supabase || rawLines.length === 0) return { inserted: 0, newStock: 0 };
 
-  const structuredLogs = rawLines.map(line => {
-    const { email, password, recovery } = parseLogLineStructured(line);
-    return { email, password, recovery, content: line };
-  });
+  // Send each line as raw content — no parsing into email/password/recovery.
+  // The line is stored and delivered exactly as the admin pasted it.
+  const structuredLogs = rawLines.map(line => ({ content: line }));
 
   const { data, error } = await supabase.rpc("bulk_upload_logs", {
     p_product_id: productId,
@@ -389,12 +366,7 @@ function BulkUploadModal({
             <div>
               <h2 className="font-heading font-bold text-slate-900 dark:text-white">Bulk log upload</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                One account per line · <span className="font-semibold text-slate-600 dark:text-slate-300">email</span>
-                {" : "}
-                <span className="font-semibold text-slate-600 dark:text-slate-300">password</span>
-                {" : "}
-                <span className="font-semibold text-slate-600 dark:text-slate-300">recovery</span>
-                {" (or use | as separator) → saved to log_items for the product you select (product_id)."}
+                One account per line · stored and delivered <span className="font-semibold text-slate-600 dark:text-slate-300">exactly as pasted</span>.
               </p>
             </div>
           </div>
@@ -466,7 +438,7 @@ function BulkUploadModal({
                   rows={10}
                   disabled={status === "uploading"}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-                  placeholder={"Paste one full account per line.\nExample:\nemail:password:recovery\nor email|password|recovery\nor email;password"}
+                  placeholder={"Paste one account per line.\nEach line is stored & delivered exactly as pasted.\n\nExample:\n61574106755622|vjIUeqkdRt|MPJ5FQ2SF5|email@mail.com|"}
                   value={logsText}
                   onChange={(e) => {
                     setLogsText(e.target.value);
@@ -475,23 +447,10 @@ function BulkUploadModal({
                 />
                 {lineCount > 0 && (
                   <div className="mt-2">
-                    {(() => {
-                      const invalidCount = rawLogLines.filter(l => !parseLogLineStructured(l).isValid).length;
-                      if (invalidCount > 0) {
-                        return (
-                          <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3" />
-                            {invalidCount} line(s) don't seem to follow the email:password format and might be stored as-is.
-                          </p>
-                        );
-                      }
-                      return (
-                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3" />
-                          All lines follow the correct format.
-                        </p>
-                      );
-                    })()}
+                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      {lineCount} line{lineCount === 1 ? "" : "s"} will be stored exactly as pasted.
+                    </p>
                   </div>
                 )}
               </div>
@@ -891,13 +850,13 @@ function CreateProductModal({
             <textarea
               rows={8}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-mono dark:border-white/10 dark:bg-slate-950/50 dark:text-slate-100"
-              placeholder={"Paste one full account per line.\nExample:\nID:Pass:2FA:Email\n(Stored exactly as pasted)"}
+              placeholder={"Paste one account per line.\nEach line is stored & delivered exactly as pasted.\n\nExample:\n61574106755622|vjIUeqkdRt|MPJ5FQ2SF5|email@mail.com|"}
               value={form.logsText}
               onChange={(e) => { setCreateErrorMsg(""); setForm((f) => ({ ...f, logsText: e.target.value })); }}
               disabled={saving}
             />
             <p className="text-xs text-slate-500 mt-1.5">
-              Each non-empty line is stored exactly as one row in <code className="text-[11px]">log_items.credentials</code>.
+              Each non-empty line is stored and delivered exactly as pasted.
             </p>
           </div>
         </div>
