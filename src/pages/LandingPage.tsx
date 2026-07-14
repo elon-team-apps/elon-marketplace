@@ -693,7 +693,12 @@ const LandingPage = () => {
         {/* Bottom bar */}
         <div className="border-t border-white/5">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-xs text-white/20">© 2026 Elon Marketplace. All rights reserved.</p>
+            <p className="text-xs text-white/20">
+              © 2026 Elon Marketplace. All rights reserved. | Built by{" "}
+              <a href="https://samuelopeyemi.com" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-400 transition-colors">
+                samuelopeyemi.com
+              </a>
+            </p>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/8 border border-emerald-500/15">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
