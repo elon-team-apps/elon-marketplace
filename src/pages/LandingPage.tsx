@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
 import logo from "@/assets/logo-transparent.png";
+import { supabase } from "@/lib/supabaseClient";
 import { useApp, type Product as AppProduct } from "@/context/AppContext";
 import { ProductBrandAvatar } from "@/components/ProductBrandAvatar";
 import { calculateStockBreakdown } from "@/lib/stock";
@@ -23,6 +25,8 @@ import {
   Send,
   ChevronRight,
   ExternalLink,
+  Flame,
+  ShoppingCart
 } from "lucide-react";
 
 // ─── Contact links (update with your real handles) ────────────────────────────
@@ -110,6 +114,19 @@ const reviews = [
 
 const LandingPage = () => {
   const { currentUser, products } = useApp();
+  const [bestSellingIds, setBestSellingIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const fetchBestSelling = async () => {
+      const { data, error } = await supabase.rpc("get_best_selling_products", { limit_val: 4 });
+      if (!error && data) {
+        setBestSellingIds(data.map((r: { product_id: string }) => r.product_id));
+      }
+    };
+    void fetchBestSelling();
+  }, []);
+
   const hasSession = Boolean(currentUser?.id);
   const walletBalance = Number(currentUser?.wallet_balance ?? 0);
   const productTimes = products
@@ -168,6 +185,10 @@ const LandingPage = () => {
     })
     .slice(0, 4);
   const featuredDeals = liveFeaturedDeals.length > 0 ? liveFeaturedDeals : curatedHotDeals;
+
+  const bestSellingProducts = bestSellingIds
+    .map((id) => products.find((p) => p.id === id))
+    .filter(Boolean) as typeof products;
 
   return (
     <div className="min-h-screen bg-[#080c14] text-white" style={{ fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif" }}>
@@ -491,6 +512,98 @@ const LandingPage = () => {
           </div>
         </div>
       </section>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          BEST SELLING LOGS
+      ══════════════════════════════════════════════════════════════════════ */}
+      {bestSellingProducts.length > 0 && (
+        <section className="section-dark py-24 md:py-32 border-t border-white/5">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="text-center mb-14">
+              <p className="text-orange-400 text-sm font-bold uppercase tracking-widest mb-3 flex items-center justify-center gap-2">
+                <Flame className="h-4 w-4" /> Top Picks
+              </p>
+              <h2
+                className="font-bold text-white mb-3"
+                style={{ fontSize: "clamp(1.8rem, 4vw, 2.8rem)", lineHeight: 1.2, letterSpacing: "-0.02em" }}
+              >
+                Best Selling Logs
+              </h2>
+              <p className="text-white/45" style={{ fontSize: "1rem", lineHeight: 1.75 }}>
+                The most popular and highly demanded accounts right now.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {bestSellingProducts.slice(0, 4).map((product) => {
+                const stock = calculateStockBreakdown(product);
+                const platformMeta = resolvePlatformMeta(product);
+                const Icon = platformMeta.icon;
+                const totalStock = stock.total;
+                return (
+                  <div
+                    key={product.id}
+                    className="card-lift rounded-2xl p-6 flex flex-col backdrop-blur-xl relative overflow-hidden"
+                    style={{
+                      background: "linear-gradient(160deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                    }}
+                  >
+                    <div className="absolute -top-10 -right-10 w-32 h-32 bg-orange-500/10 blur-[40px] rounded-full pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between mb-4 relative z-10">
+                      <div className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 bg-white/80">
+                        <ProductBrandAvatar
+                          title={product.title}
+                          category={product.category}
+                          logo_url={product.logo_url}
+                          size={34}
+                          accentColor={platformMeta.color}
+                        />
+                      </div>
+                      <div
+                        className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ background: `${platformMeta.color}18`, border: `1px solid ${platformMeta.color}30` }}
+                      >
+                        <Icon className="h-4 w-4" style={{ color: platformMeta.color }} />
+                      </div>
+                    </div>
+                    <h3 className="font-bold text-white mb-1.5 relative z-10" style={{ fontSize: "1rem" }}>
+                      {product.title}
+                    </h3>
+                    <p className="text-xs text-white/35 mb-4 relative z-10">
+                      Created {product.createdAt ? String(new Date(product.createdAt).getFullYear()) : "Recent"} · Verified
+                    </p>
+                    <div className="mb-4 flex flex-wrap gap-2 relative z-10">
+                      {totalStock > 0 ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-400/30">
+                          Ready for Delivery
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-semibold text-slate-300 border border-slate-400/30">
+                          Out of Stock
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className="font-bold text-emerald-400 mb-5 mt-auto relative z-10"
+                      style={{ fontSize: "1.5rem", letterSpacing: "-0.02em" }}
+                    >
+                      ₦{Number(product.price ?? 0).toLocaleString()}
+                    </p>
+                    
+                    <Link to="/auth?tab=signup" className="relative z-10">
+                      <button className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-400 transition-all duration-200 shadow-lg shadow-orange-500/20 active:scale-95">
+                        Buy Now <ShoppingCart className="h-4 w-4" />
+                      </button>
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════════
           TESTIMONIALS

@@ -707,15 +707,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser?.id]);
 
   // Keep storefront stock labels in sync after admin log uploads/deletions.
+  // THROTTLED: only refresh at most once per 30s to avoid exhausting Disk IO budget.
   useEffect(() => {
     if (!supabase) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastRefresh = 0;
+    const THROTTLE_MS = 30_000; // 30 seconds
+
+    const handleChange = () => {
+      const now = Date.now();
+      if (now - lastRefresh < THROTTLE_MS) return; // skip if too recent
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        lastRefresh = Date.now();
+        void refreshProducts();
+      }, 2000); // 2s debounce to batch rapid changes
+    };
+
     const channel = supabase
       .channel("products-stock-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "log_items" }, () => {
-        void refreshProducts();
-      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "log_items" }, handleChange)
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "log_items" }, handleChange)
       .subscribe();
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [refreshProducts]);

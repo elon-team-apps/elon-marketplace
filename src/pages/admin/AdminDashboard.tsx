@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   TrendingUp, Users, Package, ShoppingCart, ArrowUpRight,
-  Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet,
+  Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet, Flame
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -517,6 +517,7 @@ export default function AdminDashboard() {
   const [dbPurchaseRevenue, setDbPurchaseRevenue] = useState<number | null>(null);
   const [dbLogsSold, setDbLogsSold] = useState<number | null>(null);
   const [dailyOrderCounts, setDailyOrderCounts] = useState<DailyOrderCount[]>([]);
+  const [bestSellingIds, setBestSellingIds] = useState<{ product_id: string; sales_count: number }[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
 
   const fetchAnalytics = useCallback(async (opts?: { silent?: boolean }) => {
@@ -536,10 +537,15 @@ export default function AdminDashboard() {
         .from("transactions")
         .select("created_at, type")
         .eq("status", "completed"),
+      supabase.rpc("get_best_selling_products", { limit_val: 5 })
     ]);
 
     if (!profilesRes.error && typeof profilesRes.count === "number") {
       setDbTotalUsers(profilesRes.count);
+    }
+
+    if (!bestSellingRes.error && bestSellingRes.data) {
+      setBestSellingIds(bestSellingRes.data);
     }
 
     if (!purchasesRes.error && purchasesRes.data) {
@@ -836,6 +842,61 @@ export default function AdminDashboard() {
                   <div key={entry.dayKey} className="px-4 py-2.5 flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">{label}</span>
                     <span className="font-bold text-foreground">{entry.count} orders</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="glass-card p-5 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Flame className="h-4 w-4 text-orange-500" />
+            <h2 className="font-heading font-semibold text-sm text-foreground">Top Selling Logs</h2>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => void fetchAnalytics()}
+            disabled={analyticsLoading}
+          >
+            {analyticsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 dark:border-white/8 overflow-hidden">
+          {bestSellingIds.length === 0 ? (
+            <div className="px-4 py-6 text-xs text-muted-foreground text-center">No sales data available yet.</div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-white/6">
+              {bestSellingIds.map((item) => {
+                const product = products.find(p => p.id === item.product_id);
+                if (!product) return null;
+                return (
+                  <div key={item.product_id} className="px-4 py-3 flex items-center justify-between text-sm hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 bg-white dark:bg-slate-800 rounded-lg flex items-center justify-center border border-slate-200 dark:border-white/10 shrink-0">
+                        <ProductBrandAvatar
+                          title={product.title}
+                          category={product.category}
+                          logo_url={product.logo_url}
+                          size={24}
+                          accentColor="#1877F2"
+                        />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white leading-tight">{product.title}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{product.category}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-foreground text-base">{item.sales_count}</span>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Sales</p>
+                    </div>
                   </div>
                 );
               })}
