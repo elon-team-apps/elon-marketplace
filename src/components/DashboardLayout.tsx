@@ -201,7 +201,7 @@ const DashboardLayout = () => {
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <aside
         className={`
-          fixed md:sticky top-0 left-0 z-50 h-screen w-64 flex flex-col
+          fixed md:sticky top-0 left-0 z-50 h-[100dvh] w-64 flex flex-col
           overflow-hidden transition-transform duration-300 md:translate-x-0
           glass-sidebar
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
@@ -290,6 +290,9 @@ const DashboardLayout = () => {
             <LogOut className="h-3.5 w-3.5 shrink-0" />
             Sign Out
           </button>
+          
+          {/* Extra spacer for mobile browser bottom navigation bar */}
+          <div className="h-6 md:hidden shrink-0" />
         </div>
       </aside>
 
