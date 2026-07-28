@@ -23,6 +23,7 @@ import {
   ToggleLeft,
   ToggleRight,
   SlidersHorizontal,
+  LogOut,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -279,6 +280,16 @@ const DashboardLayout = () => {
             <Home className="h-3.5 w-3.5" />
             Back to Home
           </Link>
+
+          {/* Sign Out */}
+          <button
+            type="button"
+            onClick={() => { close(); void clearSessionAndHardRefresh(); }}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-red-500 dark:text-red-400 hover:bg-red-500/10 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-300 transition-colors border border-transparent hover:border-red-500/20"
+          >
+            <LogOut className="h-3.5 w-3.5 shrink-0" />
+            Sign Out
+          </button>
         </div>
       </aside>
 
