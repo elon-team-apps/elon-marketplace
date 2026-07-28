@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  ShoppingCart, ChevronDown, ChevronUp, EyeOff, Heart, ExternalLink
+  ShoppingCart, ChevronDown, ChevronUp, EyeOff, Heart, ExternalLink, LayoutGrid
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
