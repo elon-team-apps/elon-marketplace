@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import {
-  ShoppingCart, ChevronDown, ChevronUp, LayoutGrid, EyeOff, Heart, ExternalLink, Flame
+  ShoppingCart, ChevronDown, ChevronUp, EyeOff, Heart, ExternalLink
 } from "lucide-react";
 import { useApp, Product } from "@/context/AppContext";
 import { PurchaseModal } from "@/components/PurchaseModal";
@@ -285,19 +285,6 @@ export default function ProductsPage() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [buyProduct, setBuyProduct] = useState<Product | null>(null);
   const [hideOutOfStock, setHideOutOfStock] = useState(false);
-  const [bestSellingIds, setBestSellingIds] = useState<string[]>([]);
-  const [showAllLogs, setShowAllLogs] = useState(false);
-
-  useEffect(() => {
-    if (!supabase) return;
-    const fetchBestSelling = async () => {
-      const { data, error } = await supabase.rpc("get_best_selling_products", { limit_val: 3 });
-      if (!error && data) {
-        setBestSellingIds(data.map((r: { product_id: string }) => r.product_id));
-      }
-    };
-    void fetchBestSelling();
-  }, []);
 
   const productsWithCategory = products.map((p) => ({ ...p, category: normalizeCategory(p.category, p.title) }));
   const visibleProducts = hideOutOfStock
@@ -310,16 +297,9 @@ export default function ProductsPage() {
     ? visibleProducts.filter((p) => p.category === activeCategory)
     : visibleProducts;
 
-  const activePlatform = activeCategory ? { label: activeCategory } : null;
-
-  // Best Selling products mapping
-  const bestSellingProducts = bestSellingIds
-    .map((id) => productsWithCategory.find((p) => p.id === id))
-    .filter(Boolean) as Product[];
-
   // Group products by category for "All" view
   const grouped: { platform: { label: string } | undefined; key: string; items: Product[] }[] = [];
-  if (!activeCategory && showAllLogs) {
+  if (!activeCategory) {
     presentKeys.forEach((key) => {
       const items = visibleProducts.filter((p) => p.category === key);
       if (items.length > 0) grouped.push({ key, platform: { label: key }, items });
@@ -396,68 +376,25 @@ export default function ProductsPage() {
           )}
         </div>
       ) : (
-        /* Not filtered by category */
-        <div className="space-y-10">
-          {/* Best Selling Section */}
-          {!showAllLogs && bestSellingProducts.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-xl">
-                    <Flame className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Best Selling Logs</h2>
-                    <p className="text-sm text-slate-500">Top picks purchased by others</p>
-                  </div>
-                </div>
-              </div>
-              <ProductGrid products={bestSellingProducts} onBuy={setBuyProduct} />
-            </div>
-          )}
-
-          {/* Show All Toggle or Grouped List */}
-          {!showAllLogs ? (
-            <div className="flex justify-center pt-4 border-t border-slate-200 dark:border-slate-800">
-              <button
-                onClick={() => setShowAllLogs(true)}
-                className="group flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md active:scale-95"
-              >
-                <span>View All Logs</span>
-                <LayoutGrid className="h-4 w-4 opacity-70 group-hover:opacity-100 transition-opacity" />
-              </button>
+        /* Not filtered by category — show all products grouped by category */
+        <div className="space-y-6">
+          {grouped.length === 0 ? (
+            <div className="py-16 text-center rounded-xl bg-slate-50 dark:bg-white/2 border border-slate-200 dark:border-white/6">
+              <p className="text-sm text-muted-foreground">No products available yet.</p>
             </div>
           ) : (
-            <div className="space-y-6 pt-4 border-t border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">All Logs</h2>
-                <button
-                  onClick={() => setShowAllLogs(false)}
-                  className="text-sm font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
-                >
-                  Hide All
-                </button>
+            grouped.map(({ key, platform, items }) => (
+              <div key={key}>
+                {/* Section banner */}
+                <div className="rounded-xl px-5 py-3 mb-3 flex items-center gap-3 bg-slate-950">
+                  <span className="font-bold text-white text-sm tracking-wide uppercase">
+                    {platform?.label ?? key}
+                  </span>
+                  <span className="text-white/50 text-xs font-medium">{items.length} items</span>
+                </div>
+                <ProductGrid products={items} onBuy={setBuyProduct} />
               </div>
-              {grouped.length === 0 ? (
-                <div className="py-16 text-center rounded-xl bg-slate-50 dark:bg-white/2 border border-slate-200 dark:border-white/6">
-                  <p className="text-sm text-muted-foreground">No products available yet.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {grouped.map(({ key, platform, items }) => (
-                    <div key={key}>
-                      {/* Section banner */}
-                      <div className="rounded-xl px-5 py-3 mb-3 flex items-center gap-3 bg-slate-950">
-                        <span className="font-bold text-white text-sm tracking-wide uppercase">
-                          {platform?.label ?? key}
-                        </span>
-                      </div>
-                      <ProductGrid products={items} onBuy={setBuyProduct} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            ))
           )}
         </div>
       )}

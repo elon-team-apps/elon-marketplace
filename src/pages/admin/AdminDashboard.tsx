@@ -519,6 +519,9 @@ export default function AdminDashboard() {
   const [dailyOrderCounts, setDailyOrderCounts] = useState<DailyOrderCount[]>([]);
   const [bestSellingIds, setBestSellingIds] = useState<{ product_id: string; sales_count: number }[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [newUsersToday, setNewUsersToday] = useState<number | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [todayOrderFlash, setTodayOrderFlash] = useState(false);
 
   const fetchAnalytics = useCallback(async (opts?: { silent?: boolean }) => {
     if (!supabase || !profileLoaded || !isAdmin) {
@@ -527,33 +530,32 @@ export default function AdminDashboard() {
     }
     if (!opts?.silent) setAnalyticsLoading(true);
 
-    const [profilesRes, purchasesRes, dailyOrdersRes] = await Promise.all([
-      supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase
-        .from("transactions")
-        .select("amount, quantity")
-        .eq("status", "completed"),
+    const [analyticsRes, dailyOrdersRes, bestSellingRes] = await Promise.all([
+      // Accurate server-side RPC: revenue (purchases only) + logs_sold (delivered log_items)
+      supabase.rpc("get_admin_analytics"),
       supabase
         .from("transactions")
         .select("created_at, type")
         .eq("status", "completed"),
-      supabase.rpc("get_best_selling_products", { limit_val: 5 })
+      supabase.rpc("get_best_selling_products", { limit_val: 5 }),
     ]);
 
-    if (!profilesRes.error && typeof profilesRes.count === "number") {
-      setDbTotalUsers(profilesRes.count);
+    // ── Analytics from RPC ──────────────────────────────────────────
+    if (!analyticsRes.error && analyticsRes.data) {
+      const d = analyticsRes.data as {
+        revenue: number;
+        logs_sold: number;
+        total_users: number;
+        new_today: number;
+      };
+      setDbPurchaseRevenue(Number(d.revenue ?? 0));
+      setDbLogsSold(Number(d.logs_sold ?? 0));
+      setDbTotalUsers(Number(d.total_users ?? 0));
+      setNewUsersToday(Number(d.new_today ?? 0));
     }
 
     if (!bestSellingRes.error && bestSellingRes.data) {
       setBestSellingIds(bestSellingRes.data);
-    }
-
-    if (!purchasesRes.error && purchasesRes.data) {
-      const rows = purchasesRes.data as { amount: number; quantity: number | null }[];
-      const revenue = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-      const logs = rows.reduce((sum, r) => sum + Math.max(0, Number(r.quantity ?? 0) || 0), 0);
-      setDbPurchaseRevenue(revenue);
-      setDbLogsSold(logs);
     }
 
     if (!dailyOrdersRes.error && dailyOrdersRes.data) {
@@ -580,6 +582,7 @@ export default function AdminDashboard() {
     }
 
     setAnalyticsLoading(false);
+    setLastUpdated(new Date());
   }, [isAdmin, profileLoaded]);
 
   useEffect(() => {
@@ -601,6 +604,74 @@ export default function AdminDashboard() {
       void supabase.removeChannel(channel);
     };
   }, [fetchAnalytics, isAdmin, profileLoaded]);
+
+  // ── Dedicated lightweight real-time subscription for today's order count ──
+  useEffect(() => {
+    if (!supabase || !profileLoaded || !isAdmin) return;
+
+    const fetchTodayCount = async () => {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("created_at, type")
+        .eq("status", "completed")
+        .gte("created_at", todayStart.toISOString());
+
+      if (error || !data) return;
+
+      const isPurchase = (v: string | null) => {
+        const t = String(v ?? "").trim().toLowerCase();
+        if (!t) return true;
+        return !["deposit", "wallet_topup", "topup"].includes(t);
+      };
+
+      const count = (data as { created_at: string; type: string | null }[]).filter(
+        (r) => isPurchase(r.type)
+      ).length;
+
+      setDailyOrderCounts((prev) => {
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const existing = prev.find((d) => d.dayKey === todayKey);
+        const prevCount = existing?.count ?? 0;
+
+        if (count > prevCount) {
+          // Flash effect when new order arrives
+          setTodayOrderFlash(true);
+          setTimeout(() => setTodayOrderFlash(false), 2000);
+        }
+
+        if (!existing) {
+          return [{ dayKey: todayKey, count }, ...prev].slice(0, 7);
+        }
+        return prev.map((d) => d.dayKey === todayKey ? { ...d, count } : d);
+      });
+
+      setLastUpdated(new Date());
+    };
+
+    // Initial fetch
+    void fetchTodayCount();
+
+    // Subscribe to real-time INSERT/UPDATE on transactions for instant count update
+    const channel = supabase
+      .channel("admin-today-orders-live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "transactions" },
+        () => { void fetchTodayCount(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "transactions" },
+        () => { void fetchTodayCount(); }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [isAdmin, profileLoaded]);
 
   const resolveTotalStock = (p: (typeof products)[number]) => calculateStock(p);
 
@@ -641,6 +712,7 @@ export default function AdminDashboard() {
         color: "text-amber-400",
         bg: "bg-amber-400/10",
         change: "profiles table (live)",
+        newToday: newUsersToday,
       },
       {
         label: "Active Stock",
@@ -661,6 +733,7 @@ export default function AdminDashboard() {
       dbPurchaseRevenue,
       dbLogsSold,
       dbTotalUsers,
+      newUsersToday,
     ],
   );
 
@@ -791,7 +864,18 @@ export default function AdminDashboard() {
               </div>
               <ArrowUpRight className="h-4 w-4 text-slate-600" />
             </div>
-            <p className="font-heading text-2xl font-bold text-foreground mb-0.5">{s.value}</p>
+            <div className="flex items-baseline gap-2 mb-0.5">
+              <p className="font-heading text-2xl font-bold text-foreground">{s.value}</p>
+              {'newToday' in s && s.newToday !== null && s.newToday !== undefined && s.newToday > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[11px] font-bold text-emerald-500"
+                  title={`+${s.newToday} new users registered today`}
+                >
+                  <span className="text-[13px] leading-none">+</span>
+                  <span>{s.newToday}</span>
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">{s.label}</p>
             <p className="text-xs text-muted-foreground/60 mt-1">{s.change}</p>
           </div>
@@ -800,27 +884,60 @@ export default function AdminDashboard() {
 
       <div className="glass-card p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-heading font-semibold text-sm text-foreground">Daily Orders</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={() => void fetchAnalytics()}
-            disabled={analyticsLoading}
-          >
-            {analyticsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2.5">
+            <h2 className="font-heading font-semibold text-sm text-foreground">Daily Orders</h2>
+            {/* LIVE badge */}
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/25">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </span>
+              LIVE
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {lastUpdated && (
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => void fetchAnalytics()}
+              disabled={analyticsLoading}
+            >
+              {analyticsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-3">
-          <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50 dark:bg-slate-800/50">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Today</p>
-            <p className="text-2xl font-bold text-foreground mt-1">{todayOrderCount}</p>
+          {/* Today box — flashes green on new order */}
+          <div
+            className={`rounded-xl border p-4 transition-all duration-700 ${
+              todayOrderFlash
+                ? "border-emerald-400/60 bg-emerald-500/10 dark:bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                : "border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/50"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Today</p>
+              {todayOrderFlash && (
+                <span className="text-[10px] font-bold text-emerald-500 animate-pulse">+1 New!</span>
+              )}
+            </div>
+            <p className={`text-3xl font-bold mt-1 transition-colors duration-500 ${
+              todayOrderFlash ? "text-emerald-500" : "text-foreground"
+            }`}>{todayOrderCount}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 uppercase tracking-wide">orders</p>
           </div>
           <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 bg-slate-50 dark:bg-slate-800/50">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Yesterday</p>
-            <p className="text-2xl font-bold text-foreground mt-1">{yesterdayOrderCount}</p>
+            <p className="text-3xl font-bold text-foreground mt-1">{yesterdayOrderCount}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 uppercase tracking-wide">orders</p>
           </div>
         </div>
 
