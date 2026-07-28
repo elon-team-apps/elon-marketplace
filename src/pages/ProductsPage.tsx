@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   ShoppingCart, ChevronDown, ChevronUp, EyeOff, Heart, ExternalLink
 } from "lucide-react";
@@ -296,6 +296,8 @@ export default function ProductsPage() {
   const filteredProducts = activeCategory
     ? visibleProducts.filter((p) => p.category === activeCategory)
     : visibleProducts;
+
+  const activePlatform = activeCategory ? { label: activeCategory } : null;
 
   // Group products by category for "All" view
   const grouped: { platform: { label: string } | undefined; key: string; items: Product[] }[] = [];
