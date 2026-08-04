@@ -29,7 +29,7 @@ const AuthPage = () => {
     clearMsg();
 
     if (!supabase) {
-      setMessage({ text: "Supabase is not configured — check your .env file.", ok: false });
+      setMessage({ text: "Database connection is not configured.", ok: false });
       return;
     }
 
@@ -61,7 +61,7 @@ const AuthPage = () => {
         });
       } else if (normalized.includes("invalid login credentials")) {
         setMessage({
-          text: "Invalid email or password for this project. If you copied a new Supabase URL/key, your account may exist in a different project.",
+          text: "Invalid email or password. Please check your credentials and try again.",
           ok: false,
         });
       } else if (normalized.includes("invalid email")) {
