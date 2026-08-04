@@ -23,6 +23,17 @@
           root.classList.remove('dark');
           root.style.backgroundColor = '#f8fafc';
         }
+        
+        // Unregister any legacy service workers that might be causing ERR_FAILED
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for(let registration of registrations) {
+              registration.unregister();
+            }
+          }).catch(function(err) {
+            console.error('SW unregister error', err);
+          });
+        }
       })();
     </script>
     <script src="https://js.paystack.co/v1/inline.js" data-paystack-inline="true"></script>
