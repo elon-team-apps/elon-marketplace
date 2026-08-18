@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   TrendingUp, Users, Package, ShoppingCart, ArrowUpRight,
-  Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet, Flame
+  Crown, Loader2, RefreshCw, Plus, Minus, Search, Wallet, Flame,
+  BarChart2, ChevronDown, Calendar
 } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine
+} from "recharts";
 import { useApp } from "@/context/AppContext";
 import { supabase } from "@/lib/supabaseClient";
 import { calculateStock } from "@/lib/stock";
@@ -59,6 +64,344 @@ type DailyOrderCount = {
   dayKey: string;
   count: number;
 };
+
+// ── MonthlyRevenueChart ────────────────────────────────────────────────────
+
+type MonthlyRevenueRow = {
+  month_num: number;
+  month_name: string;
+  revenue: number;
+  orders: number;
+};
+
+const MONTH_FULL: Record<string, string> = {
+  Jan: "January", Feb: "February", Mar: "March",
+  Apr: "April",   May: "May",      Jun: "June",
+  Jul: "July",    Aug: "August",   Sep: "September",
+  Oct: "October", Nov: "November", Dec: "December",
+};
+
+function MonthlyRevenueChart() {
+  const currentYear = new Date().getFullYear();
+  const [fromYear, setFromYear] = useState(currentYear);
+  const [toYear, setToYear] = useState(currentYear);
+  const [data, setData] = useState<MonthlyRevenueRow[]>([]);
+  const [multiYearData, setMultiYearData] = useState<{ year: number; rows: MonthlyRevenueRow[] }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Build year options: 2020 up to current year
+  const yearOptions = Array.from({ length: currentYear - 2019 }, (_, i) => 2020 + i).reverse();
+
+  const isRange = toYear !== fromYear;
+
+  const fetchData = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    setError(null);
+    try {
+      if (!isRange) {
+        // Single year
+        const { data: rows, error: err } = await supabase.rpc("get_monthly_revenue", { p_year: fromYear });
+        if (err) throw new Error(err.message);
+        setData((rows as MonthlyRevenueRow[]) ?? []);
+        setMultiYearData([]);
+      } else {
+        // Multi-year range
+        const start = Math.min(fromYear, toYear);
+        const end = Math.max(fromYear, toYear);
+        const years = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+        const results = await Promise.all(
+          years.map(async (yr) => {
+            const { data: rows, error: err } = await supabase!.rpc("get_monthly_revenue", { p_year: yr });
+            if (err) throw new Error(err.message);
+            return { year: yr, rows: (rows as MonthlyRevenueRow[]) ?? [] };
+          })
+        );
+        // Flatten to single series: aggregate all years into one month list
+        const flat: MonthlyRevenueRow[] = Array.from({ length: 12 }, (_, i) => ({
+          month_num: i + 1,
+          month_name: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i],
+          revenue: results.reduce((sum, yr) => sum + (yr.rows[i]?.revenue ?? 0), 0),
+          orders:  results.reduce((sum, yr) => sum + (yr.rows[i]?.orders ?? 0), 0),
+        }));
+        setData(flat);
+        setMultiYearData(results);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to load monthly revenue.";
+      setError(msg);
+      toast({ title: "Revenue fetch failed", description: msg, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [fromYear, toYear, isRange, toast]);
+
+  useEffect(() => { void fetchData(); }, [fetchData]);
+
+  // Summary stats
+  const totalRevenue = data.reduce((s, r) => s + r.revenue, 0);
+  const totalOrders  = data.reduce((s, r) => s + r.orders, 0);
+  const bestMonth    = data.reduce<MonthlyRevenueRow | null>((best, r) => (!best || r.revenue > best.revenue ? r : best), null);
+  const avgMonthly   = data.length > 0 ? totalRevenue / data.filter(r => r.revenue > 0).length || 0 : 0;
+
+  // Custom step-line tooltip
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; payload: MonthlyRevenueRow }[]; label?: string }) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0].payload;
+    return (
+      <div
+        className="rounded-xl border border-emerald-500/30 px-4 py-3 text-sm shadow-2xl"
+        style={{ background: "rgba(5,15,20,0.95)", backdropFilter: "blur(12px)", minWidth: 160 }}
+      >
+        <p className="font-bold text-white mb-1.5">{MONTH_FULL[label ?? ""] ?? label}</p>
+        <p className="text-emerald-400 font-bold text-base">₦{row.revenue.toLocaleString()}</p>
+        <p className="text-slate-400 text-xs mt-1">{row.orders} orders</p>
+      </div>
+    );
+  };
+
+  const formatY = (v: number) =>
+    v === 0 ? "₦0" : v >= 1_000_000 ? `₦${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `₦${(v / 1_000).toFixed(0)}k` : `₦${v}`;
+
+  const maxRevenue = Math.max(...data.map(r => r.revenue), 1);
+
+  return (
+    <div className="glass-card p-5 space-y-5">
+
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
+            <BarChart2 className="h-4 w-4 text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="font-heading font-bold text-sm text-foreground flex items-center gap-2">
+              Monthly Revenue
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" /></span>
+                LIVE
+              </span>
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Purchase revenue breakdown by month</p>
+          </div>
+        </div>
+
+        {/* Year range selector */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground font-medium">From</span>
+          </div>
+          <div className="relative">
+            <select
+              value={fromYear}
+              onChange={e => setFromYear(Number(e.target.value))}
+              className="h-8 pl-3 pr-7 rounded-lg border border-slate-200 dark:border-white/10 bg-background text-xs text-foreground font-semibold appearance-none cursor-pointer hover:border-emerald-500/40 transition-colors"
+            >
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+          </div>
+          <span className="text-xs text-muted-foreground font-medium">To</span>
+          <div className="relative">
+            <select
+              value={toYear}
+              onChange={e => setToYear(Number(e.target.value))}
+              className="h-8 pl-3 pr-7 rounded-lg border border-slate-200 dark:border-white/10 bg-background text-xs text-foreground font-semibold appearance-none cursor-pointer hover:border-emerald-500/40 transition-colors"
+            >
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+          </div>
+          <Button
+            variant="outline" size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => void fetchData()}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          {
+            label: isRange ? `Total Revenue (${Math.min(fromYear,toYear)}–${Math.max(fromYear,toYear)})` : `Total Revenue ${fromYear}`,
+            value: `₦${totalRevenue.toLocaleString()}`,
+            color: "text-emerald-400",
+            bg: "bg-emerald-500/10 border-emerald-500/20",
+          },
+          {
+            label: "Total Orders",
+            value: totalOrders.toLocaleString(),
+            color: "text-sky-400",
+            bg: "bg-sky-500/10 border-sky-500/20",
+          },
+          {
+            label: "Best Month",
+            value: bestMonth && bestMonth.revenue > 0
+              ? `${MONTH_FULL[bestMonth.month_name] ?? bestMonth.month_name}`
+              : "—",
+            sub: bestMonth && bestMonth.revenue > 0 ? `₦${bestMonth.revenue.toLocaleString()}` : "",
+            color: "text-amber-400",
+            bg: "bg-amber-500/10 border-amber-500/20",
+          },
+          {
+            label: "Avg / Active Month",
+            value: `₦${Math.round(avgMonthly).toLocaleString()}`,
+            color: "text-purple-400",
+            bg: "bg-purple-500/10 border-purple-500/20",
+          },
+        ].map(card => (
+          <div key={card.label} className={`rounded-xl border p-3.5 ${card.bg}`}>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold leading-tight">{card.label}</p>
+            <p className={`font-bold text-lg mt-1.5 leading-none ${card.color}`}>{card.value}</p>
+            {'sub' in card && card.sub && <p className="text-[11px] text-muted-foreground mt-1">{card.sub}</p>}
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div
+        className="relative rounded-2xl border border-white/8 overflow-hidden"
+        style={{ background: "linear-gradient(180deg, rgba(5,18,25,0.9) 0%, rgba(2,10,15,0.98) 100%)" }}
+      >
+        {/* Subtle grid glow */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 70% 50% at 50% 0%, rgba(16,185,129,0.07) 0%, transparent 70%)" }} />
+
+        {loading ? (
+          <div className="h-72 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
+            Loading revenue data…
+          </div>
+        ) : error ? (
+          <div className="h-72 flex items-center justify-center text-sm text-red-400">{error}</div>
+        ) : (
+          <div className="px-2 py-4">
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="revGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"  stopColor="#10b981" stopOpacity={0.35} />
+                    <stop offset="60%" stopColor="#10b981" stopOpacity={0.08} />
+                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.01} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="4 4"
+                  stroke="rgba(255,255,255,0.05)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="month_name"
+                  tick={{ fill: "#64748b", fontSize: 11, fontWeight: 600 }}
+                  axisLine={false}
+                  tickLine={false}
+                  dy={8}
+                />
+                <YAxis
+                  tickFormatter={formatY}
+                  tick={{ fill: "#64748b", fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={60}
+                  domain={[0, maxRevenue * 1.15]}
+                />
+                <Tooltip
+                  content={<CustomTooltip />}
+                  cursor={{ stroke: "rgba(16,185,129,0.25)", strokeWidth: 1, strokeDasharray: "4 4" }}
+                />
+                {bestMonth && bestMonth.revenue > 0 && (
+                  <ReferenceLine
+                    x={bestMonth.month_name}
+                    stroke="rgba(16,185,129,0.3)"
+                    strokeDasharray="4 4"
+                    label={{ value: "Best", position: "top", fill: "#10b981", fontSize: 10, fontWeight: 700 }}
+                  />
+                )}
+                <Area
+                  type="stepAfter"
+                  dataKey="revenue"
+                  stroke="#10b981"
+                  strokeWidth={2.5}
+                  fill="url(#revGradient)"
+                  dot={false}
+                  activeDot={{
+                    r: 5,
+                    fill: "#10b981",
+                    stroke: "#fff",
+                    strokeWidth: 2,
+                    style: { filter: "drop-shadow(0 0 6px rgba(16,185,129,0.8))" },
+                  }}
+                  isAnimationActive={true}
+                  animationDuration={700}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Monthly breakdown table */}
+      {!loading && !error && data.length > 0 && (
+        <div className="rounded-xl border border-white/7 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-white/7 flex items-center gap-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monthly Breakdown</p>
+            {isRange && (
+              <span className="text-[10px] text-muted-foreground">
+                (Aggregated {Math.min(fromYear,toYear)}–{Math.max(fromYear,toYear)})
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 divide-x divide-y divide-white/6">
+            {data.map((row) => {
+              const pct = maxRevenue > 0 ? (row.revenue / maxRevenue) * 100 : 0;
+              const isBest = bestMonth?.month_num === row.month_num && bestMonth.revenue > 0;
+              return (
+                <div
+                  key={row.month_num}
+                  className={`px-4 py-3 relative group transition-colors ${
+                    isBest ? "bg-emerald-500/8" : "hover:bg-white/3"
+                  }`}
+                >
+                  {isBest && (
+                    <span className="absolute top-2 right-2 text-[9px] font-bold text-emerald-400 uppercase tracking-wide">Best</span>
+                  )}
+                  <p className="text-xs font-bold text-muted-foreground mb-1">
+                    {MONTH_FULL[row.month_name] ?? row.month_name}
+                  </p>
+                  <p className={`font-bold text-base leading-none ${
+                    row.revenue > 0 ? "text-foreground" : "text-muted-foreground/40"
+                  }`}>
+                    ₦{row.revenue.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">{row.orders} orders</p>
+                  {/* Mini progress bar */}
+                  <div className="mt-2 h-1 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${pct}%`,
+                        background: isBest
+                          ? "linear-gradient(90deg, #10b981, #34d399)"
+                          : "rgba(16,185,129,0.45)",
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 type WebhookVerificationRow = {
@@ -881,6 +1224,9 @@ export default function AdminDashboard() {
           </div>
         ))}
       </div>
+
+      {/* ── Monthly Revenue Analytics ───────────────────────────────────────── */}
+      <MonthlyRevenueChart />
 
       <div className="glass-card p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
