@@ -370,7 +370,7 @@ export default function OrdersPage() {
       const token = sessionData.session?.access_token ?? "";
       if (!token) throw new Error("Missing auth session.");
 
-      const response = await fetch("/api/admin/retry-missing-fulfillment", {
+      const response = await fetch("/api/admin/retry-fulfillment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

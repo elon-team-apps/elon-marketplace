@@ -14,6 +14,12 @@ function headerValue(headers: ApiHeaders, key: string): string {
   return String(raw ?? "");
 }
 
+function asPositiveInt(value: unknown, fallback: number): number {
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -74,19 +80,66 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const transactionId = String((req.body as { transactionId?: string } | null)?.transactionId ?? "").trim();
+  const body = req.body as { transactionId?: string; limit?: number } | null;
+  const transactionId = String(body?.transactionId ?? "").trim();
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_REGEX.test(transactionId)) {
-    res.status(400).json({ error: "Invalid transactionId." });
+
+  // Single transaction retry
+  if (transactionId) {
+    if (!UUID_REGEX.test(transactionId)) {
+      res.status(400).json({ error: "Invalid transactionId." });
+      return;
+    }
+
+    const result = await processSuccessfulTransaction(adminClient, transactionId, 0, {
+      allowRecoveryForCompletedWithoutDelivery: true,
+    });
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error ?? "Retry fulfillment failed." });
+      return;
+    }
+    res.status(result.status).json(result.data ?? { ok: true, retried: true });
     return;
   }
 
-  const result = await processSuccessfulTransaction(adminClient, transactionId, 0, {
-    allowRecoveryForCompletedWithoutDelivery: true,
-  });
-  if (!result.ok) {
-    res.status(result.status).json({ error: result.error ?? "Retry fulfillment failed." });
+  // Bulk retry missing fulfillments
+  const rawLimit = body?.limit;
+  const limit = Math.max(1, Math.min(100, asPositiveInt(rawLimit, 30)));
+
+  const { data: rows, error: listError } = await adminClient
+    .from("transactions")
+    .select("id")
+    .in("type", ["purchase", "wallet_payment"])
+    .in("status", ["completed", "success", "finalized"])
+    .or("delivered_data.is.null,delivered_data.eq.")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+    
+  if (listError) {
+    res.status(500).json({ error: `Failed to list incomplete fulfilled transactions: ${listError.message}` });
     return;
   }
-  res.status(result.status).json(result.data ?? { ok: true, retried: true });
+
+  const ids = (rows ?? []).map((row) => String((row as { id?: string }).id ?? "")).filter(Boolean);
+  let successCount = 0;
+  const failures: Array<{ id: string; error: string }> = [];
+
+  for (const id of ids) {
+    const result = await processSuccessfulTransaction(adminClient, id, 0, {
+      allowRecoveryForCompletedWithoutDelivery: true,
+    });
+    if (result.ok) {
+      successCount += 1;
+      continue;
+    }
+    failures.push({ id, error: result.error ?? "Unknown retry failure." });
+  }
+
+  res.status(200).json({
+    ok: true,
+    scanned: ids.length,
+    retried_successfully: successCount,
+    failed: failures.length,
+    failures,
+  });
 }
