@@ -76,12 +76,27 @@ export default async function handler(req: any, res: any) {
     
     // Prepare the unified payload for Resend Batch API
     for (let i = 0; i < emails.length; i += CHUNK_SIZE) {
+      const wrappedHtmlBody = `
+      <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eaeaea; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
+        <div style="background-color: #0f172a; padding: 24px; text-align: center;">
+          <h2 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: bold; letter-spacing: -0.5px;">Elon Marketplace</h2>
+        </div>
+        <div style="padding: 32px; color: #1e293b; line-height: 1.6; font-size: 16px;">
+          ${htmlBody}
+        </div>
+        <div style="background-color: #f8fafc; padding: 24px; text-align: center; font-size: 13px; color: #64748b; border-top: 1px solid #e2e8f0;">
+          <p style="margin: 0 0 8px 0;">You received this email because you are a registered user.</p>
+          <p style="margin: 0;">&copy; ${new Date().getFullYear()} Elon Marketplace. All rights reserved.</p>
+        </div>
+      </div>
+      `;
+
       const chunk = emails.slice(i, i + CHUNK_SIZE);
       const batchPayload = chunk.map(email => ({
         from: 'Elon Marketplace <updates@elonmarketplace.com>',
         to: [email],
         subject: subject,
-        html: htmlBody,
+        html: wrappedHtmlBody,
       }));
       emailBatches.push(batchPayload);
     }
