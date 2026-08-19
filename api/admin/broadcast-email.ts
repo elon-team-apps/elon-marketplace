@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 // Create a Supabase client with the service role key to bypass RLS and get all profiles
@@ -93,7 +93,7 @@ export default async function handler(req: any, res: any) {
 
       const chunk = emails.slice(i, i + CHUNK_SIZE);
       const batchPayload = chunk.map(email => ({
-        from: 'Elon Marketplace <updates@elonmarketplace.com>',
+        from: 'Elon Marketplace <noreply@elonmarketplace.com>',
         to: [email],
         subject: subject,
         html: wrappedHtmlBody,
