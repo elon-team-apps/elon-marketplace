@@ -25,6 +25,7 @@ const loadAdminProducts = () => import("./pages/admin/AdminProducts");
 const loadAdminUsers = () => import("./pages/admin/AdminUsers");
 const loadAdminOrders = () => import("./pages/admin/AdminOrders");
 const loadAdminDeposits = () => import("./pages/admin/AdminDeposits");
+const loadAdminBroadcast = () => import("./pages/admin/AdminBroadcast");
 
 const LandingPage = lazy(loadLandingPage);
 const AuthPage = lazy(loadAuthPage);
@@ -42,6 +43,7 @@ const AdminProducts = lazy(loadAdminProducts);
 const AdminUsers = lazy(loadAdminUsers);
 const AdminOrders = lazy(loadAdminOrders);
 const AdminDeposits = lazy(loadAdminDeposits);
+const AdminBroadcast = lazy(loadAdminBroadcast);
 
 const queryClient = new QueryClient();
 
@@ -195,6 +197,14 @@ function AppRoutes() {
               element={
                 <AdminRoute>
                   <AdminOrders />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="admin/broadcast"
+              element={
+                <AdminRoute>
+                  <AdminBroadcast />
                 </AdminRoute>
               }
             />

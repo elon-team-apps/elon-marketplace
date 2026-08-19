@@ -23,6 +23,7 @@ import {
   ToggleLeft,
   ToggleRight,
   SlidersHorizontal,
+  Mail,
   LogOut,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
@@ -50,6 +51,7 @@ const adminNav = [
   { label: "Deposit Requests",   icon: Wallet,        path: "/dashboard/admin/deposits",   exact: false },
   { label: "Inventory / Upload", icon: Upload,        path: "/dashboard/admin/products",   exact: false },
   { label: "Order Audit",        icon: ClipboardList, path: "/dashboard/admin/orders",     exact: false },
+  { label: "Broadcast",          icon: Mail,          path: "/dashboard/admin/broadcast",  exact: false },
 ];
 
 // ── NavItem helper ─────────────────────────────────────────────────────────
