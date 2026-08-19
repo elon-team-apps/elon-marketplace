@@ -28,6 +28,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { useTheme } from "@/hooks/useTheme";
 import { supabase } from "@/lib/supabaseClient";
+import { TelegramPopup } from "./TelegramPopup";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -425,6 +426,9 @@ const DashboardLayout = () => {
           </DashboardContentErrorBoundary>
         </main>
       </div>
+      
+      {/* Global popups */}
+      <TelegramPopup />
     </div>
   );
 };
