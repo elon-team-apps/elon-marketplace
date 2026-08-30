@@ -1,36 +1,36 @@
 import { Headphones, MessageCircle, Send, Clock, ShieldCheck, Zap } from "lucide-react";
 
-// ── Update these two constants with your real contact links ──────────────────
-const TELEGRAM_URL = "https://t.me/+fxC4mCK8pX8wMTY0";
-const WHATSAPP_URL = "https://wa.me/2348127692456";
+// ── Update this constant with your real Telegram handle ───────────────────────
+const TELEGRAM_CHANNEL_URL = "https://t.me/Elonmarketplace99";
+const TELEGRAM_SUPPORT_URL = "https://t.me/Elonmarketplace99";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CHANNELS = [
   {
-    name: "Telegram",
-    handle: "Join Community",
-    description: "Fastest response. Send a message and our team replies within minutes.",
-    url: TELEGRAM_URL,
+    name: "Telegram Channel",
+    handle: "@Elonmarketplace99",
+    description: "Fastest response. Join our channel and our team replies within minutes.",
+    url: TELEGRAM_CHANNEL_URL,
     icon: Send,
     gradient: "from-[#2AABEE]/20 to-[#229ED9]/10",
     border: "border-[#2AABEE]/25",
     iconBg: "bg-[#2AABEE]/15",
     iconColor: "text-[#2AABEE]",
     btnBg: "bg-[#2AABEE] hover:bg-[#2AABEE]/90",
-    label: "Chat on Telegram",
+    label: "Join Telegram Channel",
   },
   {
-    name: "WhatsApp",
-    handle: "+234 800 000 0000",
-    description: "Prefer WhatsApp? Send us a message and we'll get back to you shortly.",
-    url: WHATSAPP_URL,
-    icon: MessageCircle,
-    gradient: "from-[#25D366]/20 to-[#128C7E]/10",
-    border: "border-[#25D366]/25",
-    iconBg: "bg-[#25D366]/15",
-    iconColor: "text-[#25D366]",
-    btnBg: "bg-[#25D366] hover:bg-[#25D366]/90",
-    label: "Chat on WhatsApp",
+    name: "Telegram Support",
+    handle: "@Elonmarketplace99",
+    description: "Need help? Message us directly on Telegram and we'll get back to you shortly.",
+    url: TELEGRAM_SUPPORT_URL,
+    icon: Send,
+    gradient: "from-[#229ED9]/20 to-[#1a7ab0]/10",
+    border: "border-[#229ED9]/25",
+    iconBg: "bg-[#229ED9]/15",
+    iconColor: "text-[#229ED9]",
+    btnBg: "bg-[#229ED9] hover:bg-[#229ED9]/90",
+    label: "Message on Telegram",
   },
 ];
 
@@ -63,7 +63,7 @@ export default function SupportPage() {
         </div>
         <h2 className="font-heading font-bold text-lg text-foreground">How can we help?</h2>
         <p className="text-sm text-slate-400 mt-1.5 max-w-xs mx-auto leading-relaxed">
-          Contact us directly on Telegram or WhatsApp. We handle delivery issues, wallet queries, and account support.
+          Contact us directly on Telegram. We handle delivery issues, wallet queries, and account support.
         </p>
       </div>
 
@@ -128,7 +128,7 @@ export default function SupportPage() {
       </div>
 
       <p className="text-xs text-muted-foreground text-center pb-2">
-        Response times may vary. For urgent delivery issues, Telegram is fastest.
+        Response times may vary. For urgent delivery issues, message us directly on Telegram @Elonmarketplace99.
       </p>
     </div>
   );

@@ -24,7 +24,7 @@ const TEXT_WHITE = "#ffffff";
 const announcementSlides = [
   {
     line:
-      "ANNOUNCEMENT: KINDLY NOTE: ALL USERS MUST JOIN OUR WHATSAPP & TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.",
+      "ANNOUNCEMENT: KINDLY NOTE: ALL USERS MUST JOIN OUR TELEGRAM CHANNEL TO BE UPDATED WITH ANY CHANGES.",
     icon: Megaphone,
     iconClass: "text-red-500 shrink-0",
   },
@@ -178,7 +178,7 @@ export default function DashboardHome() {
       {/* Social cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <a
-          href="https://t.me/+fxC4mCK8pX8wMTY0"
+          href="https://t.me/Elonmarketplace99"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 flex items-center gap-4 shadow-sm transition-all hover:scale-[1.01] active:scale-95 group"
@@ -188,7 +188,7 @@ export default function DashboardHome() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-slate-900 dark:text-white">
-              Telegram Group
+              Telegram Channel
             </p>
             <p className="text-[10px] font-extrabold text-sky-500 tracking-tight uppercase">
               STAY UPDATED AT ALL TIMES
@@ -198,23 +198,23 @@ export default function DashboardHome() {
         </a>
 
         <a
-          href="https://wa.me/2348127692456"
+          href="https://t.me/Elonmarketplace99"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 flex items-center gap-4 shadow-sm transition-all hover:scale-[1.01] active:scale-95 group"
         >
-          <div className="h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/20 transition-colors">
-            <MessageCircle className="h-6 w-6 text-emerald-500" />
+          <div className="h-12 w-12 rounded-xl bg-sky-100 dark:bg-sky-500/10 flex items-center justify-center shrink-0 group-hover:bg-sky-500/20 transition-colors">
+            <Send className="h-6 w-6 text-sky-500" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-slate-900 dark:text-white">
-              WhatsApp Support
+              Telegram Support
             </p>
-            <p className="text-[10px] font-extrabold text-emerald-500 tracking-tight uppercase">
+            <p className="text-[10px] font-extrabold text-sky-500 tracking-tight uppercase">
               REPLIES IN MINUTES
             </p>
           </div>
-          <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-emerald-500 transition-colors" />
+          <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-sky-500 transition-colors" />
         </a>
       </section>
 
@@ -314,7 +314,7 @@ export default function DashboardHome() {
         </div>
         <div className="flex-1">
           <p className="text-sm font-semibold text-slate-200">Need help?</p>
-          <p className="text-xs text-slate-500 mt-0.5">Telegram or WhatsApp support — usually responds in minutes.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Telegram support — usually responds in minutes.</p>
         </div>
         <Link to="/dashboard/support" className="shrink-0 text-xs font-semibold text-sky-400 hover:text-sky-300 transition-colors">
           Contact →

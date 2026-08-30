@@ -26,7 +26,7 @@ export function TelegramPopup() {
   };
 
   const handleJoin = () => {
-    window.open("https://t.me/+fxC4mCK8pX8wMTY0", "_blank");
+    window.open("https://t.me/Elonmarketplace99", "_blank");
     handleClose();
   };
 

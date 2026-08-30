@@ -30,8 +30,7 @@ import {
 } from "lucide-react";
 
 // ─── Contact links (update with your real handles) ────────────────────────────
-const TELEGRAM_URL  = "https://t.me/+fxC4mCK8pX8wMTY0";
-const WHATSAPP_URL  = "https://wa.me/2348127692456";
+const TELEGRAM_URL  = "https://t.me/Elonmarketplace99";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -706,17 +705,17 @@ const LandingPage = () => {
               style={{ background: "#2AABEE", boxShadow: "0 4px 24px rgba(42,171,238,0.25)" }}
             >
               <Send className="h-4 w-4" />
-              Chat on Telegram
+              Join Telegram Channel
             </a>
             <a
-              href={WHATSAPP_URL}
+              href={TELEGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2.5 w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-sm text-white transition-all duration-200 active:scale-95"
-              style={{ background: "#25D366", boxShadow: "0 4px 24px rgba(37,211,102,0.25)" }}
+              style={{ background: "#229ED9", boxShadow: "0 4px 24px rgba(34,158,217,0.25)" }}
             >
-              <MessageCircle className="h-4 w-4" />
-              Chat on WhatsApp
+              <Send className="h-4 w-4" />
+              Chat with Support
             </a>
           </div>
         </div>
